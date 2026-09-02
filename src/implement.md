@@ -296,11 +296,12 @@ plugin 上架资产                          ❌ 待新建
   - `subprocess.Popen(` 启动**长生命周期**子进程(单次 `subprocess.run` 允许)
   - `signal.signal(` + 阻塞 loop(`while True:` + `time.sleep()` 之类)
   - **C10.1 scripts/ 严禁交互(Q10,详见 design §1.4 硬契约)**:
-    - [ ] 用 `ast` 模块扫所有 `scripts/*.py`,断言不出现以下调用:
+    - [ ] 用 `ast` 模块扫所有 `scripts/*.py`,断言不出现以下调用(**含非 TTY 管道在内一律禁止**,详见 design §2.4.1 "stdin 全禁原则"):
       - `input(` / `input (`(Python 内置 `input()` / `input(prompt)`)
       - `sys.stdin.read` / `sys.stdin.readline` / `sys.stdin.readlines`
       - `getpass.getpass` / `getpass(`
       - `select.select([sys.stdin]` 等 stdin 等待调用
+    - [ ] **管道不豁免**:即便 `not sys.stdin.isatty()`,scripts 仍禁止从 stdin 读取 plan / decision / proposal / 配置;统一走 `--apply <filepath>` / `--output <path>` / `--config <path>` 显式文件参数(decision 模板参考 design §4.2.1)。AST 扫描**不**做 `isatty()` 判定门 —— 直接 FAIL。
     - [ ] fixture 反例测试:故意造一个 `scripts/_bad_example.py` 含 `input("拍板:")` → 跑 `tests/test_no_daemon.py` → 断言 **FAIL** + 报告指出文件路径与行号
     - [ ] fixture 正例测试:现有所有 `scripts/*.py` → 跑 `tests/test_no_daemon.py` → 断言 **PASS**
   - **C10.2 plan 文件格式硬约束(详见 design §4.2.x JSON schema)**:
@@ -510,3 +511,21 @@ git tag -l "v*" | sort -V | tail -5
 **§C4.2 已有 4 个测试用例**(`test_links_mirror_generation` / `_drift` / `_obsidian_edit` / `_types`)在 v0.2 已冻结,本轮不重复新增,仅作 anchor。
 
 **兼容性**:v0.3.1 PATCH bump:无新增顶层结构 / 无命名契约变化,只是为已有 `links:` 镜像机制加 3 条确定性规则(Set 比对 + 不动 `updated` + mtime 保留)。OKF v0.2 schema 无 breaking change;既有 v0.3 wiki 升级到 v0.3.1 plugin **无需**重跑 init(纯 lint 行为加固)。
+
+---
+
+**补丁登记(2026-09-02):design §2.4.1 / implement §C10.1 stdin 全禁原则**
+
+- **背景**:原 §2.4.1 / §C10.1 把 `input()` 与 `sys.stdin.*` 并列禁止,但未明确"非 TTY 管道 stdin 是否豁免"。理论上 `cat decision.json | python scripts/safe-mv.py` 会被 C10.1 AST 扫描判 FAIL,但若脚本意图就是非交互管道接收 JSON,又显失公平。
+- **决议**:一律走显式文件参数(`--apply <filepath>` / `--output <path>` / `--config <path>`),**管道 stdin 同样禁止**;AST 扫描**不**做 `isatty()` 判定门,直接 FAIL。
+- **影响面**:仅 spec 措辞加严,无测试新增(原 C10.1 禁单已覆盖,fixtures 正/反例用例不受影响),无 OKF schema 变化。
+- **版本号**:v0.3.1 PATCH 不 bump(行为面无变化,合并入同次提交)。
+
+---
+
+**补丁登记(2026-09-02):NFR-1 qmd 阈值升级条款 + 三处措辞对齐**
+
+- **背景**:prd §7.2 NFR-1 措辞「qmd 可选,plugin 不强制装」与 §4.3 / implement §B3 / §C3.3 的 $N \ge 1000$ 强约束(未装 → 报错退出)存在语气冲突。design §1.2 / §4.3 已隐含「按阈值降级或 FAIL」语义,但未在 prd NFR-1 显式登记。
+- **决议**:NFR-1 加**唯一阈值升级条款** —— `knowledge/` 页数 $N \ge 1000$ 时 qmd 临时升级为强依赖(query skill 报错退出);其余规模下 qmd 仍为可选降级。**不改** prd §4.3 / implement §B3 / §C3.3 现有 FAIL 行为,design §1.2 / §4.3「降级或 FAIL」表述与之兼容。
+- **影响面**:仅 prd.md NFR-1 一句话措辞加严;无测试新增(C3.3 fixture 1100 页 qmd 未装 FAIL 已覆盖);design.md / implement.md 行为面无变化。
+- **版本号**:v0.3.1 PATCH 不 bump(行为面无变化,合并入同次提交)。

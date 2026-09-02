@@ -294,7 +294,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 ### 7.2 非功能验收
 
-- [ ] NFR-1:plugin 装上后,**不引入**任何 MCP server / CLI / hooks / RAG 依赖(**可选**例外:[qmd](https://github.com/tobi/qmd) —— 仅作为 query skill 在 wiki 规模较大时的本地搜索引擎;用户必须自行 `npm install -g @tobilu/qmd`,plugin 不强制装,详见 §4.3)
+- [ ] NFR-1:plugin 装上后,**不引入**任何 MCP server / CLI / hooks / RAG 依赖(**可选**例外:[qmd](https://github.com/tobi/qmd) —— 仅作为 query skill 在 wiki 规模较大时的本地搜索引擎;用户必须自行 `npm install -g @tobilu/qmd`,plugin 不强制装,详见 §4.3;**唯一阈值升级条款**:当 `knowledge/` 目录页数 $N \ge 1000$ 时,§4.3 规定的 `QUERY_QMD_REQUIRED_THRESHOLD` 触发,query skill 直接报错退出(此时 qmd **临时升级为强依赖**),其余规模下 qmd 仍为可选)
 - [ ] NFR-2:plugin 本身在 `F:\llm-wiki\aeps-llm-wiki-plugin\src\` 下,代码 / 文档 / 测试 / schema 各居其位(模块化原则)
 - [ ] NFR-3:所有文档 / 用户消息 / skill 输出中文为主,术语保持英文(如 `type: source` 不翻译)
 - [ ] NFR-4:plugin 不带绝对路径(CLAUDE.md 硬约束)

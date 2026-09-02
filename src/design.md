@@ -294,6 +294,8 @@ SKILL.md 是 prompt(Llm 读),但**有外部依赖或系统调用**的逻辑(批�
 
 **输入约定**:所有流程控制(`--batch` / `--apply-plan` / `--project-dir`)一律通过**命令行参数**或 **JSON / YAML 配置文件**传入,严禁依赖 stdin / TTY / 环境变量隐式传入。
 
+**stdin 全禁原则**(覆盖 TTY 与非 TTY 管道):无论 `sys.stdin.isatty()` 是否成立,scripts 一律不读 `sys.stdin`。所有 plan / decision / proposal / 配置输入走 `--apply <filepath>` / `--output <path>` / `--config <path>` 等**显式文件参数**;`cat foo.json | python script.py` 这类非交互式管道**同样判定违规**。理由:AST 静态扫描无法可靠区分"非交互管道"与"潜在阻塞",且 `--apply <filepath>` 已完全覆盖非交互管道的语义需求,保留 stdin 入口只会增加 lint 复杂度与误判风险。
+
 **人机交互边界**:
 
 - ✅ **人机交互层**完全由 **SKILL.md(Claude Prompt)** 承担 —— 对话问答、拍板确认、错误恢复均走 SKILL.md 提示用户
