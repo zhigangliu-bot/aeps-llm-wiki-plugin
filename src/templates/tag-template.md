@@ -196,15 +196,30 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 | `tec/docker`     | Docker 容器       | 工具链 / CI 容器     |
 | `tec/qemu`       | QEMU 仿真         | 虚拟化 / 仿真        |
 
-### 5.3 硬件与芯片平台
+### 5.3 硬件与芯片厂商
 
-| 值                  | 含义               | 适用场景        |
-| ------------------- | ------------------ | --------------- |
-| `tec/s32g`        | NXP S32G 网关芯片  | 中央 / 区域网关 |
-| `tec/tda4`        | TI TDA4            | 智驾域控 SoC    |
-| `tec/am62a`       | TI AM62A           | 入门 SoC        |
-| `tec/drive-orin`  | NVIDIA Drive Orin  | 自动驾驶        |
-| `tec/jetson-orin` | NVIDIA Jetson Orin | 边缘 AI         |
+用于定位文档涉及的硬件芯片供应商与平台生态。具体的芯片型号(如 S32G274、TC397、SA8295P)写入正文或 Frontmatter,Tag 维在厂商级收敛。
+
+| 值                       | 含义                 | 适用场景 / 代表产品线                                       |
+| ------------------------ | -------------------- | ----------------------------------------------------------- |
+| `tec/nxp`               | NXP(恩智浦)         | S32G 网关、S32K 车身/节点 MCU、S32R 雷达                    |
+| `tec/infineon`          | Infineon(英飞凌)    | AURIX(TC3xx/TC4xx)底盘/动力 ASIL-D MCU、PMIC               |
+| `tec/ti`                | TI(德州仪器)        | TDA4 智驾 SoC、C2000 动力三电 MCU、Sitara/AM6x              |
+| `tec/renesas`           | Renesas(瑞萨)       | RH850 车身/网关 MCU、R-Car 智驾/座舱 SoC                    |
+| `tec/st`                | ST(意法半导体)      | Stellar 区域控制器 MCU、SPC5、Power Devices                 |
+| `tec/nvidia`            | NVIDIA(英伟达)      | Drive Orin / Thor 高阶智驾 SoC、Jetson 边缘 AI              |
+| `tec/qualcomm`          | Qualcomm(高通)      | Snapdragon 智能座舱(8155/8295)、Snapdragon Flex 舱驾融合  |
+| `tec/horizon`           | Horizon(地平线)     | 征程系列(J3/J5/J6)智驾域控与端到端 ADAS                     |
+| `tec/mobileye`          | Mobileye             | EyeQ 系列前视一体机、智驾感知方案                            |
+| `tec/black-sesame`      | Black Sesame(黑芝麻智能) | 华山 A1000 智驾 SoC、武当 C1200 跨域融合芯片          |
+| `tec/microchip`         | Microchip(微芯)     | PCIe Switch、车载以太网 PHY、dsPIC/SAM MCU                  |
+| `tec/adi`               | ADI(亚德诺)         | BMS 电池前端采样(ADBMS)、A2B 车载音频总线                  |
+| `tec/amd`               | AMD                  | Ryzen 车载座舱 CPU、Versal FP-SoC 算力台架                  |
+
+**说明**:
+
+- 具体的芯片产品型号(如 `SA8295P` / `TC397`)由文档 Title 或正文自然承载,**无需在 Tag 轴拆分具体的型号**
+- 若文档涉及通用硬件概念而无需限定特定厂商,可直接使用 `layer/chip` 或 `layer/hardware` 维度收敛
 
 ### 5.4 功能安全与信息安全(FuSa + Cybersecurity)
 
@@ -359,7 +374,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 
 **示例族**:
 
-- **芯片/硬件层**:若含 `layer/chip` 或 `layer/hardware` → `tec/` 中应含芯片型号 / 固件 / 硬件工具(`tec/s32g` / `tec/tda4` / `tec/am62a` / `tec/drive-orin` / `tec/jetson-orin` / `tec/uboot` / `tec/dtb`)
+- **芯片/硬件层**:若含 `layer/chip` 或 `layer/hardware` → `tec/` 中应含芯片厂商 / 固件 / 硬件工具(`tec/nxp` / `tec/infineon` / `tec/ti` / `tec/nvidia` / `tec/qualcomm` 等厂商级 tag + `tec/uboot` / `tec/dtb`)
 - **OS / BSW 层**:若含 `layer/bsw-os` → `tec/` 中应含 OS / 驱动 / AUTOSAR 类(`tec/autosar-cp` / `tec/autosar-ap` / `tec/qnx` / `tec/linux` / `tec/rtos`)
 - **中间件层**:若含 `layer/middleware-soa` → `tec/` 中应含通信协议 / 服务框架(`tec/someip` / `tec/dds` / `tec/doip` / `tec/uds`)
 - **AI / Agent 应用层**:若含 `layer/ai-agent` → `tec/` 中应含 AI / Agent 技术栈(`tec/mcp` / `tec/claude` / `tec/ollama` / `tec/vllm` / `tec/langchain` / `tec/llamaindex`)
@@ -456,7 +471,7 @@ tags:
   - domain/body-gateway
   - layer/bsw-os
   - phase/detail-design
-  - tec/s32g                         # 芯片平台
+  - tec/nxp                          # 芯片厂商
   - tec/atf                          # 安全启动
   - tec/optee                        # TEE 应用
   - tec/rpmb                         # 防回滚存储
