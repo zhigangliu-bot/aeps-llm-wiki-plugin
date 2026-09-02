@@ -667,9 +667,9 @@ tags_format:
 - **仅标准 markdown 链接**:`[text](url)`(OKF §6.1 强制;plugin 强制)
 - 优先 bundle-relative 绝对路径:`[customers](/tables/customers.md)`(OKF §6.1 推荐)
 - 也接受相对路径:`[neighbor](./other.md)`
+- **`[[wikilink]]` 是一等公民(Q6)** —— plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`;Obsidian 原生可双链跳,Karpathy 老 wiki 无需转换。OKF 兼容性靠 frontmatter `links:` 字段镜像标准 markdown 链接列表(OKF reader 读 frontmatter 即可)
 - 链接类型(父子 / 引用 / 依赖)由**正文描述**,不由链接类型化
 - plugin 必须容忍断链(OKF §6.1:不是 malformed)
-- **lint 规则**:遇到 `[[wikilink]]` 给 warning(OKF 不认,但不报错以兼容老 Karpathy 仓库)
 
 ### 3.4 `log.md` 格式(从 prd §6.2 §F 抽出)
 
@@ -1095,7 +1095,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
      - **LLM ingest 时**也要预警,提议新文件归档到已有目录名而非新建漂移名
    - **漏链**:某 page 里反复出现但链接缺失的术语
    - **frontmatter 不合规**:必填字段缺失 / 类型错位 / 未知 type
-   - **`[[wikilink]]` 残留**:warning,建议改标准 markdown
+   - ~~**`[[wikilink]]` 残留**~~ —— **wikilink 是一等公民(Q6)**,Obsidian 原生双链 + Karpathy 老 wiki 兼容,lint **不再警告**;OKF 兼容性靠 frontmatter `links:` 字段镜像标准 markdown 链接列表
    - **raw_category 派生失败**:从 `sources[0].resource` 路径解析失败(无 sources / 非 raw 本地路径 / 分类不在 15 类清单)→ WARN/FAIL(详见 §3.6.1)
 3. 默认只报告;**`--fix` 模式按问题级别分流**:
    - **确定性结构修复** —— `--fix` 直接 patch 应用,`log.md` 追加 `**LintFix**` 条目记录每处改动:
@@ -1103,7 +1103,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
      - **frontmatter 字段类型错位** → 强转(如 `tags: autosar` → `tags: [autosar]`)
      - **`## 摘要` / `## Summary` H2 残留** → 删小节,把内容合并到 frontmatter `summary` 字段
      - **sources/analyses 缺 3 节骨架** → 文件末尾追加占位 H2(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`),空内容
-     - **`[[wikilink]]` 残留未替换** → 改标准 markdown 链接(根据链接目标文件是否存在的规则)
+     - ~~**`[[wikilink]]` 残留未替换**~~ —— wikilink 是一等公民(Q6),不再自动替换
    - **语义级问题** —— `--fix` 模式仍**只输出提案**(不应用,等用户确认):
      - **矛盾**(LLM 判定两页同一事实不同说法)→ 输出 diff + 候选改写 + 用户拍板
      - **命名飘合并** → 输出建议 + `git mv` 命令(用户手动执行,不自动改文件)
@@ -1293,7 +1293,7 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 
 ### 6.3 兼容性测试
 
-- 用户从 Karpathy 风格 wiki 导入,plugin 警告 `[[wikilink]]` 残留但不强转
+- 用户从 Karpathy 风格 wiki 导入,plugin **不再警告** `[[wikilink]]`(Q6 一等公民),无需任何转换
 - 不同 OKF v0.x 字段(schema 校验脚本跑过两个 v0.1 + v0.2 样本)
 
 ---

@@ -112,7 +112,8 @@ plugin 上架资产                          ❌ 待新建
 **核心边界**:
 - 默认只报告
 - `--fix` 模式按问题级别分流(详见 prd §4.4 + design §4.4):
-  - **确定性结构修复直接 patch 应用**,`log.md` 追加 `**LintFix**` 条目:frontmatter 字段补缺 / 类型强转 / `## 摘要` 残留转 `summary` / sources/analyses 缺 3 节骨架 H2 占位 / `[[wikilink]]` 残留替换
+  - **确定性结构修复直接 patch 应用**,`log.md` 追加 `**LintFix**` 条目:frontmatter 字段补缺 / 类型强转 / `## 摘要` 残留转 `summary` / sources/analyses 缺 3 节骨架 H2 占位
+  - **wikilink 是一等公民(Q6)**:plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`,Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 frontmatter `links:` 字段镜像;lint **不再警告** wikilink
   - **语义级问题仅输出提案**(不应用):矛盾 / 命名飘合并 / 漏链 / 陈旧页处理
 - 无 `--fix` 时不静默改文件;`--fix` 模式也不静默应用语义级修改
 - lint 规则全集见 SCHEMA.md §6 + design.md §4.4(含 LLM 命名飘 / 陈旧 / frontmatter / 摘要小节残留)
@@ -183,7 +184,7 @@ plugin 上架资产                          ❌ 待新建
 - [ ] 准备 fixture:故意造孤儿页 / 矛盾页 / 陈旧页(`stale_after` 早于 today)/ 缺必填 frontmatter / 含 `## 摘要` 小节 / 命名飘(`soc-design` vs `socke-design`)
 - [ ] 跑 lint,验证每条都报
 - [ ] **C4.1 lint --fix 确定性 vs 语义分流**:
-  - [ ] 确定性结构修复 fixture:造缺 frontmatter `type` / `tags` 不是 list / `## 摘要` 小节 / `[[wikilink]]` 残留 / sources 缺 3 节骨架 各一份 → 跑 `--fix` → 验证文件被改 + log.md 追加 `**LintFix**` 条目
+  - [ ] 确定性结构修复 fixture:造缺 frontmatter `type` / `tags` 不是 list / `## 摘要` 小节 / sources 缺 3 节骨架 各一份 → 跑 `--fix` → 验证文件被改 + log.md 追加 `**LintFix**` 条目
   - [ ] 语义级问题 fixture:造矛盾页 + 命名飘子目录 + 漏链 + 陈旧页 → 跑 `--fix` → 验证**文件未被改**,只输出提案(包含候选改写 / `git mv` 命令 / 候选链接列表 / 陈旧处理建议)
 
 #### C5:AC-5(frontmatter 自动校验)

@@ -171,8 +171,9 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 2. LLM 扫所有 knowledge/**/*.md
 3. 报告:孤儿页 / 矛盾 / 陈旧页 / LLM 命名飘 / 漏链 / frontmatter 不合规 / 摘要小节残留
 4. --fix 模式按问题级别分流:
-   - 确定性结构修复(frontmatter / 3 节骨架 / `## 摘要` 残留 / wikilink 残留)直接 patch 应用,log.md 追加 **LintFix** 条目
+   - 确定性结构修复(frontmatter / 3 节骨架 / `## 摘要` 残留)直接 patch 应用,log.md 追加 **LintFix** 条目
    - 语义级问题(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,不应用,等用户确认
+   - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 frontmatter `links:` 字段镜像;lint 不再警告 wikilink
 ```
 
 ### 5.4 synthesis(综合页)
@@ -199,7 +200,6 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 | 漏链 | 正文反复出现但未链接的术语 | WARN | **仅出提案**(候选链接列表,等用户确认) |
 | 矛盾 | 两页同一事实不同说法 | WARN | **仅出提案**(diff + 候选改写,等用户拍板) |
 | 孤儿页 | 无出入链接的页 | WARN(豁免 index/overview/glossary) | **仅出提案**(候选出入链接 / 删除候选,等用户拍板) |
-| `[[wikilink]]` 残留 | 标准 markdown 链接被替换 | WARN | **自动修复**(替换为标准 markdown) |
 | tag | 裸 tag / 字典外 tag / 拼写漂移 / 状态词混 tag | FAIL/WARN 视 lint 细则 | 部分自动(`tags` 拼写归一化),其余仅出提案 |
 
 **LLM 命名飘不自动合并** —— lint 只提示,人工 `git mv` 归档到 `raw/_archived/`。
