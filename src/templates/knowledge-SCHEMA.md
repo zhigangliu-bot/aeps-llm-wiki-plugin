@@ -1,7 +1,7 @@
-# {{knowledge_dir}} / SCHEMA.md — 本知识库操作手册
+# knowledge / SCHEMA.md — 本知识库操作手册
 
 > **角色**:对应 Karpathy LLM Wiki 的 `CLAUDE.md`,Agent 必读。
-> **生成方式**:`/aeps-llm-wiki-init` 首次启用时,从 `templates/knowledge-SCHEMA.md` 复制并替换占位符。
+> **生成方式**:`/aeps-llm-wiki-init` 首次启用时,从 `templates/knowledge-SCHEMA.md` 复制。
 > **修改权限**:**用户主**。plugin 升级不会覆盖(对齐字典文件的 sync 策略:本地优先 + lint 提示)。
 > **本文件权威**:目录拓扑、actor 字符串、命名约定以本文件为最终口径;plugin 文档若与本文件冲突,以本文件为准。
 
@@ -10,25 +10,25 @@
 ## 1. 目录拓扑
 
 ```
-{{project_root}}/
+project-root/
 ├── inbox/                              # 暂存层(用户随手丢的资料)
 ├── raw/                                # 归档层(已分类的源文件)
 │   ├── README.md
 │   ├── concept-entities-readme.md
 │   ├── tag-template.md
-│   └── <15 类预建子目录>/
-└── {{knowledge_dir}}/                   # LLM 维护的"知识页"
+│   └── 15_类预建子目录/
+└── knowledge/                   # LLM 维护的"知识页"
     ├── SCHEMA.md                       # 本文件
     ├── index.md                        # 主索引(自动生成)
     ├── overview.md                     # 大图(LLM 维护)
     ├── glossary.md                     # 术语表(LLM 维护,**绝不覆盖**)
     ├── log.md                          # 变更日志(append-only)
-    ├── sources/<basename>.md           # 源页(`type: source`)
-    ├── entities/<子类>/<slug>.md       # 实体页
-    ├── concepts/<子类>/<slug>.md       # 概念页
-    ├── analyses/<topic>.md             # 分析页(`type: analysis`)
-    ├── syntheses/<topic-slug>.md       # 综合页(`type: synthesis`,常驻)
-    └── comparisons/<a>-vs-<b>.md       # 对比页(`type: comparison`)
+    ├── sources/basename.md           # 源页(`type: source`)
+    ├── entities/子类/slug.md       # 实体页
+    ├── concepts/子类/slug.md       # 概念页
+    ├── analyses/topic.md             # 分析页(`type: analysis`)
+    ├── syntheses/topic-slug.md       # 综合页(`type: synthesis`,常驻)
+    └── comparisons/a-vs-b.md       # 对比页(`type: comparison`)
 ```
 
 ### 1.1 raw/ 15 类预建子目录
@@ -73,11 +73,11 @@
 | `type` | string | ✅ | 取值见 §1.2 子目录映射表 |
 | `title` | string | ✅ | 人类可读标题 |
 | `updated` | ISO 8601 | ✅ | 最近一次有意义更新;**重新生成 ≠ 更新** |
-| `tags` | string[] | ✅ | 六轴受控词表,详见 `{{raw_dir}}/tag-template.md` |
+| `tags` | string[] | ✅ | 六轴受控词表,详见 `raw/tag-template.md` |
 
 ### 2.2 type-specific 字段
 
-- `type: source` 额外必填:`source_file`(指向 `{{raw_dir}}/<subdir>/<file>`)、`summary`(≤ 280 字符)
+- `type: source` 额外必填:`source_file`(指向 `raw/<subdir>/<file>`)、`summary`(≤ 280 字符)
 - `type: comparison` 额外必填:`sources:`(≥ 2 条 `[[wikilink]]`)
 - `type: synthesis` 额外必填:`topic:`、`sources_count:`、`last_updated:`
 - `type: entity` / `type: concept` 额外必填:`aliases:[]`(同义 / 别名)
@@ -103,7 +103,7 @@
 
 ### 3.2 tag 纪律
 
-- tag 来自 `{{raw_dir}}/tag-template.md` 六轴受控词表,**禁止**裸 tag / 字典外 tag / 拼写漂移
+- tag 来自 `raw/tag-template.md` 六轴受控词表,**禁止**裸 tag / 字典外 tag / 拼写漂移
 - `docform/`、`maturity/` 单值必填
 - 文档状态走 `status` 字段,项目名走 `entities/project/`,**不进 tag**
 
@@ -111,7 +111,7 @@
 
 ## 4. actor 字符串(操作日志标准化)
 
-本知识库所有 `{{knowledge_dir}}/log.md` 记录使用统一 actor 字符串格式:
+本知识库所有 `knowledge/log.md` 记录使用统一 actor 字符串格式:
 
 | 类别 | 格式 | 示例 |
 |---|---|---|
@@ -119,7 +119,7 @@
 | 人类写 | `human:<id>` | `human:zhigang.liu` |
 | 工具 / 脚本 | `process:<id>` | `process:aeps-llm-wiki-lint` |
 
-**`<plugin-version>`** 取自本项目 `{{raw_dir}}/.aeps-plugin-version`(`init` 时写入),例:
+**`<plugin-version>`** 取自本项目 `raw/.aeps-plugin-version`(`init` 时写入),例:
 
 ```
 agent: producer/aeps-llm-wiki-plugin/0.4.0
@@ -137,7 +137,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 3. LLM 读源 + 提议 raw/<subdir>/
 4. 用户拍板(目标目录已存在 → 无需拍板;不存在 → 必须拍板)
 5. mv inbox → raw/<subdir>/
-6. 生成 knowledge/sources/<basename>.md
+6. 生成 knowledge/sources/basename.md
 7. 抽取 entity / concept → 自动生成子页
 8. 更新 index.md / glossary.md / log.md / overview.md
 ```
@@ -163,9 +163,9 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 ### 5.4 synthesis(综合页)
 
 ```
-1. 跑 /aeps-llm-wiki-synthesize "<topic>"
+1. 跑 /aeps-llm-wiki-synthesize "topic"
 2. LLM 收集 topic 相关 entity/concept/source 页
-3. 写常驻 synthesis 页到 knowledge/syntheses/<topic-slug>.md
+3. 写常驻 synthesis 页到 knowledge/syntheses/topic-slug.md
 ```
 
 ---
@@ -205,8 +205,8 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 ## 8. plugin 元信息
 
 - plugin:`aeps-llm-wiki-plugin`
-- version:`{{plugin_version}}`(由 `init` 写入 `{{raw_dir}}/.aeps-plugin-version`)
+- version:`plugin-version`(由 `init` 写入 `raw/.aeps-plugin-version`)
 - OKF spec: v0.2(`src/schema/frontmatter.schema.yaml` 对齐)
-- tag 字典:`{{raw_dir}}/tag-template.md`(6 轴)
-- entity/concept 子类字典:`{{raw_dir}}/concept-entities-readme.md`
-- raw 分类字典:`{{raw_dir}}/README.md`
+- tag 字典:`raw/tag-template.md`(6 轴)
+- entity/concept 子类字典:`raw/concept-entities-readme.md`
+- raw 分类字典:`raw/README.md`
