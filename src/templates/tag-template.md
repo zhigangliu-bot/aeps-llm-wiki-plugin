@@ -417,14 +417,16 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 
 | 规则类型                                | 通用判定条件                                                           | 行为 | 提示信息                                          |
 | --------------------------------------- | ---------------------------------------------------------------------- | ---- | ------------------------------------------------- |
-| **基础结构校验 (Required Axes)**  | 必填轴缺失:`docform/` 或 `domain/` 任一缺失 → FAIL;推荐轴缺失:`maturity/` → WARN | FAIL / WARN | "必填轴 [domain/docform] 缺失,请补充" / "推荐轴 maturity/ 缺失,不影响检索底座但建议补" |
-| **单值/软上限校验 (Cardinality)** | 单值轴(`docform/` `maturity/`)被多选;`domain/` 多选 > 2 个 | FAIL / WARN | "单值轴 [axis] 被多选,请只保留一个值" / "domain/ 软上限 ≤2 已超出" |
-| **主题-技术共存 (Co-occurrence)** | 存在特定`domain/` 但 `tec/` 轴缺少配套技术栈                       | WARN | "主题 [domain] 缺少对应的 [tec] 标准或技术栈支撑" |
-| **层级-技术对齐 (Alignment)**     | `layer/` 与 `tec/` 的抽象层级严重失配                              | WARN | "架构层级 [layer] 与技术栈 [tec] 存在层级错配"    |
-| **形态-成熟度约束 (Constraint)**  | `docform/interface-spec` 配 `maturity/concept`(及其他下限冲突案例) | FAIL | "接口规范/排查分析类文档的成熟度不能低于 pilot"   |
-| **跨域粒度控制 (Threshold)**      | `domain/` 数量 > 2 且未打 `domain/cross-domain`                    | WARN | "多领域文档建议使用 domain/cross-domain 进行收敛" |
+| **必填轴校验 (Required Axes)**  | `docform/` 或 `domain/` 任一缺失                                       | FAIL | "必填轴 [domain / docform] 缺失,请补充"           |
+| **推荐轴校验 (Recommended)**   | `maturity/` 缺失                                                       | WARN | "缺失推荐轴 [maturity],建议补充成熟度"            |
+| **单值/多值校验 (Cardinality)** | `docform/` 或 `maturity/` 出现多个值                                    | FAIL | "单值轴 [docform / maturity] 禁止多选,请保留 1 个" |
+| **Tag 总数量区间 (Tag Volume)** | Tag 总数 `< 5` 或 `> 10`                                              | WARN | "<5 覆盖太薄建议补充;>10 切片失去区分度建议合并"  |
+| **跨域粒度控制 (Threshold)**   | `domain/` 数量 `> 2` 且未打 `domain/cross-domain`                       | WARN | "多领域文档建议使用 domain/cross-domain 进行收敛" |
+| **主题-技术共存 (Co-occurrence)** | 存在特定 `domain/` 但 `tec/` 轴缺少配套技术栈                       | WARN | "主题 [domain] 缺少对应的 [tec] 标准或技术栈支撑" |
+| **层级-技术对齐 (Alignment)**    | `layer/` 与 `tec/` 的抽象层级严重失配                                  | WARN | "架构层级 [layer] 与技术栈 [tec] 存在层级错配"    |
+| **形态-成熟度约束 (Constraint)** | `docform/interface-spec` 配 `maturity/concept`(及其他下限冲突案例) | FAIL | "接口规范/排查分析类文档的成熟度不能低于 pilot"   |
 
-> 实现侧可把这 6 行直接落到 lint 配置文件(`.lint-rules.yaml` / `tag-lint.json`),每条范式在配置里只是一段条件表达式 + 提示模板,新增示例族挂到对应范式下,无需改 lint engine 主体。
+> 实现侧可把这 8 行直接落到 lint 配置文件(`.lint-rules.yaml` / `tag-lint.json`),每条范式在配置里只是一段条件表达式 + 提示模板,新增示例族挂到对应范式下,无需改 lint engine 主体。
 
 ---
 
