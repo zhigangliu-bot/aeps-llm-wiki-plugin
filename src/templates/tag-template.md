@@ -417,7 +417,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 
 | 规则类型                                | 通用判定条件                                                           | 行为 | 提示信息                                          |
 | --------------------------------------- | ---------------------------------------------------------------------- | ---- | ------------------------------------------------- |
-| **基础结构校验 (Required Axes)**  | 必填轴缺失:`docform/` 或 `domain/` 任一缺失                        | FAIL | "必填轴 [domain/docform] 缺失,请补充"             |
+| **基础结构校验 (Required Axes)**  | 必填轴缺失:`docform/` 或 `domain/` 任一缺失 → FAIL;推荐轴缺失:`maturity/` → WARN | FAIL / WARN | "必填轴 [domain/docform] 缺失,请补充" / "推荐轴 maturity/ 缺失,不影响检索底座但建议补" |
 | **单值/软上限校验 (Cardinality)** | 单值轴(`docform/` `maturity/`)被多选;`domain/` 多选 > 2 个 | FAIL / WARN | "单值轴 [axis] 被多选,请只保留一个值" / "domain/ 软上限 ≤2 已超出" |
 | **主题-技术共存 (Co-occurrence)** | 存在特定`domain/` 但 `tec/` 轴缺少配套技术栈                       | WARN | "主题 [domain] 缺少对应的 [tec] 标准或技术栈支撑" |
 | **层级-技术对齐 (Alignment)**     | `layer/` 与 `tec/` 的抽象层级严重失配                              | WARN | "架构层级 [layer] 与技术栈 [tec] 存在层级错配"    |
