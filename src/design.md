@@ -276,6 +276,41 @@ SKILL.md 是 prompt(Llm 读),但**有外部依赖或系统调用**的逻辑(批�
 - SKILL.md 默认用 `python3 ./scripts/<name>.py ...` 显式调用(避免依赖 PATH + shebang);脚本顶部加 `#!/usr/bin/env python3` 仍允许双调用形式
 - 脚本单次执行即退(`subprocess.run` 不 fork 出脱离 Claude Code 生命周期的进程,`signal.signal` 而非阻塞监听,`sys.stdin` 不挂 resume)
 
+#### §2.4.1 scripts/*.py 无交互纯工具契约(硬约束)
+
+`scripts/` 下的所有脚本必须为**无状态、无交互(Non-interactive)**的 CLI 工具。
+
+**禁止调用清单**(等价 lint C10.1 静态扫描,详见 implement §C10.1):
+
+| 禁止调用 | 替代方案 |
+|---|---|
+| `input()` / `input(prompt)` | SKILL.md 在 Claude 对话层发起交互,拍板结果通过参数传入 |
+| `sys.stdin.read()` / `sys.stdin.readline()` | 同上 |
+| `getpass.getpass()` | 完全禁 |
+| `select.select([sys.stdin], ...)` 等 stdin 阻塞 | 同上 |
+
+**输入约定**:所有流程控制(`--batch` / `--apply-plan` / `--project-dir`)一律通过**命令行参数**或 **JSON / YAML 配置文件**传入,严禁依赖 stdin / TTY / 环境变量隐式传入。
+
+**人机交互边界**:
+
+- ✅ **人机交互层**完全由 **SKILL.md(Claude Prompt)** 承担 —— 对话问答、拍板确认、错误恢复均走 SKILL.md 提示用户
+- ✅ **scripts/ 仅负责机械式 IO 转换、校验、文件移动** —— 接收决策结果(命令行 / JSON 文件),执行,退出
+- ✅ **`--apply` 模式**:scripts 读 `temp/decision-<hash>.md` 或 `temp/<id>-proposal.json` 这类已拍板文件,**不**重新发起任何 prompt
+
+**调用方契约**:
+
+- ✅ SKILL.md(Bash tool)显式 `python3 ./scripts/<name>.py [args]` 调用
+- ✅ pytest 单测断言返回值 / 文件副作用
+- ✅ hooks(Claude Code 事件驱动)调 scripts,**也不得交互**
+- ❌ 用户手动 `cd <project> && python3 scripts/<name>.py` 直接跑决策性脚本(应走 SKILL.md 拍板)
+- ❌ scripts 内部 `os.system` / `subprocess` 调起**第二次**交互式 CLI(交互污染)
+
+**为什么硬约束**(详见 §4.2.x Q10 + §1.4):
+
+- Claude Skill 调用时若脚本自己抓 stdin,会与 Claude tool use 流抢输入、状态不可预测
+- 任何 `input()` 在非交互终端(如 CI / 自动化批处理)直接 EOFError 崩溃
+- 脚本必须 idempotent / 可重试,主 agent 阶段 3 重跑时不能卡在等用户输入
+
 #### Python 依赖
 
 `scripts/requirements.txt` 是 scripts/ 的运行时依赖清单(强依赖,任何未装 → SKILL.md 跑前 FAIL 提示),init 时一并拷贝到 user-project:
@@ -1368,6 +1403,55 @@ Init re-run 完成。sync 摘要:
 - query 是单问题串行的 4 跳扫描,无"多文件并行"语义
 - lint 是扫已知结构(knowledge/**/*.md),无 paddleocr 等冷启动瓶颈,串行已够
 - 仅 ingest 同时具备"多文件 + paddleocr 冷启动"两个并行动机
+
+#### 阶段 2 & 阶段 3 边界约定(总览,Q11)
+
+**阶段 2 subagent 规则与约束**:
+
+- subagent **独立且隔离**,只调 LLM 解析 `temp/<basename>.md`(阶段 1 阶段 1 batch IO 的产物)
+- **仅做只读文本解析 + 实体 / 概念提取 + 命名飘建议**,**严禁写** `knowledge/` 任何文件
+- **唯一可写路径**:`temp/proposal-<doc_id>.json`(每个 subagent 各自独立文件,带 hash 不冲突)
+- **零 paddleocr 调用**(冷启动已在阶段 1 batch 进程内完成),不触发任何 IO 写入
+- 输出 JSON 字段:`{ doc_id, raw_category_suggestion, entities[], concepts[], raw_suggested_path, decision_needed: bool }`
+
+**阶段 3 主 agent 合并收尾逻辑**:
+
+1. **收集所有 `temp/proposal-*.json`**,按 doc_id 排序
+2. **跨文件汇总所有 entities / concepts**,按 `name + aliases` 做模糊匹配(Levenshtein ≤ 2 / 前缀差异 / 同义拼写),合并去重
+3. **命名飘仲裁**(读 `raw/` 现有子目录做相似度比较;命中已有相似目录 → 强制改用;未命中 → 走拍板门)
+4. **拍板门汇总**:把所有 subagent 提的"未存在 raw 子目录 / 文件归类"决策合成**一次性合并提问**(避免 N 次来回)
+   - 用户回复 → 写 `temp/decision-<hash>.md`(详见 §4.2.x Q10)
+   - 触发条件:`raw_category_suggestion` 指向未存在的 `raw/` 子目录,或 `decision_needed: true`
+5. **一次性串行调用** `python3 ./scripts/safe-mv.py --apply temp/decision-<hash>.md` **批量迁移** `inbox/` → `raw/<subdir>/`(含拍板门通过的 mkdir)
+6. **串行落盘**:
+   - `knowledge/sources/<basename>.md`(每份 inbox 文件一份)
+   - `knowledge/entities/<子类>/<slug>.md`(去重合并后)
+   - `knowledge/concepts/<子类>/<slug>.md`(去重合并后)
+7. **最后增量更新全局索引**(必须在所有 source/entity/concept 写完后,详见上面"为什么 9 在最后"):
+   - `knowledge/log.md` —— append(本次 ingest 所有迁移条目,**Migration** + **Creation** 格式)
+   - `knowledge/glossary.md` —— append(收集到的术语,**绝不覆盖**)
+   - `knowledge/index.md` —— 整体重写(基于最新 sources/entities/concepts 全集)
+   - `knowledge/overview.md` —— 整体重写(总结新增内容)
+
+**写权矩阵总览**(详见上面"写权矩阵"段):
+
+| 路径 / 操作 | 阶段 1 batch | 阶段 2 subagent | 阶段 3 主 agent |
+|---|---|---|---|
+| `inbox/<f>` | 只读 | 只读 | 串行 mv |
+| `temp/<basename>.md` | 写 | 只读 | 只读 |
+| `temp/proposal-<id>.json` | — | 写(独占) | 只读 + 合并 |
+| `temp/decision-<hash>.md` | — | — | 写 |
+| `raw/<subdir>/` | 只读 | 只读 | mkdir + 串行 mv |
+| `knowledge/sources/` | 只读 | **严禁写** | 串行写 |
+| `knowledge/entities/` `concepts/` | 只读 | **严禁写** | 串行写 |
+| `knowledge/log.md` `glossary.md` `index.md` `overview.md` | 只读 | **严禁写** | 最后一步写 |
+
+**并发安全保证**:
+
+- 阶段 2 subagent 并发上限 ≤ 5,**只**在 `temp/proposal-<id>.json` 上并发写,文件名带 hash 互不冲突
+- 阶段 3 串行 9 步动作为单进程顺序执行,**无并发竞争**
+- 全局索引(index/glossary/log/overview)只在阶段 3 最后一步写,**避免** N subagent 并发改写导致丢失 / 顺序错乱
+- 阶段 3 任何一步失败可断点续跑(每个动作 idempotent,见 §4.2.x Q10)
 
 ### 4.3 `/aeps-llm-wiki-query`
 
