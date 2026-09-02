@@ -250,6 +250,12 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 | `tec/ipsec`    | IPsec 协议                   | 网络层加密                                |
 | `tec/gmssl`    | 国密算法 (GM/T 系列)         | SM2/SM3/SM4 等商用密码、车载国密合规      |
 
+**行业流程标准**:研发流程 / 流程能力评估类标准,主题在 `domain/process`:
+
+| 值               | 含义                              | 适用场景                                            |
+| ---------------- | --------------------------------- | --------------------------------------------------- |
+| `tec/aspice`   | Automotive SPICE(过程能力评估)   | 流程审计 / 能力等级评定 / PAMR 评估 / base practice |
+
 ### 5.5 开发与工程工具链(Tooling)
 
 | 值                           | 含义                          | 适用场景                         |
@@ -363,6 +369,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 - **架构类**:若含 `domain/ee-arch` → `tec/` 中须存在至少一个 `tec/autosar-*` / `tec/someip` / `tec/dds` / `tec/preevision` / `tec/enterprise-architect`(SysML/UML 架构建模)
 - **建模 / 仿真类**:若含 `phase/modeling` → `tec/` 中须存在至少一个 `tec/simulink`(MBD / MIL-SIL) / `tec/qemu`(虚拟化仿真) / `tec/enterprise-architect`(SysML/MIL 架构建模)
 - **跨域协同类**:若含 `domain/cross-domain` → `tec/` 中须存在至少一个 `tec/someip` / `tec/dds` / `tec/tsn` / `tec/mcp`(跨域通信 / 编排类)
+- **流程类**:若含 `domain/process` → `tec/` 中须存在至少一个 `tec/aspice`(过程能力评估)
 
 **提示**:`WARN — 检测到主题 [domain/X],建议在 tec/ 轴补充至少一个具体实施技术或标准`
 
