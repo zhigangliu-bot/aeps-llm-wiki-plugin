@@ -202,10 +202,10 @@ plugin 上架资产                          ❌ 待新建
 
 ### 阶段 D:发布(预计 0.5 天)
 
-- [ ] **D1** 在 GitHub 建 `zhigangliu/aeps-llm-wiki-plugin` 仓库(public)
+- [ ] **D1** 在 GitHub 建 `zhigangliu-bot/aeps-llm-wiki-plugin` 仓库(public)
 - [ ] **D2** 把 plugin 根目录内容 push 到 main
 - [ ] **D3** 在 `docs/` 配 GitHub Pages(可选)
-- [ ] **D4** 在 README.md 写明 `/plugin install zhigangliu/aeps-llm-wiki-plugin`
+- [ ] **D4** 在 README.md 写明 `/plugin install zhigangliu-bot/aeps-llm-wiki-plugin`
 - [ ] **D5** 发 GitHub release `v0.4.0`,挂上 changelog(从 `templates/tag-template.md` §9 演进记录提炼)
 
 ---

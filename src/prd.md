@@ -316,7 +316,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 - **M3 — 测试用例**:按 implement.md 拆任务,**先写测试用例**(CLAUDE.md 硬约束),确认后再写代码
 - **M4 — 代码**:templates / skills / schema / tests 落地
 - **M5 — 自测**:在本地用一个示例 wiki(用 OKF spec 本身做 raw)端到端跑一遍 ingest → query → lint
-- **M6 — 上 GitHub**:建 `zhigangliu/aeps-llm-wiki-plugin` 仓库,推 main 分支;**暂不**配 marketplace
+- **M6 — 上 GitHub**:建 `zhigangliu-bot/aeps-llm-wiki-plugin` 仓库,推 main 分支;**暂不**配 marketplace
 
 ---
 

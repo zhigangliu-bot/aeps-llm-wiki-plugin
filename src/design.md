@@ -1298,7 +1298,7 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 ```bash
 # 伪代码,plugin 本体 hooks/hooks.json 触发
 git ls-remote --tags --refs origin \
-  https://github.com/zhigangliu/aeps-llm-wiki-plugin.git
+  https://github.com/zhigangliu-bot/aeps-llm-wiki-plugin.git
 ```
 
 对比 plugin 本体 `plugin.json` 的 `version` 字段与 remote 最新 tag。
@@ -1307,7 +1307,7 @@ git ls-remote --tags --refs origin \
 
 | 情况 | 行为 |
 |---|---|
-| remote 有更高版本 | 向 system-reminder / conversation 注入提示:`[plugin 更新提示] 当前 v<current>,remote 有 v<latest> 可用。升级命令:/plugin install zhigangliu/aeps-llm-wiki-plugin` |
+| remote 有更高版本 | 向 system-reminder / conversation 注入提示:`[plugin 更新提示] 当前 v<current>,remote 有 v<latest> 可用。升级命令:/plugin install zhigangliu-bot/aeps-llm-wiki-plugin` |
 | 当前已是最新 | 不注入任何提示,完全静默 |
 | `git` 不可用 / 无网 / 仓库 404 | 静默,不报错,不阻塞 plugin 启动 |
 | `git ls-remote` 超时(> 3s) | 静默跳过,下次启动再查 |
