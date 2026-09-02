@@ -95,8 +95,8 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 | `domain/enterprise-it` | 企业数字化与 IT               | 研发协同工具、协同平台                                                        |
 | `domain/geopolitics`   | 地缘经济与供应链              | 产业链重构、技术封锁、合规限制                                                |
 | `domain/process`       | 开发流程与方法论 + 跨层流程   | V 模型、敏捷、ASPICE、CMMI、AI for V-Model                                    |
-| `domain/fusa`          | **功能安全主题**        | ISO 26262 / SOTIF 主题入口;具体流程走`phase/`,标准走 `tec/iso26262` 系列  |
-| `domain/cybersecurity` | **信息 / 网络安全主题** | ISO 21434 主题入口;具体流程走`phase/`,技术走 `tec/secoc` / `tec/hsm` 等 |
+| `domain/fusa`          | 功能安全主题            | ISO 26262 / SOTIF 主题入口;具体流程走 `phase/`,标准走 `tec/iso26262` 系列     |
+| `domain/cybersecurity` | 信息 / 网络安全主题      | ISO 21434 主题入口;具体流程走 `phase/`,技术走 `tec/secoc` / `tec/hsm` 等 |
 
 **说明**:
 
@@ -223,7 +223,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 
 ### 5.4 功能安全与信息安全(FuSa + Cybersecurity)
 
-**功能安全 (FuSa)** 主题在 `domain/fusa`,具体标准 / 技术细节在本节:
+功能安全 (FuSa) 主题在 `domain/fusa`,具体标准 / 技术细节在本节:
 
 | 值                      | 含义                              | 适用场景                        |
 | ----------------------- | --------------------------------- | ------------------------------- |
@@ -235,7 +235,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 | `tec/iso26262-asil-d` | ISO 26262 ASIL-D 等级             | ASIL-D 流程要求                 |
 | `tec/sotif`           | ISO 21448 SOTIF                   | 预期功能安全                    |
 
-**信息安全 (Cybersecurity)** 主题在 `domain/cybersecurity`,具体标准 / 技术细节在本节:
+信息安全 (Cybersecurity) 主题在 `domain/cybersecurity`,具体标准 / 技术细节在本节:
 
 | 值               | 含义                         | 适用场景                                  |
 | ---------------- | ---------------------------- | ----------------------------------------- |
