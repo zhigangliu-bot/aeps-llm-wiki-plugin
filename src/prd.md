@@ -203,7 +203,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 不增加 skill,**由 query skill 内置两条触发路径**:
 
 - **路径 A — 同类 entity 触发**:ingest 完成后,LLM 在 source 页落档询问时,如果发现 `entities/<子类>/` 下已有同类 entity(同一 type)≥ 2 个且都是这次新 ingest 的相关对象,**提议**:"要不要建一个常驻 comparison 页把它们对照一下?"
-- **路径 B — 高频检索触发**:query 累计发现用户 ≥ 3 次问"X vs Y"型问题(grep `log.md` 检测模式 `**Update**: ... query ... "X.*Y"`,query 落档 log 走 §3.4 五种前缀里的 `Update`,对齐 design §4.6 路径 B + §3.4),**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
+- **路径 B — 高频检索触发**:query 累计发现用户 ≥ 3 次问"X vs Y"型问题(grep `log.md` 检测模式 `**Creation**: ... query "X.*Y"`,query 落档 log 走 §3.4 五种前缀里的 **`Creation`** —— 因为 query 落档是新建 analysis 页,不是修改既有页;同时 description 含 query 原问句标记 `query "<原问句>"`,便于正则匹配),**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
 - **命名**:`knowledge/comparisons/<a>-vs-<b>.md`(**不带时间戳**,常驻)
 - **frontmatter**:`type: comparison` + `sources:` 字段链接到对比的 entity/concept 页
 - **不应**:query 一次性给完对比表就结束(那是 answer,不是 comparison);comparison 是**常驻页**,由用户拍板后才建

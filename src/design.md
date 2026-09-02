@@ -868,6 +868,13 @@ tags_format:
   - `**LintFix**` —— lint `--fix` 自动应用的结构修复记录(详见 §4.4)
 - inbox → raw 迁移 log 模板:`**Migration**: [file.md](inbox/file.md) → [file.md](../raw/<subdir>/file.md)`
 - lint `--fix` 修复记录模板:`**LintFix**: <rule-name> on [file.md](<path>) — <one-line summary>(如 frontmatter 字段补缺 / 3 节骨架补占位)`
+- **query 落档 log 模板**(对齐 prd §4.6 路径 B 触发条件):
+  ```
+  **Creation**: query "<原问句>" → [analysis.md](analyses/<timestamp>-<slug>.md) by agent: producer/aeps-llm-wiki-plugin/<version>
+  ```
+  - 走 `**Creation**`(新建页,不是 `**Update`** —— 因为 analysis 页是新建)
+  - description **必须**含 query 原问句 + `query "..."` 标记,便于 prd §4.6 路径 B 正则 `**Creation**: ... query "X.*Y"` 命中
+  - 高频检索触发路径 B 才不会成为死代码(若用 `**Update**` 正则永远命中 0 次)
 
 ### 3.5 `knowledge/` 种子文件(顶层 5 个)
 
