@@ -221,6 +221,13 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 - 具体的芯片产品型号(如 `SA8295P` / `TC397`)由文档 Title 或正文自然承载,**无需在 Tag 轴拆分具体的型号**
 - 若文档涉及通用硬件概念而无需限定特定厂商,可直接使用 `layer/chip` 或 `layer/hardware` 维度收敛
 
+**板级与物理层接口**:用于定位板级 / 系统级硬件物理接口,与芯片厂商正交:
+
+| 值                     | 含义                | 适用场景                                                            |
+| ---------------------- | ------------------- | ------------------------------------------------------------------- |
+| `tec/pdu-power`      | 智能配电 / eFuse    | Zone 架构配电管理、电子保险丝、整车高低压配电                      |
+| `tec/serdes`         | SerDes 高速串行接口 | GMSL / FPD-Link / GVIF 等视频传输;智驾摄像头、座舱屏幕硬件设计     |
+
 ### 5.4 功能安全与信息安全(FuSa + Cybersecurity)
 
 功能安全 (FuSa) 主题在 `domain/fusa`,具体标准 / 技术细节在本节:
@@ -381,7 +388,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 
 **示例族**:
 
-- **芯片/硬件层**:若含 `layer/chip` 或 `layer/hardware` → `tec/` 中应含芯片厂商 / 固件 / 硬件工具(`tec/nxp` / `tec/infineon` / `tec/ti` / `tec/nvidia` / `tec/qualcomm` 等厂商级 tag + `tec/uboot` / `tec/dtb`)
+- **芯片/硬件层**:若含 `layer/chip` 或 `layer/hardware` → `tec/` 中应含芯片厂商 / 固件 / 板级接口(`tec/nxp` / `tec/infineon` / `tec/ti` / `tec/nvidia` / `tec/qualcomm` 等厂商级 tag + `tec/uboot` / `tec/dtb` + `tec/pdu-power` / `tec/serdes`)
 - **OS / BSW 层**:若含 `layer/bsw-os` → `tec/` 中应含 OS / 驱动 / AUTOSAR 类(`tec/autosar-cp` / `tec/autosar-ap` / `tec/qnx` / `tec/linux` / `tec/rtos`)
 - **中间件层**:若含 `layer/middleware-soa` → `tec/` 中应含通信协议 / 服务框架(`tec/someip` / `tec/dds` / `tec/doip` / `tec/uds`)
 - **AI / Agent 应用层**:若含 `layer/ai-agent` → `tec/` 中应含 AI / Agent 技术栈(`tec/mcp` / `tec/claude` / `tec/ollama` / `tec/vllm` / `tec/langchain` / `tec/llamaindex`)
