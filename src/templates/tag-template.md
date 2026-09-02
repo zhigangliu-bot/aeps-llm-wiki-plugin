@@ -452,62 +452,49 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 ---
 title: 基于 MCP 协议的座舱大模型调用线控转向 SOA 接口定义书
 tags:
-  - domain/cross-domain
-  - domain/chassis
-  - layer/middleware-soa
-  - layer/ai-agent
-  - phase/architecture
-  - tec/mcp
-  - tec/someip
-  - docform/interface-spec
-  - maturity/pilot
----
+  - domain/cross-domain     # 跨域协同 (已收敛)
+  - layer/middleware-soa    # 中间件/SOA 层
+  - layer/ai-agent          # AI Agent 应用层
+  - tec/mcp                 # 核心协议 1
+  - tec/someip              # 核心协议 2
+  - docform/interface-spec  # 形态: 接口定义书 (单值必填)
+  - maturity/pilot          # 成熟度: POC (单值推荐)
 ```
 
 ```yaml
 ---
 title: ISO 26262 ASIL-D 流程下的 AUTOSAR Classic ECU 软件安全机制设计
 tags:
-  - domain/fusa
-  - layer/bsw-os
-  - layer/application
-  - phase/architecture
-  - tec/autosar-cp
-  - tec/iso26262-asil-d              # 具体 ASIL 等级
-  - docform/technical-doc
-  - maturity/production
----
+  - domain/fusa             # 功能安全主题
+  - layer/bsw-os            # 底层 BSW 层
+  - tec/autosar-cp          # 核心架构: AUTOSAR CP
+  - tec/iso26262-asil-d     # 安全等级
+  - docform/technical-doc   # 形态: 技术方案 (单值必填)
+  - maturity/production     # 成熟度: 量产 (单值推荐)
 ```
 
 ```yaml
 ---
 title: S32G 网关 SoC 安全启动(ATF + OP-TEE + RPMB) 设计文档
 tags:
-  - domain/fusa
-  - domain/body-gateway
-  - layer/bsw-os
-  - phase/detail-design
-  - tec/nxp                          # 芯片厂商
-  - tec/atf                          # 安全启动
-  - tec/optee                        # TEE 应用
-  - tec/rpmb                         # 防回滚存储
-  - docform/technical-doc
-  - maturity/pilot
----
+  - domain/body-gateway     # 主题: 车身与网关
+  - layer/bsw-os            # 层级: 底层软件/OS
+  - phase/detail-design     # 阶段: 详细设计
+  - tec/nxp                 # 厂商: NXP
+  - tec/atf                 # 技术: ATF 安全启动
+  - docform/technical-doc   # 形态: 技术方案 (单值必填)
+  - maturity/pilot          # 成熟度: POC 验证
 ```
 
 ```yaml
 ---
 title: 整车中央网关 TARA 威胁分析与 SecOC 安全通信方案
 tags:
-  - domain/cybersecurity
-  - layer/middleware-soa
-  - phase/architecture
-  - tec/iso21434                     # TARA 威胁建模
-  - tec/secoc                        # Secure Onboard Communication
-  - tec/hsm                          # 硬件安全模块
-  - tec/macsec                       # 链路层加密
-  - docform/technical-doc
-  - maturity/production
----
+  - domain/cybersecurity    # 主题: 网络安全
+  - layer/middleware-soa    # 层级: 中间件/SOA
+  - tec/iso21434            # 技术: TARA 建模
+  - tec/secoc               # 技术: SecOC
+  - tec/hsm                 # 技术: HSM 硬件安全
+  - docform/technical-doc   # 形态: 技术方案 (单值必填)
+  - maturity/production     # 成熟度: 量产
 ```
