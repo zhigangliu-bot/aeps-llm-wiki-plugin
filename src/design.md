@@ -35,9 +35,9 @@ plugin 生成的 `knowledge/` 必须能直接被 **Obsidian** 打开使用,无�
 
 **Obsidian 兼容 ≠ OKF 兼容**:Obsidian 双链 + tag 不在 OKF v0.2 §4/§6 的强制要求里,但 Obsidian 兼容性通过以下方式保证 OKF v0.2 严格兼容:
 
-- **正文 wiki link 走 `[[wikilink]]` 一等公民**(Q6)—— Obsidian 原生双链 + Karpathy 老 wiki 无需转换;**OKF reader 由本 plugin 自实现,识别 `[[wikilink]]` 与 `[text](path/to/page.md)` 双格式**(OKF §6.1 标准 markdown bundle-relative 链接),不强制 frontmatter `links:` 镜像字段(详见 §3.6 + `src/schema/OKF-EXTENSION.md`)
+- **正文 wiki link 走 `[[wikilink]]` 一等公民**(Q6)—— Obsidian 原生双链 + Karpathy 老 wiki 无需转换;**OKF 兼容性靠 frontmatter `links:` 镜像字段同步**(详见 §3.6)
 - frontmatter `type:` 严格 OKF 必填字段,OKF 工具可识别为 source/analysis/concept/entity 等
-- OKF v0.2 §9 "consumers MUST NOT reject bundle because of missing optional frontmatter fields" —— 不写 `links:` 仍 OKF 兼容(本 plugin 不依赖该字段)
+- frontmatter `links:`(OKF v0.2 §9 推荐字段)由 plugin 维护镜像,与正文 `[[wikilink]]` 同步(详见 §3.6)
 
 **Obsidian 不兼容 = plugin FAIL**:任何 Obsidian 不识别的链接 / tag / 目录 / 文件名约定,plugin 设计阶段就要拒绝(NFR-1 衍生)。lint 不容忍这些隐性破坏。
 
@@ -794,10 +794,10 @@ tags_format:
 
 ### 3.3 链接约定(从 prd §6.2 §E 抽出)
 
-- **wiki link 双格式**(plugin 强制 + OKF 兼容):正文同时支持 `[[wikilink]]`(Obsidian 原生 + plugin 一等公民,Q6)与 `[text](path/to/page.md)`(OKF §6.1 标准 markdown bundle-relative 链接);plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别两种
+- **正文 wiki link 走 `[[wikilink]]` 一等公民**(Q6):`[[page]]` / `[[page|显示]]` / `[[page#章节]]`,Obsidian 原生可双链跳,Karpathy 老 wiki 无需转换
 - 优先 bundle-relative 绝对路径:`[customers](/tables/customers.md)`(OKF §6.1 推荐)
 - 也接受相对路径:`[neighbor](./other.md)`
-- **`[[wikilink]]` 是一等公民(Q6)** —— plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`;Obsidian 原生可双链跳,Karpathy 老 wiki 无需转换。**OKF 兼容性靠 plugin 自实现的 OKF reader**:`src/scripts/okf-reader.py` 同时识别 `[[wikilink]]` 与 OKF §6.1 标准 markdown 链接 `[text](path/to/page.md)`(bundle-relative 绝对路径);**不维护 frontmatter `links:` 镜像字段**(详见 §3.6.2 + `src/schema/OKF-EXTENSION.md`)。
+- frontmatter `links:`(OKF §9 推荐字段)由 plugin 维护镜像,与正文 `[[wikilink]]` 自动同步(Q6 OKF 兼容性靠它,详见 §3.6)
 - 链接类型(父子 / 引用 / 依赖)由**正文描述**,不由链接类型化
 - plugin 必须容忍断链(OKF §6.1:不是 malformed)
 
@@ -975,40 +975,42 @@ sources:
 
 **`raw_category` 派生继续走 `sources[0].resource`**(不变):§3.6.1 解析规则 `raw_category = sources[0].resource.split('/')[1]` 不受新字段影响。
 
-#### §3.6.2 OKF v0.2 wiki link 兼容扩展(替代 frontmatter `links:` 镜像方案)
+#### §3.6.2 frontmatter `links:` 镜像字段(Q6 OKF 兼容机制)
 
-**动机**:原方案在 frontmatter 镜像 `links:` 字段与正文 `[[wikilink]]` 同步,违反 Single Source of Truth 原则——用户改 Obsidian UI 的 wikilink 后 frontmatter 不自动更新,lint 自动同步又破坏人工编辑精度。OKF v0.2 spec §9 明确"consumers MUST NOT reject bundle because of missing optional frontmatter fields",且 `links:` 不是 spec 字段(OKF 链接走 §6.1 标准 markdown bundle-relative 链接)。
+**动机**:正文 wiki link 走 `[[wikilink]]` 一等公民(Q6),但 OKF v0.2 外部工具读 wiki 时可能不识别 `[[wikilink]]` 语法。frontmatter `links:`(OKF v0.2 §9 推荐字段)以结构化形式记录所有出链,使 OKF 工具无需解析正文即可消费链接。
 
-**新方案**:去掉 frontmatter `links:` 镜像字段,改为 plugin 自实现 OKF reader 同时识别两种 wiki link 形式。
+**镜像机制**:
 
-**wiki link 数据源唯一 = 正文**:
+- 字段名:`links`(top-level array of {type, target} 对象,OKF v0.2 §9 约定)
+- 写时机:plugin 在每次写页 / `--fix` lint / ingest 结束时,**自动扫描正文所有 `[[wikilink]]` 与 `[text](path.md)` 链接,生成对应 `links:` 字段值**(全量覆盖,不增量)
+- 读时机:外部 OKF 工具读 frontmatter `links:` 字段,无需解析正文
+- 唯一数据源 = **正文 wiki link 扫描**(`links:` 是镜像输出,不是 source of truth)
 
-- **Obsidian 通道**:正文写 `[[wikilink]]` / `[[page|显示]]` / `[[page#章节]]`(Obsidian 原生解析为双链 + 反向链接图)
-- **OKF 通道**:plugin 自实现的 OKF reader(`src/scripts/okf-reader.py`)同时识别:
-  - `[[wikilink]]`(plugin 自实现解析为 OKF `sources` 列表条目)
-  - `[text](path/to/page.md)`(OKF §6.1 标准 bundle-relative markdown 链接)
-- **不维护 frontmatter `links:` 镜像字段**(零双源不一致风险)
+**示例**:
 
-**OKF 兼容扩展声明**:`src/schema/OKF-EXTENSION.md` 写明本 plugin 的 wiki link 约定为 OKF §6.1 的扩展——在标准 markdown 链接之外增加 `[[wikilink]]` 双链语法;OKF v0.2 spec §9 "consumers SHOULD tolerate unknown constructs" 允许这种 opt-in 扩展。
+```yaml
+type: concept
+title: AUTOSAR 方法论
+links:
+  - type: wikilink
+    target: entities/project/aeps-platform.md
+  - type: wikilink
+    target: concepts/standard/iso-26262.md
+  - type: markdown
+    target: concepts/standard/iso-21434.md
+```
 
-**对 lint 的影响**(详见 §5.4):
+**lint C4.2 漂移断言**(详见 implement §C4.2):
 
-- ~~frontmatter `links:` ↔ 正文 `[[wikilink]]` 同步 lint~~ —— **删除**(打破 Single Source of Truth)
-- 漏链 / 断链检测仍存在,但只读正文 wiki link 扫描
-- `--fix` 模式不再做"链接镜像同步",只剩"补占位 H2 骨架 / frontmatter 字段对齐"
+- 扫正文 wikilink + markdown link
+- 与 frontmatter `links:` 对比,差异(Wikilink 漏登记 / `links:` 多余)→ WARN
+- `--fix` 模式:自动重生成 `links:` 字段(全量覆盖,user 拍板写入)
 
 **对 ingest / query 的影响**:
 
-- ingest 写 source 页时,正文写 `[[wikilink]]`(如有指向已有 entity/concept 页的链接)
-- query 的"4 跳扫描"中跳 3 顺 `[[wikilink]]` 跳邻居 —— 不变
-- OKF reader 解析时把 `[[wikilink]]` 转为 OKF `sources` 列表供外部 OKF 工具消费
-
-**配套文件**:
-
-| 文件                                  | 内容                                                                                                          |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `src/schema/OKF-EXTENSION.md`       | plugin 对 OKF v0.2 的扩展声明:wiki link 双格式(`[[wikilink]]` + `[text](path.md)`)、不依赖 `links:` 镜像字段 |
-| `src/scripts/okf-reader.py`(M3 落地) | plugin 自实现 OKF reader,识别双格式 wiki link + 输出 OKF `sources` 列表                                       |
+- ingest 写 source / entity / concept 页时,扫正文 wikilink 自动生成 `links:`
+- query 4 跳扫描中跳 3 顺正文 `[[wikilink]]` 跳邻居 —— 不变(仍读正文,不读 `links:`)
+- lint `--fix` 自动同步 `links:` 与正文
 
 **配套模板文件**(init 时复制/填充):
 
@@ -1470,7 +1472,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
      - **LLM ingest 时**也要预警,提议新文件归档到已有目录名而非新建漂移名
    - **漏链**:某 page 里反复出现但链接缺失的术语
    - **frontmatter 不合规**:必填字段缺失 / 类型错位 / 未知 type
-   - ~~**`[[wikilink]]` 残留**~~ —— **wikilink 是一等公民(Q6)**,Obsidian 原生双链 + Karpathy 老 wiki 兼容,lint **不再警告**;OKF 兼容性靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)双格式识别(`[[wikilink]]` + `[text](path.md)`)
+   - **frontmatter `links:` 与正文 `[[wikilink]]` 漂移**:正文 wikilink 增减后 `links:` 未同步 → lint 告警 + `--fix` 自动同步(详见 §3.6)
    - **raw_category 派生失败**:从 `sources[0].resource` 路径解析失败(无 sources / 非 raw 本地路径 / 分类不在 15 类清单)→ WARN/FAIL(详见 §3.6.1)
 3. 默认只报告;**`--fix` 模式按问题级别分流**:
    - **确定性结构修复** —— `--fix` 直接 patch 应用,`log.md` 追加 `**LintFix**` 条目记录每处改动:
@@ -1478,7 +1480,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
      - **frontmatter 字段类型错位** → 强转(如 `tags: domain/ai` → `tags: [domain/ai]`,list 化即可;**不**做轴前缀补全或拼写改写,那种是语义级问题)
      - **`## 摘要` / `## Summary` H2 残留** → 删小节,把内容合并到 frontmatter `summary` 字段
      - **sources/analyses 缺 3 节骨架** → 文件末尾追加占位 H2(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`),空内容
-     - ~~**`[[wikilink]]` 残留未替换**~~ —— wikilink 是一等公民(Q6),不再自动替换
+     - **frontmatter `links:` ↔ 正文 `[[wikilink]]` 漂移** → 同步 `links:` 字段,与正文 wikilink 一致(详见 §3.6)
    - **语义级问题** —— `--fix` 模式仍**只输出提案**(不应用,等用户确认):
      - **矛盾**(LLM 判定两页同一事实不同说法)→ 输出 diff + 候选改写 + 用户拍板
      - **命名飘合并** → 输出建议 + `git mv` 命令(用户手动执行,不自动改文件)
@@ -1896,6 +1898,6 @@ git ls-remote --tags --refs origin \
 - **§4.2.1** 新整段 "阶段 3 主 agent 串行动作清单(Q11)":命名飘 → 拍板汇总 → concept 去重 → entity 去重 → mv → source 页 → entity 页 → concept 页 → 最后一次性改索引(9 步严格串行)
 - 关键设计:索引写顺序——所有 page 写完**才**统一改 index.md / glossary.md / log.md / overview.md,避免过程中失败导致索引指向不存在页
 
-**附带**:Q6 wikilink 改造 + `links:` 镜像字段去除(frontmatter 不维护,正文 `[[wikilink]]` 一等公民;OKF 兼容靠 plugin 自实现 OKF reader 双格式识别)在 v0.2 之前一轮独立冻结,详见 `schema/OKF-EXTENSION.md`。
+**附带**:Q6 wikilink 改造 + `links:` 镜像字段机制(frontmatter `links:` 自动从正文 wikilink / markdown link 同步生成,OKF v0.2 §9 推荐字段,供外部 OKF 工具无正文解析消费)在 v0.2 一并冻结。
 
 **兼容性**:v0.2 MINOR bump,所有改动对 OKF v0.2 spec §9 兼容性保持。无 breaking change。

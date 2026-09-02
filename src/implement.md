@@ -70,6 +70,7 @@ plugin 上架资产                          ❌ 待新建
 必读:`templates/raw-readme.md` + `templates/concept-entities-readme.md` + `templates/tag-template.md` + `templates/inbox-readme.md` + `templates/knowledge-SCHEMA.md`。
 输出:5 步执行清单(读模板 → 问 raw-dir / knowledge-dir → 复制 → 预建子目录 → 写 SCHEMA.md)。
 **核心边界**:
+
 - 检测 `<project>/knowledge/SCHEMA.md` 是否存在:存在走幂等再入流程(design §4.1.1),不存在走首次启用
 - 三份字典(raw-readme / concept-entities-readme / tag-template)按 append 策略同步
 - inbox-readme / SCHEMA.md / index.md / overview.md 走覆盖或实化策略
@@ -80,6 +81,7 @@ plugin 上架资产                          ❌ 待新建
 对应 prd.md §4.2,设计见 design.md §5.1。
 必读:`knowledge/SCHEMA.md`(本机已实化版)+ `raw/README.md` + `raw/tag-template.md` + `raw/concept-entities-readme.md`。
 **核心边界**:
+
 - 入口:**递归**扫 `<project>/inbox/`(含子目录),不递归 raw/
 - **跑前先校验依赖**:`scripts/requirements.txt` 的 anydoc / paddleocr 是否安装;未装 → 提示 + 退出
 - 文件读取走统一入口(两种模式,详见 design §2.4 + §4.2.1):
@@ -88,7 +90,7 @@ plugin 上架资产                          ❌ 待新建
   - md / txt / csv / json / yaml / xml / html / htm / rst → 直接读
   - pptx / docx / xlsx / pdf → Claude converter 失败则降级 anydoc
   - png / jpg / jpeg / bmp / tiff → paddleocr
-  - 其他 / 失败 → FAIL,提示"无法转换 <file>,请手动预处理"
+  - 其他 / 失败 → FAIL,提示"无法转换 <file></file>,请手动预处理"
 - **三阶段并发处理**(design §4.2.1;N ≥ 2 时走):
   - **阶段 1 batch IO**:主 agent 单进程跑 convert-to-md.py --batch,**paddleocr Engine 只加载 1 次**(避免 N 次冷启动叠加)
   - **阶段 2 LLM 并行**:主 agent 切 ≤ 5 批,派 ≤ 5 个 subagent(Claude Code Task 工具)各自读自己那批 md + 写 proposal JSON,**不动 knowledge/**
@@ -104,6 +106,7 @@ plugin 上架资产                          ❌ 待新建
 对应 prd.md §4.3,设计见 design.md §4.3。
 必读:`knowledge/index.md` → 锚定相关页 → 读对应页 + `log.md`。
 **核心边界**:
+
 - 一次性 query:直接答 + `[[wikilink]]`,不建页
 - 多次 query 同主题 / 用户显式说"对比一下" → 提议建 `knowledge/comparisons/<a>-vs-<b>.md`,用户拍板
 - **绝不编造 wiki 里没有的内容**(AC-3 硬验收)
@@ -118,10 +121,11 @@ plugin 上架资产                          ❌ 待新建
 对应 prd.md §4.4,设计见 design.md §4.4。
 必读:`knowledge/SCHEMA.md`(读 lint 规则)+ 扫 `knowledge/**/*.md`。
 **核心边界**:
+
 - 默认只报告
 - `--fix` 模式按问题级别分流(详见 prd §4.4 + design §4.4):
   - **确定性结构修复直接 patch 应用**,`log.md` 追加 `**LintFix**` 条目:frontmatter 字段补缺 / 类型强转 / `## 摘要` 残留转 `summary` / sources/analyses 缺 3 节骨架 H2 占位
-  - **wikilink 是一等公民(Q6)**:plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`,Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别 `[[wikilink]]` + `[text](path.md)` 双格式(详见 design §3.6.2 + `src/schema/OKF-EXTENSION.md`);**不维护 frontmatter `links:` 镜像字段**(Single Source of Truth);lint **不再警告** wikilink
+  - **wikilink 是一等公民(Q6)**:plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`,Obsidian 原生双链 / Karpathy 老 wiki 兼容;**OKF 兼容靠 frontmatter `links:` 镜像字段自动同步**(详见 design §3.6.2):lint 检测正文 wikilink 增减时告警,`--fix` 自动重生成 `links:`
   - **语义级问题仅输出提案**(不应用):矛盾 / 命名飘合并 / 漏链 / 陈旧页处理
 - 无 `--fix` 时不静默改文件;`--fix` 模式也不静默应用语义级修改
 - lint 规则全集见 SCHEMA.md §6 + design.md §4.4(含 LLM 命名飘 / 陈旧 / frontmatter / 摘要小节残留)
@@ -131,6 +135,7 @@ plugin 上架资产                          ❌ 待新建
 对应 prd.md §4.5,设计见 design.md §4.5(synthesize 段)。
 必读:`knowledge/index.md` + topic 相关页。
 **核心边界**:
+
 - 路径:`knowledge/syntheses/<topic-slug>.md`,不带时间戳,常驻
 - 范围:所有 entity/concept 页 + 引用它们的 source 页(LLM 决定边界)
 - 重复触发同 topic → 更新而非新建(同 slug 覆盖)
@@ -141,41 +146,47 @@ plugin 上架资产                          ❌ 待新建
 
 **测试组织**:`tests/` 下的测试脚本包括但不限于 [design §6.1](../src/design.md) 列出的三个核心脚本:
 
-| 脚本 | 用途 | 对应阶段 C 子段 |
-|---|---|---|
-| `tests/test_templates.py` | 每份 `templates/*.md` 渲染后 frontmatter 合规 | C1(模板锁验证)+ C5(模板填充验证) |
-| `tests/test_frontmatter_compliance.py` | 模拟各种 §A~§D frontmatter 输入,断言 OKF 字段识别正确 + jsonschema 校验 | C5(AC-5)+ C4.1(`--fix` frontmatter 修复) |
-| `tests/test_okf_compliance.py` | 用 [input/google-OKF/OKF-SPEC.md](../../input/google-OKF/OKF-SPEC.md) 的 OKF 校验规则反向校验 plugin 产物 | COMPAT-1(§7.3)+ M5 端到端 |
+| 脚本                                     | 用途                                                                                                    | 对应阶段 C 子段                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `tests/test_templates.py`              | 每份`templates/*.md` 渲染后 frontmatter 合规                                                          | C1(模板锁验证)+ C5(模板填充验证)           |
+| `tests/test_frontmatter_compliance.py` | 模拟各种 §A~§D frontmatter 输入,断言 OKF 字段识别正确 + jsonschema 校验                               | C5(AC-5)+ C4.1(`--fix` frontmatter 修复) |
+| `tests/test_okf_compliance.py`         | 用[input/google-OKF/OKF-SPEC.md](../../input/google-OKF/OKF-SPEC.md) 的 OKF 校验规则反向校验 plugin 产物 | COMPAT-1(§7.3)+ M5 端到端                 |
 
 **本阶段其他子段**(C1~C14 + M-V1/M-V2)的测试用例可以**直接用 pytest 函数写在上面三个脚本里**,也可以拆成 `tests/test_<scenario>.py`(`test_init_vault.py` / `test_ingest_pipeline.py` / `test_query_ranking.py` / `test_lint_rules.py` / `test_requirements_txt.py` 等)。**不强求一一对应**,按 fixture 复用度自定。
 
 **scripts/ 与 tests/ 一律 Python 3.10+ 单栈**:tests/ 跑 `pytest`,断言 `scripts/*.py` 内容(原 Node 18+ .mjs 设计已切到 Python,见 design §1.4 + §2.4)。
 
 #### C1:AC-1(init 首次 5 分钟建齐)
+
 - [ ] 临时目录跑 init,验证 `inbox/`、`raw/`(15 子目录 + .gitkeep)、`knowledge/`(SCHEMA.md / index.md / overview.md / glossary.md / log.md + 14 子目录 + .gitkeep)都建好
 - [ ] `raw/` 下 4 份字典复制完整
 - [ ] `knowledge/SCHEMA.md` 占位符全部替换(用户项目目录名 / actor 字符串)
 
 #### C2:AC-2(ingest inbox/OKF-SPEC.md 产出 ≥ 5 概念页)
+
 - [ ] 准备 fixture:把 `input/google-OKF/OKF-SPEC.md` 复制到 fixture 的 `inbox/`
 - [ ] 跑 `/aeps-llm-wiki-ingest`(无参数),验证产出 ≥ 5 个 `concepts/<子类>/*.md`
 - [ ] `index.md` 自动反映新增
 
 #### C2.1:AC-2 扩展(文件类型分流)
+
 - [ ] fixture 准备 `inbox/` 含: `.md` / `.txt` / `.pdf` / `.docx` / `.xlsx` / `.pptx` / `.png` 各一份
 - [ ] 跑 ingest,验证每份都生成对应的 `knowledge/sources/<basename>.md`(OCR 类需 paddleocr 装好)
 - [ ] 验证转换日志(`log.md` 里的 Action 条目)分别记"直接读 / Claude converter / anydoc 降级 / paddleocr"
 - [ ] 故意放一个 `.bin` 或未知扩展名,验证 FAIL + 提示"未支持的扩展名"
 
 #### C2.2:依赖未装场景
+
 - [ ] fixture 在虚拟环境卸载 paddleocr / anydoc,跑 ingest 含 `.png` / `.pdf` 的 inbox
 - [ ] 验证 SKILL.md 跑前就提示"请先 pip install -r scripts/requirements.txt",**不**中途才报错
 
 #### C2.3:inbox 递归子目录
+
 - [ ] fixture 在 `inbox/notes/s32g/` 下放两个 `.md` 文件
 - [ ] 跑 ingest,验证两个文件都被处理(子目录文件路径作为 LLM 分类依据之一,raw_category 派生按最终 raw 路径,与 inbox 子目录无关)
 
 #### C2.4:三阶段并发处理(N ≥ 2 + batch OCR + 收尾合并)
+
 - [ ] **batch OCR 单次冷启动**:fixture inbox 放 5 份 `.png`(每份 1-3s OCR 时间);mock paddleocr 加载计数,验证 convert-to-md.py --batch 只调 1 次 Engine 初始化(N=5 个文件 → 冷启动 = 1 次,**不是** 5 次)
 - [ ] **单文件场景跳过阶段 2**:fixture inbox 放 1 份 `.md`;验证 SKILL.md 直接走主 agent 完整流程,**不**派 subagent(避免派发开销)
 - [ ] **subagent 并发上限 ≤ 5**:fixture inbox 放 12 份 `.md`;验证派发的 subagent 数 = min(12, 5) = 5,每批 ≤ 5 个 subagent 共享 N/5 份文件
@@ -189,14 +200,16 @@ plugin 上架资产                          ❌ 待新建
   - [ ] fixture inbox 放 3 份相关 `.md`(会抽到重叠 entity/concept);验证 subagent 跑完后,`knowledge/` 下**任何文件均未被修改**(包括 index.md / glossary.md / log.md / overview.md / sources/ / entities/ / concepts/);只有 `temp/<id>-proposal.json` 新增
   - [ ] fixture 同上,跑完整 ingest 走阶段 3;验证 `knowledge/index.md` / `glossary.md` / `log.md` / `overview.md` 在所有 source/entity/concept 页写完后**才**统一修改一次(快照对比 — 阶段 3 收尾后这些文件 mtime 接近)
   - [ ] fixture 同名 entity 跨 subagent 重复抽取(如 subagent A 抽 "ISO 26262",subagent B 抽 "ISO26262");验证阶段 3 合并到 1 页 + aliases 累加,不重复建页
-  - [ ] **subagent prompt 硬约束扫描**:fixture 提供一个故意违反的 SKILL.md 子代理 prompt(如包含 "请直接修改 knowledge/index.md");验证 SKILL.md 的 M3 review 流程拒绝该 prompt(subagent 必须只允许写 temp/<id>-proposal.json)
+  - [ ] **subagent prompt 硬约束扫描**:fixture 提供一个故意违反的 SKILL.md 子代理 prompt(如包含 "请直接修改 knowledge/index.md");验证 SKILL.md 的 M3 review 流程拒绝该 prompt(subagent 必须只允许写 temp/<id></id>-proposal.json)
 
 #### C3:AC-3(query 不编造)
+
 - [ ] 准备 fixture:已知 wiki 内容
 - [ ] 跑 query 问已知答案 → 答对 + 链接
 - [ ] 跑 query 问 wiki 里没有的内容 → 显式声明"未找到"而非编造
 
 #### C3.1:query 4 跳扫描(< 500 页)
+
 - [ ] fixture wiki 50 页,跑 `/aeps-llm-wiki-query "<已知答案>"`,验证走 4 跳:
   - 跳 1:index.md 命中 N 个候选
   - 跳 2:候选页 description/summary 给出答案
@@ -205,30 +218,35 @@ plugin 上架资产                          ❌ 待新建
 - [ ] fixture query 关键词命中 index 条目 frontmatter `tags` 的,验证该条目优先入选(top-K)
 
 #### C3.2:query qmd 分流(500 ≤ N < 1000)
+
 - [ ] fixture wiki 600 页,qmd 已装,跑 query → 验证 `qmd query` 被调用
 - [ ] fixture wiki 600 页,qmd 未装,跑 query → 验证降级走 index + 4 跳,并提示"推荐装 qmd"
 
 #### C3.3:query qmd 强约束(N ≥ 1000)
+
 - [ ] fixture wiki 1100 页,qmd 未装,跑 query → 验证直接报错退出,提示"必须装 qmd",**不**进入回答
 - [ ] fixture wiki 1100 页,qmd 已装,跑 query → 正常返回 qmd top-20 命中
 
 #### C3.4:check-qmd.py 单测
+
 - [ ] 单元测 `<500 / 500~1000 / ≥1000` 三种 pageCount 边界
 - [ ] qmd 在 / 不在两种组合 → 共 6 种 case,验证返回 `engine` 字段正确
 
 #### C4:AC-4(lint 全规则)
+
 - [ ] 准备 fixture:故意造孤儿页 / 矛盾页 / 陈旧页(`stale_after` 早于 today)/ 缺必填 frontmatter / 含 `## 摘要` 小节 / 命名飘(`soc-design` vs `socke-design`)
 - [ ] 跑 lint,验证每条都报
 - [ ] **C4.1 lint --fix 确定性 vs 语义分流**:
   - [ ] 确定性结构修复 fixture:造缺 frontmatter `type` / `tags` 不是 list / `## 摘要` 小节 / sources 缺 3 节骨架 各一份 → 跑 `--fix` → 验证文件被改 + log.md 追加 `**LintFix**` 条目
   - [ ] 语义级问题 fixture:造矛盾页 + 命名飘子目录 + 漏链 + 陈旧页 → 跑 `--fix` → 验证**文件未被改**,只输出提案(包含候选改写 / `git mv` 命令 / 候选链接列表 / 陈旧处理建议)
-- [ ] **C4.2 wiki link 双格式识别 + 不维护 links 镜像**(详见 design §3.6.2):
-  - [ ] 写 `tests/test_okf_reader.py`,断言 `scripts/okf-reader.py` 识别 `[[wikilink]]` + `[text](path.md)` 双格式,输出 OKF `sources` 列表
-  - [ ] 写 `tests/test_no_links_mirror.py`:fixture 故意在前置插件生成的页里有 frontmatter `links:` 字段,跑 lint → 验证 lint **不**做任何 `links:` 镜像同步操作(只读正文 wiki link);跑 ingest → 验证新生成页**不**含 `links:` 字段
-  - [ ] 写 `tests/test_obsidian_edit_drift.py`:fixture 模拟用户改 Obsidian UI 的 `[[wikilink]]`(改 slug),跑 lint → 验证 lint **不**报错、不试图"修复"前向不一致(因为已经没有 `links:` 镜像,无后向漂移)
-  - [ ] 写 `tests/test_okf_extension_compliance.py`:fixture 含 `[[wikilink]]` 的页通过 OKF 自实现 reader → 验证产出 OKF bundle `sources` 列表非空 + 类型合规
+- [ ] **C4.2 frontmatter `links:` 镜像同步**(详见 design §3.6.2):
+  - [ ] 写 `tests/test_links_mirror_generation.py`:fixture 写一份页含正文 wikilink `[[concept/a]]` + `[[entity/b]]`,跑 ingest / lint --fix → 验证 frontmatter `links:` 自动生成 2 条对应 `{type: wikilink, target: ...}` 条目
+  - [ ] 写 `tests/test_links_mirror_drift.py`:fixture 故意把 frontmatter `links:` 加一条 ghost(target 不在正文)→ 跑 lint → 验证告警 WARN + `--fix` 自动重生成 `links:` 抹掉 ghost
+  - [ ] 写 `tests/test_links_mirror_obsidian_edit.py`:fixture 模拟用户 Obsidian UI 加 wikilink(正文有,frontmatter `links:` 漏)→ 跑 lint → 验证告警 + `--fix` 同步
+  - [ ] 写 `tests/test_links_mirror_types.py`:fixture 含正文 `[text](path.md)` markdown 链接 → 跑 ingest → 验证 frontmatter `links:` 含 `{type: markdown, target: path.md}` 条目
 
 #### C5:AC-5(frontmatter 自动校验)
+
 - [ ] 写 Python 脚本 `tests/test_frontmatter_schema.py`,对所有 fixture `knowledge/**/*.md` 跑 jsonschema 校验
 - [ ] 任何不合规立刻 FAIL
 - [ ] **C5.1 source 页双字段同源断言**(详见 design §3.6.1.1):
@@ -238,16 +256,20 @@ plugin 上架资产                          ❌ 待新建
   - [ ] 写 `tests/test_source_obsidian_link.py`:fixture 在 Obsidian 笔记属性面板里 source_file 字段值渲染为可点击链接(由 jsonschema 校验该字段存在 + 值符合 `raw/<subdir>/<basename>.<ext>` 正则)
 
 #### C6:AC-6(ingest inbox 拍板门)
+
 - [ ] fixture 在 `inbox/<file>`,跑 `/aeps-llm-wiki-ingest`,验证未拍板前 inbox 文件不动
 - [ ] 用户拍板后,文件出现在 `raw/<subdir>/`,`inbox/<file>` 删除,`log.md` 记 Migration
 
 #### C7:AC-7(--raw-subdir inbox 直迁)
+
 - [ ] fixture 在 `inbox/<file>`,跑 `/aeps-llm-wiki-ingest --raw-subdir=<已存在 15 类>`,验证无交互直迁 + log 记路径
 
 #### C8:AC-8(ingest inbox 空)
+
 - [ ] fixture 的 `inbox/` 为空,跑 `/aeps-llm-wiki-ingest`,验证提示"inbox/ 为空,先把资料丢进 inbox 再跑",退出码 0
 
 #### C9:陈旧 + 命名飘专项
+
 - [ ] 造 fixture:`stale_after: 2025-01-01`(早已过期),lint 标陈旧
 - [ ] 造子目录:`raw/02_芯片/` + `raw/03_芯片_v2/`,lint 命名飘提示
 - [ ] **C9.1 命名飘前移到 ingest**:fixture 已存在 `raw/02_芯片/`,丢一份 `s32g-datasheet.pdf` 到 inbox,跑 ingest,验证 LLM 提议的子目录若写成 `03_芯片` / `芯片_v2` / `soc_chips`(与已有 `02_芯片` Levenshtein ≤ 2 或同义拼写),会被检测并**强制改用 `raw/02_芯片/`**,而不是新增
@@ -283,7 +305,7 @@ plugin 上架资产                          ❌ 待新建
   - `templates/*.md`(5 份)
   - `prd.md` / `design.md` / `implement.md`(3 份,内部维护文档同样遵循)
 - [ ] 断言:中文字符(Unicode 范围 `\u4e00-\u9fff`)占**总可读字符数**(去除空白 + Markdown 控制符)的 > 60%
-- [ ] 例外:代码块(````` ``` ````` 包裹的内容)、frontmatter YAML 块、frontmatter schema.yaml 不计入
+- [ ] 例外:代码块(`` ``` `` 包裹的内容)、frontmatter YAML 块、frontmatter schema.yaml 不计入
 - [ ] 术语保留英文(`type: source` / `raw_category` / `bundle-root` 等)**不**翻译,本测试只看语言比例不查翻译
 
 #### C12:NFR-5(临时文件进 `temp/`)
@@ -378,24 +400,24 @@ git tag -l "v*" | sort -V | tail -5
 
 ## 3. 风险与回滚
 
-| 风险 | 缓解 | 回滚 |
-|---|---|---|
-| SKILL.md 提示词不够具体,LLM 漂 | 用 design.md §4 流程图作为强约束 + 测试覆盖 | 改 SKILL.md 措辞,本地再跑测试 |
-| 测试 fixture 与 OKF v0.2 漂移 | 测试 fixture 锁定版本 | 重读 OKF-SPEC.md,改 schema 后再测 |
-| GitHub push 误推敏感文件 | `.gitignore` 提前建好(排除 `tests/fixtures/secrets/`、`*.local.md`) | 删 remote + force push + 撤 token |
-| plugin 升级破坏用户项目副本 | 字典 sync 策略已固化为"本地优先 + append" | 用户可手动从 templates/ 重新复制 |
+| 风险                           | 缓解                                                                      | 回滚                              |
+| ------------------------------ | ------------------------------------------------------------------------- | --------------------------------- |
+| SKILL.md 提示词不够具体,LLM 漂 | 用 design.md §4 流程图作为强约束 + 测试覆盖                              | 改 SKILL.md 措辞,本地再跑测试     |
+| 测试 fixture 与 OKF v0.2 漂移  | 测试 fixture 锁定版本                                                     | 重读 OKF-SPEC.md,改 schema 后再测 |
+| GitHub push 误推敏感文件       | `.gitignore` 提前建好(排除 `tests/fixtures/secrets/`、`*.local.md`) | 删 remote + force push + 撤 token |
+| plugin 升级破坏用户项目副本    | 字典 sync 策略已固化为"本地优先 + append"                                 | 用户可手动从 templates/ 重新复制  |
 
 ---
 
 ## 4. 时间预算汇总
 
-| 阶段 | 工作量 | 备注 |
-|---|---|---|
-| A:plugin 骨架 | 0.5–1 天 | 模板化,快 |
-| B:5 个 SKILL.md | 2–3 天 | 每个 SKILL.md 重点在"边界规则",不能省 |
-| C:测试用例 | 1–2 天 | CLAUDE.md 硬约束,必须做 |
-| D:发布 | 0.5 天 | GitHub 操作 + release notes |
-| **合计** | **4–6.5 天** | 集中 1 周可完成 |
+| 阶段            | 工作量              | 备注                                  |
+| --------------- | ------------------- | ------------------------------------- |
+| A:plugin 骨架   | 0.5–1 天           | 模板化,快                             |
+| B:5 个 SKILL.md | 2–3 天             | 每个 SKILL.md 重点在"边界规则",不能省 |
+| C:测试用例      | 1–2 天             | CLAUDE.md 硬约束,必须做               |
+| D:发布          | 0.5 天              | GitHub 操作 + release notes           |
+| **合计**  | **4–6.5 天** | 集中 1 周可完成                       |
 
 ---
 
@@ -440,6 +462,6 @@ git tag -l "v*" | sort -V | tail -5
 - fixture 同名 entity 跨 subagent 重复抽取;验证阶段 3 合并到 1 页 + aliases 累加,不重复建页
 - subagent prompt 硬约束扫描:fixture 提供故意违反的 SKILL.md 子代理 prompt;验证 SKILL.md M3 review 流程拒绝该 prompt
 
-**附带**:Q6 wikilink 改造测试用例在 §C4.2(4 项:双格式识别 / 不维护镜像 / Obsidian 编辑漂移 / OKF 扩展合规),在 v0.2 之前独立冻结。
+**附带**:Q6 wikilink 改造测试用例在 §C4.2(4 项:links 镜像生成 / 漂移检测 / Obsidian 编辑同步 / markdown 链接 type 区分),在 v0.2 一并冻结。
 
 **兼容性**:v0.2 MINOR bump,无 breaking change。

@@ -53,7 +53,7 @@ skill 调用的辅助脚本。**只放单次运行即退出的 helper**,不开 d
 | `append-log.py` | 所有 skill | 写 log.md 一条记录(避免人工拼格式) |
 | `validate-frontmatter.py` | lint / ingest | 按 schema/frontmatter.schema.yaml 校验字段(jsonschema) |
 | `lint-orphans.py` | lint skill | 扫知识库找孤儿页/孤立页 |
-| `okf-lint.py` | ingest / lint | OKF v0.2 合规校验(不维护 frontmatter `links:` 镜像,详见 design §3.6.2) |
-| `okf-reader.py` | query / ingest | plugin 自实现 OKF reader,识别 `[[wikilink]]` + `[text](path.md)` 双格式 wiki link,产出 OKF `sources` 列表(详见 design §3.6.2 + `src/schema/OKF-EXTENSION.md`) |
+| `okf-lint.py` | ingest / lint | OKF v0.2 合规校验;含 frontmatter `links:` 镜像同步(自动从正文 wikilink / markdown link 重生成,详见 design §3.6.2) |
+| `okf-reader.py` | query / ingest | plugin 自实现 OKF reader,产出 OKF `sources` 列表(优先读 frontmatter `links:`;fallback 扫正文 wikilink + markdown link) |
 
 添加前先在 [implement.md](../implement.md) 里写测试用例 + 在 [prd.md](../prd.md) 找对应 AC 锚定。

@@ -178,7 +178,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 4. --fix 模式按问题级别分流:
    - 确定性结构修复(frontmatter / 3 节骨架 / `## 摘要` 残留)直接 patch 应用,log.md 追加 **LintFix** 条目
    - 语义级问题(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,不应用,等用户确认
-   - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别 `[[wikilink]]` + `[text](path.md)` 双格式(详见 design §3.6.2 + `src/schema/OKF-EXTENSION.md`);**不维护 frontmatter `links:` 镜像字段**(Single Source of Truth);lint 不再警告 wikilink
+   - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;**OKF 兼容靠 frontmatter `links:` 镜像字段自动同步**(详见 design §3.6.2):正文 wikilink 增减时 lint 告警,`--fix` 自动重生成 `links:`
 ```
 
 ### 5.4 synthesis(综合页)
