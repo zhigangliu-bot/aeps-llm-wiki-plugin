@@ -4,7 +4,6 @@
 > **权威性**:plugin 本体权威字典 —— plugin 维护者直接编辑维护
 > **复制策略**:**复制到用户项目**。init 时复制 `tag-template.md` 到 `<project>/raw/tag-template.md`;**用户再次调用 init skill 时按 append 策略同步**(详见 design.md §4.1.1 "幂等再入"):用户为主,plugin 新版内容 append 到本地副本,**不覆盖用户改过的内容**,lint 提示"plugin 新版有 X 条本地没有"。
 > **使用方**:SKILL.md 显式告知"需要时读 templates/tag-template.md";LLM ingest / lint 时必须查字典
-> **取代关系**:取代旧的 `tag-vocabulary.md`(后者已废弃)
 
 ---
 
@@ -95,7 +94,6 @@
   - 具体流程阶段走 `phase/`(HARA / TARA / 审计节点)
   - 具体标准 / 技术走 `tec/`(`tec/iso26262-asil-d` / `tec/iso21434` / `tec/secoc` / `tec/hsm` 等)
   - **三重锁定**:`domain/fusa + phase/architecture + tec/iso26262-asil-d`(主题 + 阶段 + 标准)
-- **lint 规则**:旧 wiki 页残留 `domain/security` → **WARN** "该轴已废弃,请选择 `domain/fusa` 或 `domain/cybersecurity`"
 
 ---
 
@@ -141,7 +139,6 @@
 
 - `phase/architecture` 与 `phase/detail-design` 的边界:概念选型 / 逻辑架构 → `architecture`;接口表 / 类图 / 代码级设计 → `detail-design`
 - **`phase/` 是纯时间 / 研发阶段维度**:不包含安全主题。功能安全 / 网络安全相关流程归入通用阶段(需求 → 架构 → 详细设计 → 集成 → 验证 → 运维);安全**主题**走 `domain/fusa` / `domain/cybersecurity`,安全**标准 / 技术**走 `tec/`
-- **decode 旧 `phase/safety-compliance` / `phase/fusa` / `phase/cybersecurity`**:lint 提示"安全主题不在 phase,主题走 `domain/fusa` / `domain/cybersecurity`,标准走 `tec/`"
 
 ---
 
