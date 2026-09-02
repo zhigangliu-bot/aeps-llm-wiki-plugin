@@ -1,0 +1,8 @@
+# 嵌套的参考仓库(自带 .git)
+reference/*/
+
+# 临时文件
+temp/
+*.tmp
+*.swp
+.DS_Store

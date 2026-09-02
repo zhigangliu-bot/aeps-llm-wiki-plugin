@@ -1,0 +1,11 @@
+# aeps-llm-wiki-plugin 第三方 Python 依赖清单
+#
+# 安装方式:
+#   pip install -r requirements.txt
+#
+# 当前依赖列表:无(scripts/ 暂为空,所有 skill 行为由 prompt + stdlib + Unix 工具承担)
+#
+# 添加新依赖前请确认:
+# 1. 是否能用 Python stdlib 替代(优先原则)
+# 2. 是否能用 bash/Unix 工具替代
+# 3. 添加后在 docs/README.md 更新安装说明
