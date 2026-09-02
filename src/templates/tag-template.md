@@ -21,14 +21,14 @@
 
 ### 1.3 单值 / 多值
 
-| axis         | 词数 | 单值/多值                                                                  | 必填?         |
-| ------------ | ---- | -------------------------------------------------------------------------- | ------------- |
-| `domain`   | 14   | 单值(软上限 ≤ 2,最多 5)                                                   | ✅ 必填       |
-| `layer`    | 9    | 单值优先                                                                   | 可选          |
-| `phase`    | 9    | **可多值**(需求+验证同时存在常见)                                    | 可选          |
-| `docform`  | 14   | **单值必填**                                                         | ✅ 必填       |
-| `maturity` | 5    | **单值必填**(`concept < research < pilot < production < standard`) | ⚠️ 推荐      |
-| `tec`      | ~40  | 单值优先                                                                   | 可选          |
+| axis         | 词数 | 单值/多值                                                                  | 必填?     |
+| ------------ | ---- | -------------------------------------------------------------------------- | --------- |
+| `domain`   | 14   | 单值(软上限 ≤ 2,最多 5)                                                   | ✅ 必填   |
+| `layer`    | 9    | 单值优先                                                                   | 可选      |
+| `phase`    | 9    | **可多值**(需求+验证同时存在常见)                                    | 可选      |
+| `docform`  | 14   | **单值必填**                                                         | ✅ 必填   |
+| `maturity` | 5    | **单值必填**(`concept < research < pilot < production < standard`) | ⚠️ 推荐 |
+| `tec`      | ~40  | 单值优先                                                                   | 可选      |
 
 ### 1.4 隔离机制(防 tag 维度污染)
 
@@ -40,18 +40,31 @@
 
 > 当单篇文档 tag 数量趋近上限(超过 10 个)或自检发现难以收敛时,通常意味着触发了以下"打标误区"。建议在打签前先自检一次,而不是继续加 tag。
 
-| # | 误区                                                    | 收敛做法                                                                                                                |
-| - | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 1 | **`tec/` 轴罗列太多非核心技术**                              | 一篇文档可能用到 Git、CMake、Linux、Python、SOME/IP。**只保留核心突破点**(如 `tec/someip`),基础通用工具(`tec/git` `tec/cmake` `tec/linux`)由正文自然承载,无需打 tag |
-| 2 | **`domain/` 选了太多业务域**                                | 整车级 / 多模块文档不要把座舱 + 智驾 + 底盘全打上。**直接打 `domain/cross-domain` 收敛**(搭配范式 4 的 WARN 触发)                                                  |
-| 3 | **把"属性 / 状态"当成 tag**                              | 项目名(`BE13-VDP`)、作者、版本号、草稿状态 → 走 Frontmatter 字段(`status: draft`、`stale_after: 2027-01` 等),**严格排除在 tag 之外**(详见 §1.4 隔离机制)            |
+| # | 误区                                    | 收敛做法                                                                                                                                                                          |
+| - | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | **`tec/` 轴罗列太多非核心技术** | 一篇文档可能用到 Git、CMake、Linux、Python、SOME/IP。**只保留核心突破点**(如 `tec/someip`),基础通用工具(`tec/git` `tec/cmake` `tec/linux`)由正文自然承载,无需打 tag |
+| 2 | **`domain/` 选了太多业务域**    | 整车级 / 多模块文档不要把座舱 + 智驾 + 底盘全打上。**直接打 `domain/cross-domain` 收敛**(搭配范式 4 的 WARN 触发)                                                         |
+| 3 | **把"属性 / 状态"当成 tag**       | 项目名(`BE13-VDP`)、作者、版本号、草稿状态 → 走 Frontmatter 字段(`status: draft`、`stale_after: 2027-01` 等),**严格排除在 tag 之外**(详见 §1.4 隔离机制)            |
 
 **自检三问**:
+
 1. 这 5 个 tag 里,有没有基础通用工具可以下移到正文?(误区 1)
 2. 这 5 个 tag 里,有没有多个 `domain/` 可以收敛到 `cross-domain`?(误区 2)
 3. 这 5 个 tag 里,有没有本该走 Frontmatter 字段的属性?(误区 3)
 
 如果三问都不命中,确实需要 10+ tag,那 10+ 是合理的;否则先收敛再打签。
+
+#### 1.5.1 犹豫时降维收敛原则(LLM / 开发者打标决策原则)
+
+LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决策(如 `layer/bsw-os` vs `layer/platform-hypervisor`、`phase/architecture` vs `phase/detail-design`、`docform/technical-doc` vs `docform/interface-spec`)。犹豫时遵循:
+
+> **收敛优先**:优先选择类目更收敛、信息密度更高的 tag —— 选完之后,跟其他维度(范式 1 主题-技术共存 / 范式 2 层级-技术对齐)的联动更明确的那个。
+
+**典型边界参照**:
+- **`layer/bsw-os` vs `layer/platform-hypervisor`**:跑在裸芯片上的 OS + 驱动 + AUTOSAR BSW → `bsw-os`;跑在 OS 之上的虚拟化 + 容器 + SDV 软件平台 → `platform-hypervisor`
+- **`layer/middleware-soa` vs `layer/bsw-os`**:AUTOSAR RTE / DDS / 服务总线 → `middleware-soa`(SDK 视角的中间件);MCAL / OS Kernel / Driver → `bsw-os`。**犹豫时优先归 `middleware-soa`**,因其收敛面更广(详见 §3)
+- **`phase/architecture` vs `phase/detail-design`**:概念选型 / 逻辑架构 → `architecture`;接口表 / 类图 / 代码级设计 → `detail-design`(详见 §4)
+- **`docform/technical-doc` vs `docform/interface-spec`**:整体方案 → `technical-doc`;**独立成册的接口规范** → `interface-spec`(高频检索对象,详见 §6)
 
 ### 1.6 命名约定(plugin 维护 + LLM 写入都遵守)
 
@@ -67,23 +80,23 @@
 
 用于定位文档涉及的物理域、逻辑域或跨学科主题。
 
-| 值                       | 含义                        | 适用场景                                                               |
-| ------------------------ | --------------------------- | ---------------------------------------------------------------------- |
-| `domain/cockpit`       | 智能座舱                    | IVI、HUD、仪表、舱驾融合、座舱 HMI                                     |
-| `domain/adas-ad`       | 智能驾驶 / 自动驾驶         | 感知、规控、定位、地图、VLA/端到端大模型                               |
-| `domain/chassis`       | 底盘域                      | 线控转向 Steer-by-Wire、线控制动 Brake-by-Wire、悬架、底盘协调控制 VMC |
-| `domain/powertrain`    | 动力与三电                  | 电驱、BMS 电池管理、MCU 电控、VCU、充电控制                            |
-| `domain/body-gateway`  | 车身与网关                  | Zone ECU 区域控制器、BCM 车身控制、车灯、门控                          |
-| `domain/ee-arch`       | 电子电气架构                | 区域架构、SDV、整车拓扑、虚拟化拓扑                                    |
-| `domain/cross-domain`  | 跨域协同 / 整车级控制       | 舱驾融合、跨域服务编排、整车 SOA 调度                                  |
-| `domain/ai`            | AI 通用算法与方法论         | ML、LLM、RAG、Agent 框架                                               |
-| `domain/embodied-ai`   | 具身智能与新型载体          | 人形机器人、飞行汽车、具身大模型                                       |
-| `domain/cloud-infra`   | 车联网云端基础设施          | 公有云 / 私有云、云端大数据分析                                        |
-| `domain/enterprise-it` | 企业数字化与 IT             | 研发协同工具、协同平台                                                 |
-| `domain/geopolitics`   | 地缘经济与供应链            | 产业链重构、技术封锁、合规限制                                         |
-| `domain/process`       | 开发流程与方法论 + 跨层流程 | V 模型、敏捷、ASPICE、CMMI、AI for V-Model                             |
-| `domain/fusa`          | **功能安全主题** | ISO 26262 / SOTIF 主题入口;具体流程走 `phase/`,标准走 `tec/iso26262` 系列 |
-| `domain/cybersecurity` | **信息 / 网络安全主题** | ISO 21434 主题入口;具体流程走 `phase/`,技术走 `tec/secoc` / `tec/hsm` 等 |
+| 值                       | 含义                          | 适用场景                                                                      |
+| ------------------------ | ----------------------------- | ----------------------------------------------------------------------------- |
+| `domain/cockpit`       | 智能座舱                      | IVI、HUD、仪表、舱驾融合、座舱 HMI                                            |
+| `domain/adas-ad`       | 智能驾驶 / 自动驾驶           | 感知、规控、定位、地图、VLA/端到端大模型                                      |
+| `domain/chassis`       | 底盘域                        | 线控转向 Steer-by-Wire、线控制动 Brake-by-Wire、悬架、底盘协调控制 VMC        |
+| `domain/powertrain`    | 动力与三电                    | 电驱、BMS 电池管理、MCU 电控、VCU、充电控制                                   |
+| `domain/body-gateway`  | 车身与网关                    | Zone ECU 区域控制器、BCM 车身控制、车灯、门控                                 |
+| `domain/ee-arch`       | 电子电气架构                  | 区域架构、SDV、整车拓扑、虚拟化拓扑                                           |
+| `domain/cross-domain`  | 跨域协同 / 整车级控制         | 舱驾融合、跨域服务编排、整车 SOA 调度                                         |
+| `domain/ai`            | AI 通用算法与方法论           | ML、LLM、RAG、Agent 框架                                                      |
+| `domain/embodied-ai`   | 具身智能与新型载体            | 人形机器人、飞行汽车、具身大模型                                              |
+| `domain/cloud-infra`   | 车联网云端基础设施            | 公有云 / 私有云、云端大数据分析                                               |
+| `domain/enterprise-it` | 企业数字化与 IT               | 研发协同工具、协同平台                                                        |
+| `domain/geopolitics`   | 地缘经济与供应链              | 产业链重构、技术封锁、合规限制                                                |
+| `domain/process`       | 开发流程与方法论 + 跨层流程   | V 模型、敏捷、ASPICE、CMMI、AI for V-Model                                    |
+| `domain/fusa`          | **功能安全主题**        | ISO 26262 / SOTIF 主题入口;具体流程走`phase/`,标准走 `tec/iso26262` 系列  |
+| `domain/cybersecurity` | **信息 / 网络安全主题** | ISO 21434 主题入口;具体流程走`phase/`,技术走 `tec/secoc` / `tec/hsm` 等 |
 
 **说明**:
 
@@ -124,16 +137,16 @@
 
 按 ASPICE 及汽车功能安全规范定义的生命周期阶段。
 
-| 值                          | 含义              | 适用场景                                               |
-| --------------------------- | ----------------- | ------------------------------------------------------ |
-| `phase/requirements`      | 需求工程          | OEM 功能需求、技术规格书 TRS/SRS、需求追溯与变更       |
-| `phase/architecture`      | 架构与概念设计    | 系统架构设计、概念选型、逻辑 / 物理架构                |
-| `phase/modeling`          | 建模与仿真        | 物理大模型、VLA World Model、MIL 仿真                  |
-| `phase/detail-design`     | 详细设计与实现    | 详细设计文档、代码编写、接口实现                       |
-| `phase/integration`       | 系统集成          | 跨域融合集成、舱驾融合、ECU 软硬件集成                 |
-| `phase/verification`      | 开发者侧验证      | 单元测试、集成测试、SIL 软件在环、模型检查             |
-| `phase/validation`        | 用户 / 系统级确认 | HIL 硬件在环、台架测试、整车实车路试                   |
-| `phase/ops`               | 运维与量产监控    | OTA 升级、售后监控、现场故障闭环                       |
+| 值                      | 含义              | 适用场景                                         |
+| ----------------------- | ----------------- | ------------------------------------------------ |
+| `phase/requirements`  | 需求工程          | OEM 功能需求、技术规格书 TRS/SRS、需求追溯与变更 |
+| `phase/architecture`  | 架构与概念设计    | 系统架构设计、概念选型、逻辑 / 物理架构          |
+| `phase/modeling`      | 建模与仿真        | 物理大模型、VLA World Model、MIL 仿真            |
+| `phase/detail-design` | 详细设计与实现    | 详细设计文档、代码编写、接口实现                 |
+| `phase/integration`   | 系统集成          | 跨域融合集成、舱驾融合、ECU 软硬件集成           |
+| `phase/verification`  | 开发者侧验证      | 单元测试、集成测试、SIL 软件在环、模型检查       |
+| `phase/validation`    | 用户 / 系统级确认 | HIL 硬件在环、台架测试、整车实车路试             |
+| `phase/ops`           | 运维与量产监控    | OTA 升级、售后监控、现场故障闭环                 |
 
 **说明**:
 
@@ -197,53 +210,53 @@
 
 **功能安全 (FuSa)** 主题在 `domain/fusa`,具体标准 / 技术细节在本节:
 
-| 值                          | 含义                          | 适用场景                  |
-| --------------------------- | ----------------------------- | ------------------------- |
-| `tec/iso26262`            | ISO 26262 功能安全(笼统词)   | ASIL 分解 / FMEA / 总体安全概念 |
-| `tec/iso26262-qm`         | ISO 26262 QM(质量管理,无安全要求) | 非安全相关功能 / QM 流程要求 |
-| `tec/iso26262-asil-a`     | ISO 26262 ASIL-A 等级          | ASIL-A 流程要求            |
-| `tec/iso26262-asil-b`     | ISO 26262 ASIL-B 等级          | ASIL-B 流程要求            |
-| `tec/iso26262-asil-c`     | ISO 26262 ASIL-C 等级          | ASIL-C 流程要求            |
-| `tec/iso26262-asil-d`     | ISO 26262 ASIL-D 等级          | ASIL-D 流程要求            |
-| `tec/sotif`               | ISO 21448 SOTIF                | 预期功能安全               |
+| 值                      | 含义                              | 适用场景                        |
+| ----------------------- | --------------------------------- | ------------------------------- |
+| `tec/iso26262`        | ISO 26262 功能安全(笼统词)        | ASIL 分解 / FMEA / 总体安全概念 |
+| `tec/iso26262-qm`     | ISO 26262 QM(质量管理,无安全要求) | 非安全相关功能 / QM 流程要求    |
+| `tec/iso26262-asil-a` | ISO 26262 ASIL-A 等级             | ASIL-A 流程要求                 |
+| `tec/iso26262-asil-b` | ISO 26262 ASIL-B 等级             | ASIL-B 流程要求                 |
+| `tec/iso26262-asil-c` | ISO 26262 ASIL-C 等级             | ASIL-C 流程要求                 |
+| `tec/iso26262-asil-d` | ISO 26262 ASIL-D 等级             | ASIL-D 流程要求                 |
+| `tec/sotif`           | ISO 21448 SOTIF                   | 预期功能安全                    |
 
 **信息安全 (Cybersecurity)** 主题在 `domain/cybersecurity`,具体标准 / 技术细节在本节:
 
-| 值                          | 含义                          | 适用场景                  |
-| --------------------------- | ----------------------------- | ------------------------- |
-| `tec/iso21434`            | ISO 21434 汽车网络安全标准     | TARA 威胁建模 / 网络安全管理体系 |
-| `tec/secoc`               | Secure Onboard Communication   | AUTOSAR SecOC 车载安全通信(CMAC + 抗重放) |
-| `tec/hsm`                 | 硬件安全模块                   | SHE / EVITA HSM / TPM     |
-| `tec/atf`                 | ARM Trust Firmware             | ATF 安全启动              |
-| `tec/optee`               | OP-TEE 可信执行环境            | TEE 应用                  |
-| `tec/rpmb`                | RPMB 安全存储                  | 防回滚                    |
-| `tec/avb`                 | Android Verified Boot          | 启动验证                  |
-| `tec/macsec`              | MACsec 协议                    | 链路层加密                |
-| `tec/ipsec`               | IPsec 协议                     | 网络层加密                |
-| `tec/gmssl`               | 国密算法 (GM/T 系列)           | SM2/SM3/SM4 等商用密码、车载国密合规 |
+| 值               | 含义                         | 适用场景                                  |
+| ---------------- | ---------------------------- | ----------------------------------------- |
+| `tec/iso21434` | ISO 21434 汽车网络安全标准   | TARA 威胁建模 / 网络安全管理体系          |
+| `tec/secoc`    | Secure Onboard Communication | AUTOSAR SecOC 车载安全通信(CMAC + 抗重放) |
+| `tec/hsm`      | 硬件安全模块                 | SHE / EVITA HSM / TPM                     |
+| `tec/atf`      | ARM Trust Firmware           | ATF 安全启动                              |
+| `tec/optee`    | OP-TEE 可信执行环境          | TEE 应用                                  |
+| `tec/rpmb`     | RPMB 安全存储                | 防回滚                                    |
+| `tec/avb`      | Android Verified Boot        | 启动验证                                  |
+| `tec/macsec`   | MACsec 协议                  | 链路层加密                                |
+| `tec/ipsec`    | IPsec 协议                   | 网络层加密                                |
+| `tec/gmssl`    | 国密算法 (GM/T 系列)         | SM2/SM3/SM4 等商用密码、车载国密合规      |
 
 ### 5.5 开发与工程工具链(Tooling)
 
-| 值                   | 含义               | 适用场景            |
-| -------------------- | ------------------ | ------------------- |
-| `tec/vector-tools` | Vector 工具链      | CANoe / vTESTstudio |
-| `tec/preevision`   | ETAS PREEvision    | EE 架构设计         |
-| `tec/wireshark`    | Wireshark 抓包     | 网络协议分析        |
-| `tec/git`          | Git 工具命令       | 版本控制            |
-| `tec/gerrit`       | Gerrit Code Review | 代码审查            |
-| `tec/jenkins`      | Jenkins CI         | 持续集成            |
-| `tec/cmake`        | CMake              | 编译构建            |
-| `tec/make`         | Make               | 编译构建            |
-| `tec/gdb`          | GDB 调试器         | 调试                |
-| `tec/yocto`        | Yocto 嵌入式构建   | BSP / SDK 构建      |
-| `tec/pet-ci`       | 恒润 PET 持续集成  | 内部 CI 平台        |
-| `tec/claude`       | Claude AI 开发工具 | AI 辅助开发         |
-| `tec/ollama`       | Ollama 端侧 LLM 推理框架 | 本地 / 车内 LLM 部署   |
-| `tec/vllm`         | vLLM 高吞吐 LLM 推理框架  | 服务端 LLM 推理      |
-| `tec/langchain`    | LangChain Agent / RAG 框架 | LLM 应用编排        |
-| `tec/llamaindex`   | LlamaIndex RAG / 数据索引框架 | 文档索引与问答      |
-| `tec/enterprise-architect` | Enterprise Architect (EA) | SysML / UML 架构建模 |
-| `tec/simulink`     | MATLAB Simulink      | MBD 基于模型的设计、MIL/SIL 仿真 |
+| 值                           | 含义                          | 适用场景                         |
+| ---------------------------- | ----------------------------- | -------------------------------- |
+| `tec/vector-tools`         | Vector 工具链                 | CANoe / vTESTstudio              |
+| `tec/preevision`           | ETAS PREEvision               | EE 架构设计                      |
+| `tec/wireshark`            | Wireshark 抓包                | 网络协议分析                     |
+| `tec/git`                  | Git 工具命令                  | 版本控制                         |
+| `tec/gerrit`               | Gerrit Code Review            | 代码审查                         |
+| `tec/jenkins`              | Jenkins CI                    | 持续集成                         |
+| `tec/cmake`                | CMake                         | 编译构建                         |
+| `tec/make`                 | Make                          | 编译构建                         |
+| `tec/gdb`                  | GDB 调试器                    | 调试                             |
+| `tec/yocto`                | Yocto 嵌入式构建              | BSP / SDK 构建                   |
+| `tec/pet-ci`               | 恒润 PET 持续集成             | 内部 CI 平台                     |
+| `tec/claude`               | Claude AI 开发工具            | AI 辅助开发                      |
+| `tec/ollama`               | Ollama 端侧 LLM 推理框架      | 本地 / 车内 LLM 部署             |
+| `tec/vllm`                 | vLLM 高吞吐 LLM 推理框架      | 服务端 LLM 推理                  |
+| `tec/langchain`            | LangChain Agent / RAG 框架    | LLM 应用编排                     |
+| `tec/llamaindex`           | LlamaIndex RAG / 数据索引框架 | 文档索引与问答                   |
+| `tec/enterprise-architect` | Enterprise Architect (EA)     | SysML / UML 架构建模             |
+| `tec/simulink`             | MATLAB Simulink               | MBD 基于模型的设计、MIL/SIL 仿真 |
 
 **说明**:
 
@@ -330,6 +343,7 @@
 **通用判定**:`domain/X ∈ Tags ⟹ Count(tec/Y associated with X) ≥ 1`
 
 **示例族**:
+
 - **安全类**:若含 `domain/fusa` 或 `domain/cybersecurity` → `tec/` 中须存在至少一个 `tec/iso26262-*` / `tec/iso21434` / `tec/secoc` / `tec/hsm` / `tec/gmssl` / `tec/sotif`
 - **架构类**:若含 `domain/ee-arch` → `tec/` 中须存在至少一个 `tec/autosar-*` / `tec/someip` / `tec/dds` / `tec/preevision` / `tec/enterprise-architect`(SysML/UML 架构建模)
 - **建模 / 仿真类**:若含 `phase/modeling` → `tec/` 中须存在至少一个 `tec/simulink`(MBD / MIL-SIL) / `tec/qemu`(虚拟化仿真) / `tec/enterprise-architect`(SysML/MIL 架构建模)
@@ -344,6 +358,7 @@
 **通用判定**:`layer/X ∈ Tags ⟹ tec/Y 的抽象层级 must match layer/X`
 
 **示例族**:
+
 - **芯片/硬件层**:若含 `layer/chip` 或 `layer/hardware` → `tec/` 中应含芯片型号 / 固件 / 硬件工具(`tec/s32g` / `tec/tda4` / `tec/am62a` / `tec/drive-orin` / `tec/jetson-orin` / `tec/uboot` / `tec/dtb`)
 - **OS / BSW 层**:若含 `layer/bsw-os` → `tec/` 中应含 OS / 驱动 / AUTOSAR 类(`tec/autosar-cp` / `tec/autosar-ap` / `tec/qnx` / `tec/linux` / `tec/rtos`)
 - **中间件层**:若含 `layer/middleware-soa` → `tec/` 中应含通信协议 / 服务框架(`tec/someip` / `tec/dds` / `tec/doip` / `tec/uds`)
@@ -357,6 +372,7 @@
 **逻辑**:文档用途(`docform/`)与成熟度(`maturity/`)之间存在工程合理性约束。严谨工程文档不能对应过于原始的成熟度;纯概念 / 学术文档不应被标成 standard / production。
 
 **通用判定**:
+
 - **下限约束**:严谨工程文档(`docform/interface-spec` / `docform/issue-analysis` / `docform/test-report` / `docform/standard-spec` / `docform/config-guide`)的 `maturity` 不能低于 `pilot`
 - **上限约束**:纯概念 / 学术文档(`docform/article` / `docform/study-notes` / `docform/whitepaper`)的 `maturity` 不应标为 `production`(白皮书解读标准时例外)
 - **强绑定**:`docform/standard-spec`(行业标准 / 法规全文解读与摘录)应强绑定 `maturity/standard` —— 标准类文档的成熟度在语义上就是"已成标准",若标成 `pilot` / `production` 语义失真
@@ -371,10 +387,12 @@
 **逻辑**:控制单篇文档在 `domain/` 维度的组合粒度,防止"多标签滥用"导致知识切片失去区分度。
 
 **通用判定**:
+
 - `domain/` 多选数量 ≤ 2(软上限,§1.3 已述,这里升级为 WARN 阈值)
 - 当 `domain/` ≥ 2 且不含 `domain/cross-domain` 时,触发跨域提示
 
 **示例**:
+
 - 同时 `domain/cockpit` + `domain/chassis` → 提示"是否需要补充 `domain/cross-domain` 收敛主题?"
 - `domain/` 选了 4 个领域 → 触发粒度报警
 
@@ -382,14 +400,14 @@
 
 #### §8.1 快速对照卡(供 lint engine 实现时直接落表)
 
-| 规则类型                    | 通用判定条件                                                                | 行为    | 提示信息                                                       |
-| --------------------------- | --------------------------------------------------------------------------- | ------- | -------------------------------------------------------------- |
-| **基础结构校验 (Required Axes)** | 必填轴缺失:`docform/` 或 `domain/` 任一缺失                                       | FAIL    | "必填轴 [domain/docform] 缺失,请补充"                          |
-| **单值/软上限校验 (Cardinality)** | 单值轴(`docform/` `maturity/`)被多选                                       | FAIL    | "单值轴 [axis] 被多选,请只保留一个值"                          |
-| **主题-技术共存 (Co-occurrence)** | 存在特定 `domain/` 但 `tec/` 轴缺少配套技术栈                          | WARN    | "主题 [domain] 缺少对应的 [tec] 标准或技术栈支撑"              |
-| **层级-技术对齐 (Alignment)** | `layer/` 与 `tec/` 的抽象层级严重失配                                       | WARN    | "架构层级 [layer] 与技术栈 [tec] 存在层级错配"                 |
-| **形态-成熟度约束 (Constraint)** | `docform/interface-spec` 配 `maturity/concept`(及其他下限冲突案例)   | FAIL    | "接口规范/排查分析类文档的成熟度不能低于 pilot"                |
-| **跨域粒度控制 (Threshold)** | `domain/` 数量 > 2 且未打 `domain/cross-domain`                             | WARN    | "多领域文档建议使用 domain/cross-domain 进行收敛"              |
+| 规则类型                                | 通用判定条件                                                           | 行为 | 提示信息                                          |
+| --------------------------------------- | ---------------------------------------------------------------------- | ---- | ------------------------------------------------- |
+| **基础结构校验 (Required Axes)**  | 必填轴缺失:`docform/` 或 `domain/` 任一缺失                        | FAIL | "必填轴 [domain/docform] 缺失,请补充"             |
+| **单值/软上限校验 (Cardinality)** | 单值轴(`docform/` `maturity/`)被多选                               | FAIL | "单值轴 [axis] 被多选,请只保留一个值"             |
+| **主题-技术共存 (Co-occurrence)** | 存在特定`domain/` 但 `tec/` 轴缺少配套技术栈                       | WARN | "主题 [domain] 缺少对应的 [tec] 标准或技术栈支撑" |
+| **层级-技术对齐 (Alignment)**     | `layer/` 与 `tec/` 的抽象层级严重失配                              | WARN | "架构层级 [layer] 与技术栈 [tec] 存在层级错配"    |
+| **形态-成熟度约束 (Constraint)**  | `docform/interface-spec` 配 `maturity/concept`(及其他下限冲突案例) | FAIL | "接口规范/排查分析类文档的成熟度不能低于 pilot"   |
+| **跨域粒度控制 (Threshold)**      | `domain/` 数量 > 2 且未打 `domain/cross-domain`                    | WARN | "多领域文档建议使用 domain/cross-domain 进行收敛" |
 
 > 实现侧可把这 6 行直接落到 lint 配置文件(`.lint-rules.yaml` / `tag-lint.json`),每条范式在配置里只是一段条件表达式 + 提示模板,新增示例族挂到对应范式下,无需改 lint engine 主体。
 
