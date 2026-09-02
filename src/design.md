@@ -35,7 +35,7 @@ src/
 │   ├── aeps-llm-wiki-ingest/SKILL.md
 │   ├── aeps-llm-wiki-query/SKILL.md
 │   ├── aeps-llm-wiki-lint/SKILL.md
-│   └── aeps-llm-wiki-status/SKILL.md  # 可选
+│   └── aeps-llm-wiki-synthesize/SKILL.md
 ├── templates/                     # 【运行路径】init 时复制到用户项目
 │   ├── index.md
 │   ├── log.md
@@ -1122,12 +1122,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
   - sources/url-only-ref.md      ← 外部引用
 ```
 
-### 4.5 `/aeps-llm-wiki-status`(可选)
-
-- 只读:列总页数、按 type 分组、最近 10 条 log、孤儿数
-- 不写
-
-### 4.6 `/aeps-llm-wiki-synthesize <topic>`
+### 4.5 `/aeps-llm-wiki-synthesize <topic>`
 
 **触发场景**:用户对某主题积累足够多(读 N 篇 source、有 K 个 entity/concept 页)后,主动想让 LLM 写一份"宏大综合"。
 
@@ -1149,7 +1144,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
 - query 落档 = `analyses/<时间戳>-<slug>.md`(`type: analysis`,时间戳,**一次性视角**)
 - synthesize = `syntheses/<topic-slug>.md`(`type: synthesis`,**常驻**,多次 update)
 
-### 4.7 `/aeps-llm-wiki-query` 内 comparison 自然触发机制
+### 4.6 `/aeps-llm-wiki-query` 内 comparison 自然触发机制
 
 **不增加 skill**,由 query skill + ingest skill 共同承担:
 

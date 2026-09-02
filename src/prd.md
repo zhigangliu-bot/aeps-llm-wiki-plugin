@@ -117,7 +117,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
       - 目标目录不存在(字典外的自定义目录、LLM 判定的二级子目录)→ **必须人工拍板**才创建 + mv
     - **绝不静默创建未存在的目录**
   - 与用户做要点确认(不阻塞,可一句"继续"跳过)
-  - 生成 `type: source` 的源页,放在 `knowledge/sources/<basename>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,**任何缺失 = lint FAIL**;**禁止**含 `## 摘要` 小节,长摘要走 frontmatter `summary` 字段;详见 design §3.1 §C + §4.6)
+  - 生成 `type: source` 的源页,放在 `knowledge/sources/<basename>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,**任何缺失 = lint FAIL**;**禁止**含 `## 摘要` 小节,长摘要走 frontmatter `summary` 字段;详见 design §3.1 §C)
   - 抽取实体 / 概念 / 术语,**自动**生成对应子页:
     - 具象存在 → `knowledge/entities/<子类>/<slug>.md`,`type` 取子类值(`person` / `organization` / `project` / `product` / `event` / `place` / `other`)
     - 抽象知识 → `knowledge/concepts/<子类>/<slug>.md`,`type` 取子类值(`theory` / `method` / `field` / `phenomenon` / `standard` / `term` / `other`)
@@ -147,7 +147,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
   - 探查入口:`scripts/check-qmd.mjs`(单次脚本,跑 `qmd --version` 探查可用性)
 - **必须**:
   - 回答,**每条断言附 wiki 标准 markdown 链接**
-  - 回答结束后**问用户是否落档** —— 落档则新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,与 `sources/` 同约束;**禁止**含 `## 摘要` 小节,query 原问句必须保留在 frontmatter `summary` 字段首行 `**问题**: ...`;详见 design §3.1 §C + §4.6),追加 log
+  - 回答结束后**问用户是否落档** —— 落档则新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,与 `sources/` 同约束;**禁止**含 `## 摘要` 小节,query 原问句必须保留在 frontmatter `summary` 字段首行 `**问题**: ...`;详见 design §3.1 §C),追加 log
 - **不应**:编造 wiki 里没有的内容(必须诚实说"我读到的 wiki 里没有覆盖这点")
 
 ### 4.4 Lint skill
@@ -162,18 +162,13 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
     - **LLM 命名飘**:相似子目录/页面名检测(Levenshtein ≤ 2 / 前缀差异 / 同义拼写),不自动合并,仅 prompt + 用户拍板(详见 design §4.4)
     - **漏链**:某 page 里反复出现但链接缺失的术语
     - **frontmatter 不合规**:必填字段缺失 / 类型错位
-    - **正文骨架不合规**:`sources/*.md` 和 `analyses/*.md` 必含 3 节 H2(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),缺一即 FAIL;**禁止**含 `## 摘要` / `## Summary` H2(详见 design §3.1 §C + §4.6)
+    - **正文骨架不合规**:`sources/*.md` 和 `analyses/*.md` 必含 3 节 H2(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),缺一即 FAIL;**禁止**含 `## 摘要` / `## Summary` H2(详见 design §3.1 §C)
     - **`comparisons/*.md` 不合规**:`type` 必须是 `comparison` + 必须含 `sources:` 字段(否则 FAIL)
     - **`syntheses/*.md` 不合规**:`type` 必须是 `synthesis` + `sources_count` < 3 警告(避免空综合)
   - 默认只报告;`--fix` 模式提议一次性 diff 让用户确认后应用
 - **不应**:静默修改文件
 
-### 4.5 Status skill(可选,低成本)
-
-- **触发**:`/aeps-llm-wiki-status`
-- **作用**:列出 `knowledge/` 总页数、按 type 分组、最近 10 条 log、孤儿数 —— 只读,不写
-
-### 4.6 Synthesize skill(Karpathy line 31 "synthesis")
+### 4.5 Synthesize skill(Karpathy line 31 "synthesis")
 
 - **触发**:`/aeps-llm-wiki-synthesize <topic>`
 - **必须**:
@@ -184,7 +179,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
   - 更新 `knowledge/index.md`(新增条目)
 - **不应**:写一次性"当时综合"(那是 `analysis`,不是 `synthesis`)
 
-### 4.7 Comparison 自然触发规则(Karpathy line 31 "comparisons")
+### 4.6 Comparison 自然触发规则(Karpathy line 31 "comparisons")
 
 不增加 skill,**由 query skill 内置两条触发路径**:
 

@@ -117,7 +117,7 @@ plugin 上架资产                          ❌ 待新建
 
 #### B5:`/aeps-llm-wiki-synthesize` SKILL.md
 
-对应 prd.md §4.5,设计见 design.md §4.5。
+对应 prd.md §4.5,设计见 design.md §4.5(synthesize 段)。
 必读:`knowledge/index.md` + topic 相关页。
 **核心边界**:
 - 路径:`knowledge/syntheses/<topic-slug>.md`,不带时间戳,常驻
@@ -255,7 +255,6 @@ git tag -l "v*" | sort -V | tail -5
 
 ## 5. 不在本次范围(后续版本)
 
-- v0.5:增加 `/aeps-llm-wiki-status`(可选 skill,设计见 design.md §4.5)
 - v0.5:knowledge-base 类 MCP server(目前 NFR-1 硬约束禁止,可解约后考虑)
 - v0.5:Web 端 UI(目前纯 CLI / Claude Code 形态)
 - v0.6:多语言(目前 NFR-3 中文优先,英文术语保留)
