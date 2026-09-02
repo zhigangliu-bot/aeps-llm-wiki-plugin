@@ -1,14 +1,17 @@
 # scripts/
 
-**当前状态**:占位目录,无脚本。
+**当前状态**:占位目录,待与 convert-to-md.mjs 等脚本一起新建。
 
 ## 定位
 
 skill 调用的辅助脚本。**只放单次运行即退出的 helper**,不开 daemon、不挂监听、不对外暴露服务(与 "plugin 不带运行时" 约束不冲突)。
 
-## 当前为什么是空的
+## 已确定要建的脚本
 
-prd/design 阶段不写具体脚本 —— 脚本需求由 skill 实现细节确定,避免提前写过时被推翻。
+| 脚本 | 调用方 | 用途 |
+|---|---|---|
+| `convert-to-md.mjs` | ingest skill | 按扩展名分流:`md/txt/...` 直接读;`pptx/docx/xlsx/pdf` 先 Claude converter 失败降级 anydoc;`png/jpg/jpeg/bmp/tiff` 走 paddleocr。详见 design §4.2 / §2.4 |
+| `requirements.txt` | (依赖清单,非可执行) | anydoc / paddleocr Python 依赖;用户必须 `pip install -r scripts/requirements.txt` |
 
 ## 未来可能添加的脚本(skill 实现阶段定)
 

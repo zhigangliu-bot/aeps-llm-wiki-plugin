@@ -12,9 +12,9 @@
 src/                                    已完成
 ├── design.md                           ✅
 ├── prd.md                              ✅
-├── requirements.txt                    ✅(零依赖,纯 prompt + stdlib + Unix)
-├── scripts/                            空(故意,prompt 驱动)
-│   └── README.md                       ✅
+├── requirements.txt                    ✅(Python 依赖清单,anydoc / paddleocr)
+├── scripts/                            ❌ 待新建(convert-to-md.mjs + 其他脚本)
+│   └── (暂无)                           ❌
 └── templates/                          ✅
     ├── raw-readme.md                   ✅(15 类权威字典,plugin 主)
     ├── concept-entities-readme.md      ✅(子类 ↔ 目录绑死)
@@ -79,8 +79,13 @@ plugin 上架资产                          ❌ 待新建
 对应 prd.md §4.2,设计见 design.md §5.1。
 必读:`knowledge/SCHEMA.md`(本机已实化版)+ `raw/README.md` + `raw/tag-template.md` + `raw/concept-entities-readme.md`。
 **核心边界**:
-- 路径分流:inbox 走"提议 + 拍板 + mv",raw 走"直接读不移动"
-- `--raw-subdir=<name>` 仅 inbox 生效,raw 路径报错
+- 入口:**递归**扫 `<project>/inbox/`(含子目录),不递归 raw/
+- **跑前先校验依赖**:`scripts/requirements.txt` 的 anydoc / paddleocr 是否安装;未装 → 提示 + 退出
+- 文件读取走统一入口 **`scripts/convert-to-md.mjs --project-dir . --input inbox/<file> --output <tmp>`**:
+  - md / txt / csv / json / yaml / xml / html / htm / rst → 直接读
+  - pptx / docx / xlsx / pdf → Claude converter 失败则降级 anydoc
+  - png / jpg / jpeg / bmp / tiff → paddleocr
+  - 其他 / 失败 → FAIL,提示"无法转换 <file>,请手动预处理"
 - 拍板门分流:目标目录已存在无需拍板;不存在必须拍板
 - 3 节 H2 骨架硬约束(## 重点摘录 / ## 我的思考 / ## 总结:最有收获的一句话)
 - 禁止 `## 摘要` / `## Summary` 小节
@@ -123,10 +128,24 @@ plugin 上架资产                          ❌ 待新建
 - [ ] `raw/` 下 4 份字典复制完整
 - [ ] `knowledge/SCHEMA.md` 占位符全部替换(用户项目目录名 / actor 字符串)
 
-#### C2:AC-2(ingest raw/okf-spec.md 产出 ≥ 5 概念页)
-- [ ] 准备 fixture:把 `input/google-OKF/OKF-SPEC.md` 复制到 fixture 的 `raw/` 某子类
-- [ ] 跑 ingest,验证产出 ≥ 5 个 `concepts/<子类>/*.md`
+#### C2:AC-2(ingest inbox/OKF-SPEC.md 产出 ≥ 5 概念页)
+- [ ] 准备 fixture:把 `input/google-OKF/OKF-SPEC.md` 复制到 fixture 的 `inbox/`
+- [ ] 跑 `/aeps-llm-wiki-ingest`(无参数),验证产出 ≥ 5 个 `concepts/<子类>/*.md`
 - [ ] `index.md` 自动反映新增
+
+#### C2.1:AC-2 扩展(文件类型分流)
+- [ ] fixture 准备 `inbox/` 含: `.md` / `.txt` / `.pdf` / `.docx` / `.xlsx` / `.pptx` / `.png` 各一份
+- [ ] 跑 ingest,验证每份都生成对应的 `knowledge/sources/<basename>.md`(OCR 类需 paddleocr 装好)
+- [ ] 验证转换日志(`log.md` 里的 Action 条目)分别记"直接读 / Claude converter / anydoc 降级 / paddleocr"
+- [ ] 故意放一个 `.bin` 或未知扩展名,验证 FAIL + 提示"未支持的扩展名"
+
+#### C2.2:依赖未装场景
+- [ ] fixture 在虚拟环境卸载 paddleocr / anydoc,跑 ingest 含 `.png` / `.pdf` 的 inbox
+- [ ] 验证 SKILL.md 跑前就提示"请先 pip install -r scripts/requirements.txt",**不**中途才报错
+
+#### C2.3:inbox 递归子目录
+- [ ] fixture 在 `inbox/notes/s32g/` 下放两个 `.md` 文件
+- [ ] 跑 ingest,验证两个文件都被处理(子目录文件路径作为 LLM 分类依据之一,raw_category 派生按最终 raw 路径,与 inbox 子目录无关)
 
 #### C3:AC-3(query 不编造)
 - [ ] 准备 fixture:已知 wiki 内容
@@ -142,14 +161,14 @@ plugin 上架资产                          ❌ 待新建
 - [ ] 任何不合规立刻 FAIL
 
 #### C6:AC-6(ingest inbox 拍板门)
-- [ ] inbox/<file>,跑 ingest,验证未拍板前文件不动
+- [ ] fixture 在 `inbox/<file>`,跑 `/aeps-llm-wiki-ingest`,验证未拍板前 inbox 文件不动
 - [ ] 用户拍板后,文件出现在 `raw/<subdir>/`,`inbox/<file>` 删除,`log.md` 记 Migration
 
 #### C7:AC-7(--raw-subdir inbox 直迁)
-- [ ] inbox/<file>,跑 `ingest --raw-subdir=<已存在 15 类>`,验证无交互直迁 + log 记路径
+- [ ] fixture 在 `inbox/<file>`,跑 `/aeps-llm-wiki-ingest --raw-subdir=<已存在 15 类>`,验证无交互直迁 + log 记路径
 
-#### C8:AC-8(--raw-subdir raw 报错)
-- [ ] raw/<file>,跑 `ingest --raw-subdir=<name> raw/<file>`,验证 lint FAIL + 提示文案
+#### C8:AC-8(ingest inbox 空)
+- [ ] fixture 的 `inbox/` 为空,跑 `/aeps-llm-wiki-ingest`,验证提示"inbox/ 为空,先把资料丢进 inbox 再跑",退出码 0
 
 #### C9:陈旧 + 命名飘专项
 - [ ] 造 fixture:`stale_after: 2025-01-01`(早已过期),lint 标陈旧

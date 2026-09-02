@@ -132,14 +132,19 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 ### 5.1 ingest(资料入 wiki)
 
 ```
-1. 用户丢 inbox/<file>
-2. 跑 /aeps-llm-wiki-ingest inbox/<file>
-3. LLM 读源 + 提议 raw/<subdir>/
-4. 用户拍板(目标目录已存在 → 无需拍板;不存在 → 必须拍板)
-5. mv inbox → raw/<subdir>/
-6. 生成 knowledge/sources/basename.md
-7. 抽取 entity / concept → 自动生成子页
-8. 更新 index.md / glossary.md / log.md / overview.md
+1. 用户丢 inbox/<file>(含子目录文件)
+2. 跑 /aeps-llm-wiki-ingest(无参数,递归扫 inbox/)
+3. SKILL.md 校验 scripts/requirements.txt 依赖(anydoc / paddleocr)是否安装;未装 → 提示并退出
+4. 文件读取走 scripts/convert-to-md.mjs,按扩展名分流:
+   - md / txt / csv / json / yaml / xml / html / htm / rst → 直接读
+   - pptx / docx / xlsx / pdf → Claude converter,失败降级 anydoc
+   - png / jpg / jpeg / bmp / tiff → paddleocr
+5. LLM 读源 + 提议 raw/<subdir>/
+6. 用户拍板(目标目录已存在 → 无需拍板;不存在 → 必须拍板)
+7. mv inbox → raw/<subdir>/
+8. 生成 knowledge/sources/basename.md
+9. 抽取 entity / concept → 自动生成子页
+10. 更新 index.md / glossary.md / log.md / overview.md
 ```
 
 ### 5.2 query(查询)

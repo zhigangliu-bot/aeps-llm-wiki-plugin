@@ -25,12 +25,12 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 ### 2.1 目标(必须达成)
 
 - **G1**:用户 install plugin + 跑一次 `/aeps-llm-wiki-init`,**5 分钟内**得到一个可用的 OKF 知识库目录,无需手动建文件、写 schema。
-- **G2**:用户在 `raw/` 放一份资料,跑 `/aeps-llm-wiki-ingest raw/<file>`,**由 LLM 生成**对应的 OKF 概念页,并自动维护 `index.md`、`log.md`、`glossary.md`。
+- **G2**:用户在 `inbox/` 放一份资料,跑 `/aeps-llm-wiki-ingest`(无参数,自动扫 inbox/),**由 LLM 生成**对应的 OKF 概念页,并自动维护 `index.md`、`log.md`、`glossary.md`。
 - **G3**:用户用 `/aeps-llm-wiki-query <question>`,plugin 帮用户**从 `knowledge/` 里找答案 + 引用**,并询问是否把回答落档为 `analysis` 页。
 - **G4**:plugin 生成的 wiki **严格兼容 OKF v0.2** —— 任何 OKF 工具(Knowledge Catalog、其他 agent 的 reader)能直接消费。
 - **G5**:plugin 的所有 skill 前缀统一为 `aeps-llm-wiki-`(防命名空间冲突)。
-- **G6**:`plugin **不自带运行时**(无 Python CLI、无 MCP server、无 hooks、无 RAG/embedding)—— 纯规范 + skill。
-- **G7**:用户可以把资料丢进 `inbox/`(暂存),跑 `/aeps-llm-wiki-ingest inbox/<file>`,**LLM 提议 raw/ 子目录分类 + 用户拍板**后,文件迁移到 `raw/<subdir>/`,inbox 清空。直接 ingest `raw/<file>` 的旧路径也保留。
+- **G6**:`plugin **不自带常驻运行时**(无 Python CLI daemon、无 MCP server、无 RAG/embedding 服务)—— 纯规范 + skill + 单次运行的 scripts + 事件回调 hooks。允许 hooks(plugin 本体 `hooks/hooks.json`,事件回调同步跑完即退,不开监听);scripts 与 hooks 都遵循"agent 调一次就跑完退"原则。
+- **G7**:用户把资料丢进 `inbox/`(暂存入口,**唯一入口**),跑 `/aeps-llm-wiki-ingest`(无参数,自动扫 inbox/),**LLM 提议 raw/ 子目录分类 + 用户拍板**后,文件迁移到 `raw/<subdir>/`,inbox 清空。统一为 `inbox/` 入口;raw/ 是已归档的不可变层。
 - **G8**:用户跑 `/aeps-llm-wiki-synthesize <topic>`,plugin 帮用户在 `knowledge/syntheses/` 写一份**常驻综合页**(`type: synthesis`,不带时间戳),引用 wiki 里所有与 `<topic>` 相关的页(Karpathy line 31 "synthesis")。
 - **G9**:plugin 在 ingest 多份同类 entity 或 query 累计"X vs Y"高频时,**主动提议**建 `knowledge/comparisons/<a>-vs-<b>.md` 常驻对照页(Karpathy line 31 "comparisons"),由用户拍板才建。
 
@@ -46,15 +46,15 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 
 ## 3. 用户故事
 
-| ID   | 角色          | 场景                                           | 期望                                                                                    |
-| ---- | ------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
-| US-1 | 研究者        | 想在新项目里开 wiki                            | 跑一次 init 就得到可用结构,不用手动建 7 个文件                                          |
-| US-2 | 研究者        | 把刚下载的 OKF spec 放到`raw/`               | ingest 后`knowledge/concepts/open-knowledge-format.md` 自动出现,`index.md` 自动更新 |
-| US-3 | 学习者        | 读 wiki 时想确认某概念是否被覆盖               | query 给出**带 wiki 引用的**回答,并问要不要落档                                   |
-| US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期,并提议修复 diff                                             |
-| US-5 | 好奇者        | 在 OKF Knowledge Catalog 里发现一个别人的 wiki | 能直接导入到本地(因为我们输出严格 OKF)                                                  |
-| US-6 | plugin 维护者 | 想加新实体类型"法规"或"标准"                   | 改`schema/frontmatter.schema.yaml` + 一行 skill 配置,不用改 plugin 主代码             |
-| US-7 | 研究者        | 拿到一份资料但还没决定归档到 raw/ 哪个分类    | 丢`inbox/`,ingest 时 LLM 提议子目录(如`raw/okf/`),用户一句"好"或改后确认,文件自动迁移 |
+| ID   | 角色          | 场景                                           | 期望                                                                                      |
+| ---- | ------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| US-1 | 研究者        | 想在新项目里开 wiki                            | 跑一次 init 就得到可用结构,不用手动建 7 个文件                                            |
+| US-2 | 研究者        | 把刚下载的 OKF spec 放到`inbox/`             | ingest 后`knowledge/concepts/open-knowledge-format.md` 自动出现,`index.md` 自动更新   |
+| US-3 | 学习者        | 读 wiki 时想确认某概念是否被覆盖               | query 给出**带 wiki 引用的**回答,并问要不要落档                                     |
+| US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期,并提议修复 diff                                               |
+| US-5 | 好奇者        | 在 OKF Knowledge Catalog 里发现一个别人的 wiki | 能直接导入到本地(因为我们输出严格 OKF)                                                    |
+| US-6 | plugin 维护者 | 想加新实体类型"法规"或"标准"                   | 改`schema/frontmatter.schema.yaml` + 一行 skill 配置,不用改 plugin 主代码               |
+| US-7 | 研究者        | 拿到一份资料但还没决定归档到 raw/ 哪个分类     | 丢`inbox/`,ingest 时 LLM 提议子目录(如`raw/okf/`),用户一句"好"或改后确认,文件自动迁移 |
 
 ---
 
@@ -63,28 +63,54 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 ### 4.1 Init skill
 
 - **触发**:`/aeps-llm-wiki-init`(首次启用或已存在项目再次启用,后者走"幂等再入",见下方)
-- **必须**(首次启用):
-  - 在当前工作目录建 `raw/`(从 `templates/` **复制 3 份字典**:`raw-readme.md` + `concept-entities-readme.md` + `tag-template.md` + **预建 15 类子目录,每个放 `.gitkeep`**)+ `knowledge/`(5 个种子文件 + **预建 14 个子目录**:`sources/`、`entities/{person,organization,project,product,event,place,other}/`、`concepts/{theory,method,field,phenomenon,standard,term,other}/`、`analyses/`,**每个叶子目录放 `.gitkeep`**)
-  - 从 `templates/` 复制对应模板,做必要的内容填充
-  - 在 `knowledge/SCHEMA.md` 写入 plugin 自己的操作手册(对应 Karpathy 的 `CLAUDE.md` 角色)
-  - **可选**:用户可指定目录名(`--knowledge-dir=notes`、`--raw-dir=sources`);不传则用 `knowledge/` + `raw/`
+- **目录名约定**(硬约束,无参数):`inbox/` `raw/` `scripts/` `templates/` `knowledge/` 五个顶层目录名**全部固定默认**,init 不接受 `--xxx-dir` 之类的目录名参数;子目录名见 §6.1
+- **必须**(首次启用,**全栈建好**):
+  1. **创建 `<project>/inbox/`**:放 `README.md`(从 `templates/inbox-readme.md`) + `.gitkeep`
+  2. **创建 `<project>/raw/`**:放 `README.md`(从 `templates/raw-readme.md`) + `.gitkeep`;**预建 15 类子目录,每个放 `.gitkeep`**
+  3. **创建 `<project>/scripts/`**:从 plugin 本体 `scripts/` 目录下**所有文件**拷贝过去(具体文件清单由实现侧按目录扫描决定,不写入本文档)
+  4. **创建 `<project>/templates/`**:从 plugin 本体 `templates/` 拷贝 4 份页生成模板(`source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md`)+ **2 份全栈字典**(`concept-entities-readme.md` / `tag-template.md`)
+  5. **创建 `<project>/knowledge/`**:
+     - `SCHEMA.md`(从 `templates/knowledge-SCHEMA.md`,**替换 plugin 内部占位符**:`{{plugin_version}}` / `{{init_at}}` / actor 字符串等;**不**替换目录名,因为目录名固定)
+     - `index.md` + `overview.md` + `glossary.md` + `log.md`(从对应模板)
+     - **预建 17 个子目录**(`sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`),**每个叶子目录放 `.gitkeep`**
 - **必须**(已存在项目再次启用,**幂等再入**):
   - **不静默覆盖**任何用户本地新增/修改/删除的内容
   - 字典 sync(3 份):用户项目里**没有** → 直接复制;**新增章节/条目** → append 到对应 H2 末尾;**用户已删** → 不补回,lint 提示"plugin 新版有 X 条本地无,要不要采纳?"
-  - 目录 sync:用户项目里**缺失**的 15 类 / 14 子类 → **补建 + .gitkeep**;plugin 新版**新增的**(用户项目里没有) → **不建**(留给 ingest 拍板门)
-  - 文件 sync:`SCHEMA.md` / `index.md` / `overview.md` / `inbox/README.md` → **直接覆盖**(plugin 自己写或简版提示);`log.md` → **追加一条 re-run 记录**;`glossary.md` → **不动**
+  - 目录 sync:用户项目里**缺失**的 15 raw 类 / 17 knowledge 子类 → **补建 + .gitkeep**;plugin 新版**新增的**(用户项目里没有) → **不建**(留给 ingest 拍板门)
+  - scripts/ 与 templates/ sync 策略详见 design §2.4 / §2.5
+  - 文件 sync(完整表;字典 sync 细则按上方独立条目):
+
+    | 文件 | 首次 init | re-run init |
+    |---|---|---|
+    | `SCHEMA.md` | 从 templates/ 复制 + 占位符替换 | **覆盖** |
+    | `index.md` | 从 templates/ 复制(空模板) | **不动** |
+    | `overview.md` | 从 templates/ 复制(空模板) | **不动** |
+    | `inbox/README.md` | 从 templates/ 复制 | **覆盖** |
+    | `log.md` | 从 templates/ 复制 | **append** |
+    | `glossary.md` | 从 templates/ 复制 | **不动** |
+    | `raw/README.md` | 从 templates/ 复制 | append 字典策略(已有) |
+    | `templates/concept-entities-readme.md` | 从 templates/ 复制 | append 字典策略(已有) |
+    | `templates/tag-template.md` | 从 templates/ 复制 | append 字典策略(已有) |
+
   - 结束向用户报告 sync 摘要(append 条数、覆盖文件列表、补建目录列表)
 - **不应**:覆盖已存在的 `knowledge/` 用户内容;若检测到非空 `knowledge/`,走"幂等再入"分支,**不**警告阻止
 
 ### 4.2 Ingest skill
 
-- **触发**:`/aeps-llm-wiki-ingest <path> [--into <type>] [--as <page-name>]`
-- **路径来源**:支持两种
-  - **`raw/<path>`**(传统入口)—— 文件已在归档,直接读、生成知识页,**不移动文件**
-  - **`inbox/<path>`**(暂存入口,G7)—— 文件是临时的,LLM 读完 + 用户拍板分类后**迁移**到 `raw/<subdir>/`,`inbox/<path>` 删除
-- **子命令 `--raw-subdir=<name>`**:用户跳过分类交互,强制把 **inbox 来源**文件迁到 `raw/<name>/`(LLM 不再提议)。**仅 inbox 生效**(详见 design §5.1);对 `raw/<path>` 来源不生效,raw 路径走 `git mv` 手工调整
-- **必须**:
-  - 读源文件(markdown / txt / pdf / docx —— 通过 Claude 内置 converter)
+- **触发**:`/aeps-llm-wiki-ingest`(无参数,递归扫描当前工程 `inbox/` 全部文件;raw 子目录 LLM 自动提议,新页路径 / slug 按 SCHEMA.md 自动生成)
+- **入口**:**仅 `<project>/inbox/`**(递归扫描子目录,G7)
+  - inbox 文件读完 + 用户拍板分类后**迁移**到 `raw/<subdir>/`,`inbox/<file>` 删除(inbox 子目录里的文件也按相同逻辑:LLM 提议 raw 子目录分类、拍板、迁移)
+  - raw/ 不被扫描(G7)—— raw 是已归档的不可变层,调整走 `git mv` 或手工
+- **不应**:扫描 `raw/` 下的文件(用户想调整 raw 归档 → `git mv`)
+- **子命令 `--raw-subdir=<name>`**:跳过分类交互,强制把 inbox 文件迁到 `raw/<name>/`(LLM 不再提议)。**仅 inbox 非空时生效**(详见 design §5.1)
+- **必须**(文件读取策略,详见 design §4.2):
+  - `.md` / `.markdown` / `.rst` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` —— **直接读**(纯文本)
+  - `.pptx` / `.docx` / `.xlsx` / `.pdf` —— 先试 Claude 内置 converter,**失败后降级 anydoc 转 markdown**
+  - `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` —— **paddleocr 转 md**(OCR)
+  - 转换失败的 → **FAIL**,提示"无法转换 <file>,请手动预处理"
+  - 转换入口:**统一 `scripts/convert-to-md.mjs`**,按扩展名分流(详见 design §4.2 / §2.4)
+  - 依赖库清单:`scripts/requirements.txt`(anydoc / paddleocr 等 Python 依赖),**用户必须装**;未装 → 提示并退出
+- **必须**(分类 + 写入):
   - **路径来自 `inbox/`**:LLM 先**提议**一个 raw 子目录分类 + 短理由
     - **拍板门分流**:
       - 目标目录已存在(init 预建的 15 类或二级已有目录)→ **无需拍板**,直接 mv
@@ -186,6 +212,12 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 │   ├── 13_流程体系/.gitkeep
 │   ├── 14_测试与验证/.gitkeep
 │   └── 15_算法/.gitkeep
+├── scripts/                          # plugin 维护的单次运行脚本(Node 18+,.mjs),init 时从 plugin 拷贝到此(具体文件由实现侧按目录扫描决定,本文档不列举)
+├── templates/                        # scripts 生成文件时读的"页模板源",init 时拷过来;其他字典/操作手册仍按分散落位策略
+│   ├── source-page.md                # sources/ 页生成模板
+│   ├── analysis-page.md              # analyses/ 页生成模板
+│   ├── entity-page.md                # entities/<子类>/ 页生成模板
+│   └── concept-page.md               # concepts/<子类>/ 页生成模板
 └── knowledge/                        # LLM 维护的知识层
     ├── SCHEMA.md                     # Agent 操作手册(plugin 写的)
     ├── index.md                      # 主目录
@@ -233,9 +265,9 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 - [ ] AC-3:`/aeps-llm-wiki-query "OKF 必填字段是哪个"`,回答含 wiki 链接,且**不编造 wiki 里没有的内容**
 - [ ] AC-4:`/aeps-llm-wiki-lint` 能正确识别孤儿页、过期页、frontmatter 不合规页
 - [ ] AC-5:**生成的任意 wiki 页 frontmatter 都能被 OKF v0.2 校验脚本通过**(自动测试)
-- [ ] AC-6:`/aeps-llm-wiki-ingest inbox/<file>`:LLM 输出迁移提议,**未拍板前 inbox 文件不动**;用户拍板后文件出现在 `raw/<subdir>/`,`inbox/<file>` 删除,`log.md` 记录迁移路径
-- [ ] AC-7:`/aeps-llm-wiki-ingest --raw-subdir=<name> inbox/<file>`:跳过分类交互,直接迁到 `raw/<name>/`;`log.md` 仍记迁移路径
-- [ ] AC-8:`/aeps-llm-wiki-ingest --raw-subdir=<name> raw/<file>`:**lint FAIL**,提示"raw 路径不支持 `--raw-subdir`,文件已归档,请走 `git mv` 或手工调整"
+- [ ] AC-6:`/aeps-llm-wiki-ingest`(无参数,扫 inbox/):LLM 输出迁移提议,**未拍板前 inbox 文件不动**;用户拍板后文件出现在 `raw/<subdir>/`,`inbox/<file>` 删除,`log.md` 记录迁移路径
+- [ ] AC-7:`/aeps-llm-wiki-ingest --raw-subdir=<name>`:跳过分类交互,直接迁到 `raw/<name>/`;`log.md` 仍记迁移路径
+- [ ] AC-8:`/aeps-llm-wiki-ingest` 但 `inbox/` 为空:提示"inbox/ 为空,先把资料丢进 inbox 再跑",**不报错**(退出码 0,符合 SKILL 调用语义)
 
 ### 7.2 非功能验收
 
@@ -256,18 +288,18 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 
 ## 8. 风险 / 取舍
 
-| 风险                                                          | 影响                              | 缓解                                                                             |
-| ------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
-| OKF v0.x 仍在演进(v0.2 已发),字段可能变化                     | plugin 锁定的 type 集合将来要适配 | 只锁定 OKF v0.2 已定义的字段,扩展字段显式标注为 plugin 扩展,OKF 工具可忽略 |
-| LLM 在 ingest 时跑偏(漏抽 / 错判 entity 还是 concept / 错选 14 子类) | wiki 质量下降 | lint skill 兜底,识别"目录名 ↔ type"不一致;SCHEMA.md 给明确子类判定示例 |
-| `[[wikilink]]` 与标准 markdown 链接混用                     | OKF 工具可能不解析`[[]]`        | OKF §6.1 只认标准 markdown 链接;plugin 强制只写标准链接(详见 design),不再有 `[[]]` 兼容问题 |
-| `knowledge/` 与 git 仓污染                                  | 用户误把生成的 wiki 提交          | README 明确建议`.gitignore` `knowledge/` 或选择性提交;plugin 不强制 git 操作 |
-| plugin 内部`schema/frontmatter.schema.yaml` 与用户实际 wiki drift | lint 误报                         | lint 只读 plugin 的 schema.yaml(权威字段表),不读用户项目;用户项目的 `knowledge/SCHEMA.md` 引用同一份 plugin 字段表,不重复列字段 |
-| inbox 文件被 LLM 误迁移到错误目录                           | 用户资料找不到                     | 已存在目录(15 类预建)直接放,出错概率低;字典外的创建**必须拍板**;拍板后 log 留完整 `inbox/ → raw/` 路径便于回滚 |
-| inbox 文件用户拍板后忘了删                                   | 下次 ingest 重复处理              | ingest 流程内强制 `inbox/<file>` 删除;不是用户操作,是 skill 原子步骤 |
-| raw 子目录无限增长,LLM 起名飘(15 类之外)                  | 子目录碎片化(`16_公司内部_a`、`16_公司内部_b`...) | init 时 15 类全部预建,日常基本不会触发创建;字典外的创建必须拍板,用户当场就拦下;lint 仍建议合并相似的子目录 |
-| comparison 触发逻辑误报(LLM 提议用户不需要的对比页)        | `comparisons/` 出现噪声                              | 两条触发路径(同类 entity / 高频检索)都只在落档询问时**提议**,用户拍板才建;**只提一次**,后续不再重复 |
-| synthesis 写得太空(只是简单罗列,没真正"综合")             | synthesis 页失去价值                                  | frontmatter `sources_count` 字段是"参考多少页"硬指标,sources_count 太低(<3)的 synthesis lint 警告;正文不锁骨架,LLM 自由发挥,但搜索功能可"找引用最广的综合页" |
+| 风险                                                                 | 影响                                                  | 缓解                                                                                                                                                          |
+| -------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OKF v0.x 仍在演进(v0.2 已发),字段可能变化                            | plugin 锁定的 type 集合将来要适配                     | 只锁定 OKF v0.2 已定义的字段,扩展字段显式标注为 plugin 扩展,OKF 工具可忽略                                                                                    |
+| LLM 在 ingest 时跑偏(漏抽 / 错判 entity 还是 concept / 错选 14 子类) | wiki 质量下降                                         | lint skill 兜底,识别"目录名 ↔ type"不一致;SCHEMA.md 给明确子类判定示例                                                                                       |
+| `[[wikilink]]` 与标准 markdown 链接混用                            | OKF 工具可能不解析`[[]]`                            | OKF §6.1 只认标准 markdown 链接;plugin 强制只写标准链接(详见 design),不再有`[[]]` 兼容问题                                                                 |
+| `knowledge/` 与 git 仓污染                                         | 用户误把生成的 wiki 提交                              | README 明确建议`.gitignore` `knowledge/` 或选择性提交;plugin 不强制 git 操作                                                                              |
+| plugin 内部`schema/frontmatter.schema.yaml` 与用户实际 wiki drift  | lint 误报                                             | lint 只读 plugin 的 schema.yaml(权威字段表),不读用户项目;用户项目的`knowledge/SCHEMA.md` 引用同一份 plugin 字段表,不重复列字段                              |
+| inbox 文件被 LLM 误迁移到错误目录                                    | 用户资料找不到                                        | 已存在目录(15 类预建)直接放,出错概率低;字典外的创建**必须拍板**;拍板后 log 留完整 `inbox/ → raw/` 路径便于回滚                                       |
+| inbox 文件用户拍板后忘了删                                           | 下次 ingest 重复处理                                  | ingest 流程内强制`inbox/<file>` 删除;不是用户操作,是 skill 原子步骤                                                                                         |
+| raw 子目录无限增长,LLM 起名飘(15 类之外)                             | 子目录碎片化(`16_公司内部_a`、`16_公司内部_b`...) | init 时 15 类全部预建,日常基本不会触发创建;字典外的创建必须拍板,用户当场就拦下;lint 仍建议合并相似的子目录                                                    |
+| comparison 触发逻辑误报(LLM 提议用户不需要的对比页)                  | `comparisons/` 出现噪声                             | 两条触发路径(同类 entity / 高频检索)都只在落档询问时**提议**,用户拍板才建;**只提一次**,后续不再重复                                               |
+| synthesis 写得太空(只是简单罗列,没真正"综合")                        | synthesis 页失去价值                                  | frontmatter`sources_count` 字段是"参考多少页"硬指标,sources_count 太低(<3)的 synthesis lint 警告;正文不锁骨架,LLM 自由发挥,但搜索功能可"找引用最广的综合页" |
 
 ---
 
@@ -287,7 +319,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 - [ ] **Q1**:`SKILL.md` / `SCHEMA.md` / `frontmatter.schema.yaml` 哪个作为"权威"?建议 `frontmatter.schema.yaml` 机器读,`SCHEMA.md` 人读,二者同源(SKILL.md 里写明"以 SCHEMA.md 为准,字段集合见 frontmatter.schema.yaml")
 - [ ] **Q2**:`/aeps-llm-wiki-query` 是不是要支持**纯文本模式**(用户想用 `--no-save` 跳过落档询问)?
 - [ ] **Q3**:`/aeps-llm-wiki-lint --fix` 模式是给 diff 让用户**手工应用**,还是尝试**自动 patch**(后者风险更高)?
-- [x] **Q4**:✅ ~~`raw/` / `inbox/` 要不要各放一个 `README.md` 告诉用户放什么、不放什么~~ —— 已定:`raw-readme.md` 全量放 15 类边界规则(权威文件:plugin 本体 `templates/raw-readme.md`);`inbox-readme.md` 简版提示(2026-09-02 完成 `templates/inbox-readme.md`)
+- [X] **Q4**:✅ ~~`raw/` / `inbox/` 要不要各放一个 `README.md` 告诉用户放什么、不放什么~~ —— 已定:`raw-readme.md` 全量放 15 类边界规则(权威文件:plugin 本体 `templates/raw-readme.md`);`inbox-readme.md` 简版提示
 - [ ] **Q5**:`inbox → raw` 迁移时,LLM 提议的子目录名要不要走 `lint` 风格的"相似合并建议"?(避免 LLM 每次起新名)
 
 ---

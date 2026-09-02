@@ -16,7 +16,16 @@
 - 会议纪要草稿 / OCR 截图
 - 任何"现在没空管,但将来想沉淀进知识库"的零散文件
 
-**支持格式**:`.md` / `.txt` / `.pdf` / `.docx` / `.png` / `.jpg`(LLM 通过 Claude 内置 converter 读取)
+**支持格式**:
+
+| 扩展名 | 读取方式 |
+|---|---|
+| `.md` `.markdown` `.rst` `.txt` `.csv` `.json` `.yaml` `.yml` `.xml` `.html` `.htm` | 直接读(纯文本) |
+| `.pptx` `.docx` `.xlsx` `.pdf` | Claude 内置 converter,失败降级 anydoc |
+| `.png` `.jpg` `.jpeg` `.bmp` `.tiff` | paddleocr(OCR) |
+| 其他 / 转换失败 | FAIL,提示手动预处理 |
+
+**依赖**:`.pptx` / `.docx` / `.xlsx` / `.pdf` / 图片类需要 `pip install -r scripts/requirements.txt`(anydoc + paddleocr)。未装时 SKILL.md 会先提示,不进入转换流程。
 
 ## 这层不放什么
 
@@ -29,8 +38,10 @@
 跑 ingest skill,让 LLM 帮你分类 + 生成知识页:
 
 ```
-/aeps-llm-wiki-ingest inbox/
+/aeps-llm-wiki-ingest
 ```
+
+(skill 无参数 —— 自动扫当前工程 `inbox/` 全部文件)
 
 LLM 会:
 
@@ -44,10 +55,10 @@ LLM 会:
 如果你**已经知道**该归档到哪个子类(比如这次丢的是 S32G 数据手册),可以一步到位:
 
 ```
-/aeps-llm-wiki-ingest --raw-subdir=02_芯片 inbox/s32g-datasheet.pdf
+/aeps-llm-wiki-ingest --raw-subdir=02_芯片
 ```
 
-**注意**:`--raw-subdir` **仅对 inbox 路径生效**;对 `raw/<path>` 来源不生效(raw 已归档,要走 `git mv` 手工调整)。
+**注意**:`--raw-subdir` **仅在 inbox/ 下有文件时生效**;inbox 为空时 skill 直接退出。raw/ 下的调整走 `git mv` 手工。
 
 ## 不变量
 
