@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-02,文档层(src/design.md + src/prd.md + 4 份 templates)已完成。
+> **状态**:截至 2026-09-02,文档层(src/design.md v0.3 + src/prd.md v0.3 + 4 份 templates)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -481,3 +481,18 @@ git tag -l "v*" | sort -V | tail -5
 **附带**:Q6 wikilink 改造测试用例在 §C4.2(4 项:links 镜像生成 / 漂移检测 / Obsidian 编辑同步 / markdown 链接 type 区分),在 v0.2 一并冻结。
 
 **兼容性**:v0.2 MINOR bump,无 breaking change。
+
+### v0.3(2026-09-02) — Round 6 temp/ 目录契约补丁
+
+**Round 6:temp/ 目录契约 + plan 文件命名统一**
+
+- `tests/test_init_creates_temp.py`(新):跑 init,断言 `<project>/temp/` 创建 + `temp/.gitkeep` + `temp/.gitignore`(内容校验 5 行:`*` / `!.gitkeep` / `!proposal-*.json` / `!decision-*.json` / `!plan-*.json`)
+- `tests/test_temp_dir_usage.py`(已存在,本 round 加固):除原有"无 /tmp / AppData"断言外,新增断言 scripts/ 的 `--output` / `--apply` 参数路径全部以 `temp/` 开头(grep `--output temp/` / `--apply temp/` 枚举所有 scripts/* 调用约定)
+- `tests/test_plan_filename_extension.py`(新):断言 scripts/ 拒绝 `--apply temp/<id>.md`(只认 `.json`),跑 fixtures 反例 → 报错"unsupported plan format, must be .json"
+- `tests/test_temp_gitignore_audit.py`(新):验证默认 git 跟踪状态(`git check-ignore`)对 `temp/<basename>.md` 返回 ignored、对 `temp/proposal-<doc-id>.json` 返回 not ignored、对 `temp/decision-<hash>.json` 返回 not ignored、对 `temp/.gitkeep` 返回 not ignored
+
+**§C12 NFR-5(temp/)测试已存在,本 round 不重复新增**,仅作 anchor。
+
+**附带**:Q11 subagent 写权矩阵(§C2.4 已冻结 4 项)+ Q10 plan JSON contract(§C10.1 / §C10.2 已冻结)在本 round 通过 temp/ 目录契约补全落地路径,无新增独立测试。
+
+**兼容性**:v0.3 MINOR bump:目录结构新增 `temp/` 顶层节点 + plan 文件命名契约细化(proposal 用 doc-id、decision 用 hash),但 OKF v0.2 schema 无 breaking change;既有 v0.2 wiki 升级到 v0.3 plugin 只需重跑 init(temp/ 自动补建 + scripts/ 重新同步)。

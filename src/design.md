@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.2 已冻结(2026-09-02)
+> **状态**:v0.3 已冻结(2026-09-02)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -160,6 +160,9 @@ CLAUDE.md 约束 "plugin 不带运行时"。**真实含义**:不开常驻进程 
 │   ├── analysis-page.md            # analyses/ 页生成模板
 │   ├── entity-page.md              # entities/<子类>/ 页生成模板
 │   └── concept-page.md             # concepts/<子类>/ 页生成模板
+├── temp/                           # SKILL.md / scripts / subagent 的临时文件目录(Q10 + Q11,详见 §4.1 init 步骤 5)
+│   ├── .gitkeep                    # 占位,目录必须存在;但内容用 .gitignore 屏蔽
+│   └── .gitignore                  # 内容:*,!proposal-*.json,!decision-*.json,!plan-*.json,!.gitkeep —— 只跟踪 plan 文件(可选审计),屏蔽批 OCR 中间 md、scratch
 ├── raw/                            # 归档,不可变。init 时按 templates/raw-readme.md 的 15 类**全部预建默认子目录**,每个用 .gitkeep 占位 + raw-readme.md
 │   ├── raw-readme.md
 │   ├── 01_EE架构/.gitkeep
@@ -418,7 +421,7 @@ scripts 是**单次执行就退**(`agent 调一次,跑完退,产出结果或修�
 | `select.select([sys.stdin], ...)` 等待 stdin | 同上 |
 | 任何阻塞事件循环(`while True: pass` 等) | 同 §1.4 NFR-1 单次运行即退约束 |
 
-**scripts/ 边界**:scripts 是**机械执行器**(IO / 校验 / OCR / qmd / 命名飘检测),决策永远在 Claude 对话层(SKILL.md prompt)。scripts 接受**确定参数 + 配置文件**(如 `--apply temp/plan-<hash>.md`),按参数执行,不发起任何 prompt。
+**scripts/ 边界**:scripts 是**机械执行器**(IO / 校验 / OCR / qmd / 命名飘检测),决策永远在 Claude 对话层(SKILL.md prompt)。scripts 接受**确定参数 + 配置文件**(如 `--apply temp/decision-<hash>.json`),按参数执行,不发起任何 prompt。
 
 **lint C10 静态扫描断言**(M3 实现时加):`tests/test_no_daemon.py` 增加 `ast` 模块扫描所有 `scripts/*.py` 源文件,断言不出现 `input` / `sys.stdin.read` / `sys.stdin.readline` / `getpass` 调用。**违反 FAIL**。
 
@@ -430,8 +433,8 @@ scripts 是**单次执行就退**(`agent 调一次,跑完退,产出结果或修�
 | LLM 提议 raw 子目录 / entity / concept 抽取 | SKILL.md (Claude LLM) |
 | 拍板门(目标目录不存在 / 命名飘仲裁) | SKILL.md (Claude 对话问用户) |
 | mv / mkdir / 写 log | scripts (`safe-mv.py` / `ensure-dirs.py` / `append-log.py`) |
-| 提案 / 拍板落档(详见 §4.2) | SKILL.md 写 `temp/plan-<hash>.md` |
-| 读 plan 文件应用 | scripts (CLI 参数 `--apply temp/plan-<hash>.md`) |
+| 提案 / 拍板落档(详见 §4.2.x) | SKILL.md 写 `temp/decision-<hash>.json`(阶段 2 subagent 写 `temp/proposal-<doc-id>.json`) |
+| 读 plan 文件应用 | scripts (CLI 参数 `--apply temp/decision-<hash>.json`) |
 
 #### `_meta.json` 字段定义
 
@@ -1099,17 +1102,24 @@ links:
 
 **Agent 行为**:
 
-**目录名约定**(硬约束,无参数):五个顶层目录名(`inbox/` `raw/` `scripts/` `templates/` `knowledge/`)**全部固定默认**,init 不接受 `--xxx-dir` 之类的目录名参数。
+**目录名约定**(硬约束,无参数):六个顶层目录名(`inbox/` `raw/` `scripts/` `templates/` `temp/` `knowledge/`)**全部固定默认**,init 不接受 `--xxx-dir` 之类的目录名参数。
 
 1. 创建 `<project>/inbox/.gitkeep` + `<project>/inbox/README.md`(从 templates/inbox-readme.md)
 2. 创建 `<project>/raw/.gitkeep` + `<project>/raw/README.md`(从 templates/raw-readme.md)。**按 raw-readme.md 的 15 类全部预建默认子目录**,每个子目录放 `.gitkeep` 占位
 3. **创建 `<project>/scripts/`**:从 plugin 本体 `scripts/` 目录下**所有文件**拷贝过去。详见 §2.4。
 4. **创建 `<project>/templates/`**:从 plugin 本体 `templates/` 拷贝 4 份页生成模板(`source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md`)+ 2 份全栈字典(`concept-entities-readme.md` / `tag-template.md`)。**注意**:plugin 本体 `templates/` 里那些分散落到 user-project 对应位置的(SCHEMA / raw-readme / inbox-readme)由步骤 1-2 处理,**不**进 user-project 的 `templates/` 顶层目录。详见 §2.5 / §2.5.1。
-5. 创建 `<project>/knowledge/` 下:
+5. **创建 `<project>/temp/`**(Q10 + Q11 subagent 写权矩阵硬约束):
+   - **目录必须预建**,否则首次跑多文件 ingest 时 `convert-to-md.py --output-dir temp/` + subagent 写 `temp/<doc-id>-proposal.json` 会 `FileNotFoundError`
+   - `temp/.gitkeep`(占位,保证 git 能跟踪空目录)
+   - `temp/.gitignore`(关键,内容见下方)
+   - **`.gitignore` 内容**:`*` 屏蔽所有默认内容;`!.gitkeep` 保留占位;`!proposal-*.json` / `!decision-*.json` / `!plan-*.json` 显式允许 plan 文件(可选审计,用户可 `git add temp/decision-<hash>.json` 留痕)
+   - **写入约定**:阶段 1 batch IO 写 `temp/<basename>.md`(OCR 中间产物,被 .gitignore 屏蔽);阶段 2 subagent 写 `temp/proposal-<doc-id>.json`(被 .gitignore 屏蔽,运行期产物);SKILL.md 拍板写 `temp/decision-<hash>.json`(被 .gitignore 屏蔽,但可选 git add 留痕);`--cleanup` 默认删除、`--keep` 备份
+   - **CLAUDE.md "临时文件 temp/ 目录"约束**:与本节一致,详见 CLAUDE.md
+6. 创建 `<project>/knowledge/` 下:
    - `SCHEMA.md`(从 templates/knowledge-SCHEMA.md,**替换 plugin 内部占位符**:`{{plugin_version}}` / `{{init_at}}` / actor 字符串等;**不**替换目录名,因为目录名固定)
    - `index.md` + `overview.md` + `glossary.md` + `log.md`(从对应模板)
    - `sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`,**每个叶子目录放 `.gitkeep`**(**合计 18 个叶子存储目录**,权威清单见 §4.1.1 "knowledge/ 叶子存储目录清单")
-6. 若 `knowledge/` 已存在 → **走幂等再入**(见下方 §4.1.1)
+7. 若 `knowledge/` 已存在 → **走幂等再入**(见下方 §4.1.1)
 
 **`.gitkeep` 生成方式**(用户项目里的占位文件,design.md 这层不指定,touch 还是别的由 init skill 实现时定):
 
@@ -1142,11 +1152,12 @@ links:
 | 用户项目里有,**用户本地新增的内容**(自定义目录说明、自定义子类、自定义 tag) | **保留**,plugin 不动                                                      |
 | 用户项目里有,**用户本地删除的条目**                                         | **不补回**,lint 提示"plugin 新版有 X 条本地无"                            |
 
-**目录 sync 策略**(`raw/<15 类>/`、`knowledge/<18 叶子存储目录 = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses>/`,权威清单见 §4.1.1 "knowledge/ 叶子存储目录清单"):
+**目录 sync 策略**(`raw/<15 类>/`、`knowledge/<18 叶子存储目录>/`、`temp/`(详见 §4.1 init 步骤 5)):
 
 - plugin 新版 dict 新增了 raw 子目录(例:`16_xxx/`)? → **不动**(用户没主动建就不建,见 §2.2 ingest 拍板门)
 - plugin 新版新增了 entities/concepts 子类(例:`entities/tool/`)? → **不动**(同上)
-- 用户项目里**缺的** 15 类 / 18 knowledge 叶子目录? → **补建 + 放 .gitkeep**
+- 用户项目里**缺的** 15 类 / 18 knowledge 叶子目录 / `temp/`? → **补建 + 放 .gitkeep**(temp/ 还需放 `.gitignore` 屏蔽 OCR 中间产物,详见 §4.1 init 步骤 5)
+- `temp/` 已是但 `.gitignore` 缺失 / 内容不对 → **重写 `.gitignore`**(用户本地若有手动 git add 跟踪的 plan 文件,**不**强制 untrack,仅更新 .gitignore 模板)
 
 **`knowledge/` 叶子存储目录清单(权威源)** — 共 **18 个**(init 时全部预建 + .gitkeep):
 
@@ -1749,7 +1760,7 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 **目的**:ingest 涉及 LLM 提议 → 用户拍板 → 脚本机械执行三阶段,需要**显式中间文件**作为 audit trail,便于:
 - 拍板后 `log.md` 引用 plan 文件追溯决策(谁拍的 / 何时拍 / 改了啥)
 - 多 subagent 并发 ingest(§4.2.1)各产 proposal → 主 agent 阶段 3 仲裁 → 应用,需共享 plan 介质
-- 用户事后可读 `temp/plan-<hash>.md` 复核决策
+- 用户事后可读 `temp/decision-<hash>.json`(拍板结果) / `temp/proposal-<doc-id>.json`(LLM 提议)复核决策
 - `scripts/*.py` **零交互**(§1.4 硬契约)— 读 plan 文件应用,不发起任何 prompt
 
 **三段落档流程**:
@@ -1757,8 +1768,9 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 ```
 阶段 ① 提议(proposal)
   SKILL.md 调 scripts/convert-to-md.py --batch ...
-  scripts 读 inbox/<file> → 输出 temp/proposal-<hash>.json
+  scripts 读 inbox/<file> → 输出 temp/proposal-<doc-id>.json
     (内容:inbox 文件清单 + 每份的 suggested_subdir + 命名飘候选 + 概念抽取候选)
+    (多文件并发时每个 doc-id 各一份,详见 §4.2.1 subagent 写权矩阵)
 
 阶段 ② 拍板(confirmation)
   SKILL.md 读 proposal → Claude 在对话里展示给用户
@@ -1771,9 +1783,11 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
     (任何 LLM 不参与的环节都委托给 scripts,零交互)
 ```
 
-**plan 文件格式**(`temp/proposal-<hash>.json` / `temp/decision-<hash>.json`):
+**plan 文件格式**(`temp/proposal-<doc-id>.json` / `temp/decision-<hash>.json`):
 
-- 文件名:`<type>-<hash>.json`,`hash` = 内容 sha256 前 8 位(便于去重 / 复用)
+- 文件名:
+  - proposal:`temp/proposal-<doc-id>.json`(`doc-id` = inbox 文件 basename,不带扩展名;多文件并发时各自独立文件,详见 §4.2.1)
+  - decision:`temp/decision-<hash>.json`(`hash` = 内容 sha256 前 8 位;决策汇总,拍板门通过后由 SKILL.md 写,详见阶段 ②)
 - 位置: `<project>/temp/`(CLAUDE.md "临时文件 temp/ 目录"约束)
 - 生命周期: ingest 完成后由 SKILL.md 提示用户"是否保留 plan 文件供回溯";默认 `--cleanup` 删除,留 `--keep` 备份
 - **后缀统一 `.json`**:proposal + decision 都用 JSON,scripts 用 `json.load()` 解析,**零 markdown 解析路径**,彻底落实 §2.4.1 无交互硬约束
@@ -2047,7 +2061,7 @@ git ls-remote --tags --refs origin \
 **Round 4: Q10 scripts 严禁交互硬契约 + plan 文件 audit trail**
 
 - **§1.4** 新整段 "scripts/ 严禁交互硬契约(NFR-1 加严,Q10)":禁止 `input(` / `sys.stdin.read` / `getpass` / `select` 等调用 + 替代方案 + scripts/ 与 SKILL.md 责任分工表
-- **§4.2.x** 新整段 "ingest 提案 / 拍板 / 应用 三段落档(audit trail)":`temp/proposal-<hash>.json` → SKILL.md 拍板 → `temp/decision-<hash>.json` → scripts `--apply`;log.md 引用 plan 文件路径留痕
+- **§4.2.x** 新整段 "ingest 提案 / 拍板 / 应用 三段落档(audit trail)":`temp/proposal-<doc-id>.json` → SKILL.md 拍板 → `temp/decision-<hash>.json` → scripts `--apply`;log.md 引用 plan 文件路径留痕
 - scripts/README.md 新增"调用约定(scripts/ 严禁交互)"段
 
 **Round 5: Q11 subagent 写权矩阵 + 阶段 3 串行动作清单**
@@ -2059,3 +2073,23 @@ git ls-remote --tags --refs origin \
 **附带**:Q6 wikilink 改造 + `links:` 镜像字段机制(frontmatter `links:` 自动从正文 wikilink / markdown link 同步生成,OKF v0.2 §9 推荐字段,供外部 OKF 工具无正文解析消费)在 v0.2 一并冻结。
 
 **兼容性**:v0.2 MINOR bump,所有改动对 OKF v0.2 spec §9 兼容性保持。无 breaking change。
+
+---
+
+**Round 6:temp/ 目录契约补丁(内部冲突 — Q11 写权矩阵落不到 §2.1 目录树)**
+
+**背景**:Q11 写权矩阵规定 subagent 唯一可写路径是 `temp/<id>-proposal.json`,但 §2.1 目录树**没有** `temp/` 节点,§4.1 init 步骤也**不**创建 `temp/`。后果:首次跑多文件 ingest 时 `convert-to-md.py --output-dir temp/` + subagent 写 `temp/<doc-id>-proposal.json` 会 `FileNotFoundError`。同时 Q10 plan JSON 落地后散落的 `temp/plan-<hash>.md` / `temp/decision-<hash>.md` / `temp/proposal-<hash>.json` 命名在 §2.4 / §4.2.x 与 §4.2.1 不一致(用 hash vs doc-id)。
+
+**改动**:
+
+- **§2.1 目录树**:补 `temp/` 节点 + `.gitkeep` + `.gitignore`(`*` 屏蔽 / `!.gitkeep` 保留 / `!proposal-*.json` / `!decision-*.json` / `!plan-*.json` 显式允许 audit trail 文件)
+- **§4.1 init 步骤 5**:**新建整段**,规定 temp/ 创建 + `.gitignore` 内容 + 三类文件写入约定(OCR 中间 md / proposal / decision)+ `--cleanup` / `--keep` 行为
+- **§4.1 顶层目录名约定**:"五个" → "六个" 顶层目录(`inbox/` `raw/` `scripts/` `templates/` `temp/` `knowledge/`)
+- **§4.1.1 sync 策略**:`temp/` 纳入"目录 sync 策略"列表(缺则补建 + 放 `.gitkeep` + `.gitignore`;已有但 `.gitignore` 不对则重写)
+- **§2.4.1 / §4.2.x**:`temp/plan-<hash>.md` → `temp/decision-<hash>.json` 命名统一;proposal 命名 `proposal-<hash>` → `proposal-<doc-id>`(对齐 §4.2.1 subagent 写权矩阵)
+- **§4.2.x 流程图 + plan 文件格式段**:同步命名(`temp/proposal-<doc-id>.json` ingest / `temp/lint-proposal-<hash>.json` lint 因无 doc-id 维度继续用 hash)
+- **prd.md §8 风险表 第 4 行**:同步 `proposal-<hash>` → `proposal-<doc-id>`
+
+**不动**:lint 路径(`temp/lint-proposal-<hash>.json` / `temp/lint-decision-<hash>.json`,lint 没有 doc-id 维度,继续用 hash 区分版本),§4.2.x → §4.2.1 命名收敛是 Round 5 已落地的 Q11 设计细化。
+
+**版本号**:Round 6 累计本次 temp/ 目录契约补丁,**v0.3 MINOR bump 已确认**(2026-09-02 冻结):目录结构新增顶层节点 + plan 文件命名契约细化,但无 schema breaking change。
