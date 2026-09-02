@@ -1094,8 +1094,8 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
    - **frontmatter 不合规**:必填字段缺失 / 类型错位 / 未知 type
    - **`[[wikilink]]` 残留**:warning,建议改标准 markdown
    - **raw_category 派生失败**:从 `sources[0].resource` 路径解析失败(无 sources / 非 raw 本地路径 / 分类不在 15 类清单)→ WARN/FAIL(详见 §3.6.1)
-3. 默认只报告;`--fix` 模式提议一次性 diff 让用户确认后应用
-4. **不应**:静默修改文件
+3. 默认只报告;**`--fix` 模式直接 patch 应用**(用户已通过 flag 表示意图,不二次确认;`log.md` 追加 `**LintFix**` 条目记录每处改动)
+4. **不应**:无 `--fix` 时静默修改文件
 
 **`--by <axis>` 模式**:除默认全量报告外,支持按指定 axis group by 输出:
 

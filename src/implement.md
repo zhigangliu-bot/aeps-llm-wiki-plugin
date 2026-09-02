@@ -111,8 +111,8 @@ plugin 上架资产                          ❌ 待新建
 必读:`knowledge/SCHEMA.md`(读 lint 规则)+ 扫 `knowledge/**/*.md`。
 **核心边界**:
 - 默认只报告
-- `--fix` 模式出 diff,用户确认后才应用
-- 不静默改文件
+- `--fix` 模式直接 patch 应用(用户已通过 flag 表示意图,不二次确认;`log.md` 追加 `**LintFix**` 条目)
+- 无 `--fix` 时不静默改文件
 - lint 规则全集见 SCHEMA.md §6 + design.md §4.4(含 LLM 命名飘 / 陈旧 / frontmatter / 摘要小节残留)
 
 #### B5:`/aeps-llm-wiki-synthesize` SKILL.md

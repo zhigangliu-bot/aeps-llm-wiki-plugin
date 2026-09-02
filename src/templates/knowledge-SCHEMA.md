@@ -170,7 +170,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 1. 跑 /aeps-llm-wiki-lint
 2. LLM 扫所有 knowledge/**/*.md
 3. 报告:孤儿页 / 矛盾 / 陈旧页 / LLM 命名飘 / 漏链 / frontmatter 不合规 / 摘要小节残留
-4. --fix 模式提议 diff,用户确认后才应用
+4. --fix 模式直接 patch 应用(用户已通过 flag 表示意图,不二次确认;log.md 追加 **LintFix** 条目)
 ```
 
 ### 5.4 synthesis(综合页)
