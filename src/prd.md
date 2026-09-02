@@ -21,7 +21,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 `aeps-llm-wiki-plugin` 把这三个范式整合成一个**Claude Code plugin**,让用户用一个 `/aeps-llm-wiki-init` 就在自己的研究 / 学习 / 笔记项目里跑起来,产出**OKF 兼容的、Karpathy 启发的、Obsidian 直读的**知识库。LLM 写,人用 Obsidian 读,plugin 管一致性。
 
-**目标用户**:zhigang.liu(汽车电子软件架构师,做内部研究 / 知识沉淀 / 学习笔记),以及任何愿意用 Claude Code + Obsidian 做长期知识管理的人。
+**目标用户**:汽车电子软件工程师、架构师,用 Claude Code + Obsidian 做内部研究 / 知识沉淀 / 学习笔记等长期知识管理的人。
 
 ---
 
