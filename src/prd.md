@@ -77,11 +77,11 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   5. **创建 `<project>/knowledge/`**:
      - `SCHEMA.md`(从 `templates/knowledge-SCHEMA.md`,**替换 plugin 内部占位符**:`{{plugin_version}}` / `{{init_at}}` / actor 字符串等;**不**替换目录名,因为目录名固定)
      - `index.md` + `overview.md` + `glossary.md` + `log.md`(从对应模板)
-     - **预建 17 个子目录**(`sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`),**每个叶子目录放 `.gitkeep`**
+     - **预建 18 个叶子存储目录**(`sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`;算术 1+7+7+1+1+1=18,**权威清单详见 design §4.1.1 "knowledge/ 叶子存储目录清单"**),**每个叶子目录放 `.gitkeep`**
 - **必须**(已存在项目再次启用,**幂等再入**):
   - **不静默覆盖**任何用户本地新增/修改/删除的内容
   - 字典 sync(3 份):用户项目里**没有** → 直接复制;**新增章节/条目** → append 到对应 H2 末尾;**用户已删** → 不补回,lint 提示"plugin 新版有 X 条本地无,要不要采纳?"
-  - 目录 sync:用户项目里**缺失**的 15 raw 类 / 17 knowledge 子类 → **补建 + .gitkeep**;plugin 新版**新增的**(用户项目里没有) → **不建**(留给 ingest 拍板门)
+  - 目录 sync:用户项目里**缺失**的 15 raw 类 / 18 knowledge 叶子存储目录 → **补建 + .gitkeep**;plugin 新版**新增的**(用户项目里没有) → **不建**(留给 ingest 拍板门)
   - scripts/ 与 templates/ sync 策略详见 design §2.4 / §2.5
   - 文件 sync(完整表;字典 sync 细则按上方独立条目):
 

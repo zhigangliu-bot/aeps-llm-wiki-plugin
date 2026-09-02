@@ -763,7 +763,7 @@ extensions:                             # 允许的扩展键(白名单),其它 l
     - updated
     - summary
 
-# type 合法值(与 §3.1 表对齐,entities/concepts 14 子类由 templates/concept-entities-readme.md 字典为权威;另含 `source` `analysis` `comparison` `synthesis` 共 4 个非子类类型;`knowledge/` 顶层合计 17 个子目录 = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses)
+# type 合法值(与 §3.1 表对齐,entities/concepts 14 子类由 templates/concept-entities-readme.md 字典为权威;另含 `source` `analysis` `comparison` `synthesis` 共 4 个非子类类型;`knowledge/` 顶层合计 **18 个叶子存储目录** = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses;权威清单见 §4.1.1 知识库初始化子目录清单)
 type_enum:
   # 资料与分析
   - source
@@ -1101,7 +1101,7 @@ links:
 5. 创建 `<project>/knowledge/` 下:
    - `SCHEMA.md`(从 templates/knowledge-SCHEMA.md,**替换 plugin 内部占位符**:`{{plugin_version}}` / `{{init_at}}` / actor 字符串等;**不**替换目录名,因为目录名固定)
    - `index.md` + `overview.md` + `glossary.md` + `log.md`(从对应模板)
-   - `sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`,**每个叶子目录放 `.gitkeep`**(合计 17 个子目录)
+   - `sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`,**每个叶子目录放 `.gitkeep`**(**合计 18 个叶子存储目录**,权威清单见 §4.1.1 "knowledge/ 叶子存储目录清单")
 6. 若 `knowledge/` 已存在 → **走幂等再入**(见下方 §4.1.1)
 
 **`.gitkeep` 生成方式**(用户项目里的占位文件,design.md 这层不指定,touch 还是别的由 init skill 实现时定):
@@ -1135,11 +1135,22 @@ links:
 | 用户项目里有,**用户本地新增的内容**(自定义目录说明、自定义子类、自定义 tag) | **保留**,plugin 不动                                                      |
 | 用户项目里有,**用户本地删除的条目**                                         | **不补回**,lint 提示"plugin 新版有 X 条本地无"                            |
 
-**目录 sync 策略**(`raw/<15 类>/`、`knowledge/<17 子目录 = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses>/`):
+**目录 sync 策略**(`raw/<15 类>/`、`knowledge/<18 叶子存储目录 = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses>/`,权威清单见 §4.1.1 "knowledge/ 叶子存储目录清单"):
 
 - plugin 新版 dict 新增了 raw 子目录(例:`16_xxx/`)? → **不动**(用户没主动建就不建,见 §2.2 ingest 拍板门)
 - plugin 新版新增了 entities/concepts 子类(例:`entities/tool/`)? → **不动**(同上)
-- 用户项目里**缺的** 15 类 / 17 knowledge 子目录? → **补建 + 放 .gitkeep**
+- 用户项目里**缺的** 15 类 / 18 knowledge 叶子目录? → **补建 + 放 .gitkeep**
+
+**`knowledge/` 叶子存储目录清单(权威源)** — 共 **18 个**(init 时全部预建 + .gitkeep):
+
+| 类别 | 子目录(7 + 7 + 4) |
+|---|---|
+| 源页 | `sources/` |
+| 实体 7 子类 | `entities/person/` `entities/organization/` `entities/project/` `entities/product/` `entities/event/` `entities/place/` `entities/other/` |
+| 概念 7 子类 | `concepts/theory/` `concepts/method/` `concepts/field/` `concepts/phenomenon/` `concepts/standard/` `concepts/term/` `concepts/other/` |
+| 分析 / 综合 / 对比 | `analyses/` `syntheses/` `comparisons/` |
+
+**算术校验**:`1(sources) + 7(entities) + 7(concepts) + 1(analyses) + 1(comparisons) + 1(syntheses) = 18` —— **任何文档引用此数字时一律以本清单为准**(若字典变更 → 改本表 + 同步 §3.2 / §4.1 init 步骤 5)。
 
 **scripts/ sync 策略**(详见 §2.4):
 
