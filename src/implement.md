@@ -274,6 +274,12 @@ plugin 上架资产                          ❌ 待新建
 - [ ] 造子目录:`raw/02_芯片/` + `raw/03_芯片_v2/`,lint 命名飘提示
 - [ ] **C9.1 命名飘前移到 ingest**:fixture 已存在 `raw/02_芯片/`,丢一份 `s32g-datasheet.pdf` 到 inbox,跑 ingest,验证 LLM 提议的子目录若写成 `03_芯片` / `芯片_v2` / `soc_chips`(与已有 `02_芯片` Levenshtein ≤ 2 或同义拼写),会被检测并**强制改用 `raw/02_芯片/`**,而不是新增
 
+- [ ] **C9.2 comparison 路径 B 高频检索触发**(详见 prd §4.6 + design §3.4 query 落档 log 模板):
+  - [ ] fixture:`knowledge/log.md` 已有 3 条 `**Creation**: query "SOME/IP vs DDS"` + `**Creation**: query "SOME/IP vs DDS latency"` + `**Creation**: query "SOME/IP vs DDS over TCP"`(累计 ≥ 3 次 "X vs Y" 型 query)
+  - [ ] 跑下一次 `/aeps-llm-wiki-query "SOME/IP vs DDS 性能对比"`,触发落档询问 → 验证 SKILL.md **提议**建 `knowledge/comparisons/some-ip-vs-dds.md`(只提一次)
+  - [ ] **反例 1**:fixture `log.md` 含 3 条 `**Update**: ... query ... "X vs Y"`(旧版用 Update 写的)→ 跑同一 query → 验证**不**触发路径 B(因为正则要求 `**Creation**` 不是 `**Update**`,避免旧数据 silently 误触发)
+  - [ ] **反例 2**:fixture `log.md` 含 2 条 `**Creation**: query "SOME/IP vs DDS"` + 1 条不带 query 标记的 `**Creation**` → 跑 query → 验证**不**触发(不足 3 次匹配)
+
 #### C10:NFR-1 + NFR-4(无 daemon + 无绝对路径)
 
 **CLAUDE.md 硬约束 + PRD NFR-1 + NFR-4**:plugin 不开 daemon + 代码中不得使用绝对路径。
