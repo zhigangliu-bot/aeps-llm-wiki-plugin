@@ -1,4 +1,4 @@
-# {{inbox_dir}}/
+# `{{inbox_dir}}` /
 
 > **角色**:对应 Karpathy LLM Wiki 的 `inbox/` 暂存层,**不是归档层**。
 > **生成方式**:`/aeps-llm-wiki-init` 时从 `templates/inbox-readme.md` 复制。
