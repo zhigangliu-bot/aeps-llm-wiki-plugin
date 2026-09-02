@@ -79,7 +79,10 @@ project-root/
 
 ### 2.2 type-specific 字段
 
-- `type: source` 额外必填:`source_file`(指向 `raw/<subdir>/<file>`)、`summary`(≤ 280 字符)
+- `type: source` 额外必填:
+  - **`source_file`**:顶层字符串,值 = `raw/<subdir>/<basename>.<ext>`(Obsidian 笔记属性面板识别为可点击链接,Q9)
+  - **`sources:`**(OKF v0.2 §5.1 必填数组):含至少 1 条,每条 `resource:` 字段值与 `source_file:` **必须相等**(双字段同源,lint C5 强校验)
+  - **`summary`**:≤ 280 字符(长摘要走这个字段,不进正文)
 - `type: comparison` 额外必填:`sources:`(≥ 2 条 `[[wikilink]]`)
 - `type: synthesis` 额外必填:`topic:`、`sources_count:`、`last_updated:`
 - `type: entity` / `type: concept` 额外必填:`aliases:[]`(同义 / 别名)
@@ -137,7 +140,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 1. 用户丢 inbox/<file>(含子目录文件)
 2. 跑 /aeps-llm-wiki-ingest(无参数,递归扫 inbox/)
 3. SKILL.md 校验 scripts/requirements.txt 依赖(anydoc / paddleocr)是否安装;未装 → 提示并退出
-4. 文件读取走 scripts/convert-to-md.mjs,按扩展名分流:
+4. 文件读取走 scripts/convert-to-md.py,按扩展名分流:
    - md / txt / csv / json / yaml / xml / html / htm / rst → 直接读
    - pptx / docx / xlsx / pdf → Claude converter,失败降级 anydoc
    - png / jpg / jpeg / bmp / tiff → paddleocr
@@ -153,7 +156,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 
 ```
 1. 跑 /aeps-llm-wiki-query "<question>"
-2. SKILL.md 先跑 node ./scripts/check-qmd.mjs --project-dir . → 拿到 engine 决策
+2. SKILL.md 先跑 python3 ./scripts/check-qmd.py --project-dir . → 拿到 engine 决策
    - engine=index(< 500 页):走 4 跳扫描
    - engine=qmd(≥ 500 页且 qmd 在):qmd query "<question>" --collection knowledge --limit 20,拿 top-20 进跳 2
    - engine=fail(≥ 1000 页且 qmd 不在):直接退出,提示"必须装 qmd"
@@ -175,7 +178,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 4. --fix 模式按问题级别分流:
    - 确定性结构修复(frontmatter / 3 节骨架 / `## 摘要` 残留)直接 patch 应用,log.md 追加 **LintFix** 条目
    - 语义级问题(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,不应用,等用户确认
-   - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 frontmatter `links:` 字段镜像;lint 不再警告 wikilink
+   - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别 `[[wikilink]]` + `[text](path.md)` 双格式(详见 design §3.6.2 + `src/schema/OKF-EXTENSION.md`);**不维护 frontmatter `links:` 镜像字段**(Single Source of Truth);lint 不再警告 wikilink
 ```
 
 ### 5.4 synthesis(综合页)

@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.1 已冻结(2026-09-02)
+> **状态**:v0.2 已冻结(2026-09-02)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -51,15 +51,15 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 ## 3. 用户故事
 
-| ID   | 角色          | 场景                                           | 期望                                                                                      |
-| ---- | ------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| US-1 | 研究者        | 想在新项目里开 wiki                            | 跑一次 init 就得到可用结构,不用手动建 7 个文件                                            |
-| US-2 | 研究者        | 把刚下载的 OKF spec 放到`inbox/`             | ingest 后`knowledge/concepts/open-knowledge-format.md` 自动出现,`index.md` 自动更新   |
-| US-3 | 学习者        | 读 wiki 时想确认某概念是否被覆盖               | query 给出**带 wiki 引用的**回答,并问要不要落档                                     |
+| ID   | 角色          | 场景                                           | 期望                                                                                                                                                                                                |
+| ---- | ------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US-1 | 研究者        | 想在新项目里开 wiki                            | 跑一次 init 就得到可用结构,不用手动建 7 个文件                                                                                                                                                      |
+| US-2 | 研究者        | 把刚下载的 OKF spec 放到`inbox/`             | ingest 后`knowledge/concepts/open-knowledge-format.md` 自动出现,`index.md` 自动更新                                                                                                             |
+| US-3 | 学习者        | 读 wiki 时想确认某概念是否被覆盖               | query 给出**带 wiki 引用的**回答,并问要不要落档                                                                                                                                               |
 | US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期;`--fix` 模式**只自动应用确定性结构修复**(frontmatter / 3 节骨架 / `## 摘要` 残留),**语义级问题**(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仍出提案等用户确认 |
-| US-5 | 好奇者        | 在 OKF Knowledge Catalog 里发现一个别人的 wiki | 能直接导入到本地(因为我们输出严格 OKF)                                                    |
-| US-6 | plugin 维护者 | 想加新实体类型"法规"或"标准"                   | 改`schema/frontmatter.schema.yaml` + 一行 skill 配置,不用改 plugin 主代码               |
-| US-7 | 研究者        | 拿到一份资料但还没决定归档到 raw/ 哪个分类     | 丢`inbox/`,ingest 时 LLM 提议子目录(如`raw/okf/`),用户一句"好"或改后确认,文件自动迁移 |
+| US-5 | 好奇者        | 在 OKF Knowledge Catalog 里发现一个别人的 wiki | 能直接导入到本地(因为我们输出严格 OKF)                                                                                                                                                              |
+| US-6 | plugin 维护者 | 想加新实体类型"法规"或"标准"                   | 改`schema/frontmatter.schema.yaml` + 一行 skill 配置,不用改 plugin 主代码                                                                                                                         |
+| US-7 | 研究者        | 拿到一份资料但还没决定归档到 raw/ 哪个分类     | 丢`inbox/`,ingest 时 LLM 提议子目录(如`raw/okf/`),用户一句"好"或改后确认,文件自动迁移                                                                                                           |
 
 ---
 
@@ -83,8 +83,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - 字典 sync(3 份):用户项目里**没有** → 直接复制;**新增章节/条目** → append 到对应 H2 末尾;**用户已删** → 不补回,lint 提示"plugin 新版有 X 条本地无,要不要采纳?"
   - 目录 sync:用户项目里**缺失**的 15 raw 类 / 17 knowledge 子类 → **补建 + .gitkeep**;plugin 新版**新增的**(用户项目里没有) → **不建**(留给 ingest 拍板门)
   - scripts/ 与 templates/ sync 策略详见 design §2.4 / §2.5
-  - 文件 sync(完整表;字典 sync 细则按上方独立条目):
-    | 文件                                     | 首次 init                       | re-run init           |
+  - 文件 sync(完整表;字典 sync 细则按上方独立条目):| 文件                                     | 首次 init                       | re-run init           |
     | ---------------------------------------- | ------------------------------- | --------------------- |
     | `SCHEMA.md`                            | 从 templates/ 复制 + 占位符替换 | **覆盖**        |
     | `index.md`                             | 从 templates/ 复制(空模板)      | **不动**        |
@@ -111,8 +110,8 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - `.pptx` / `.docx` / `.xlsx` / `.pdf` —— 先试 Claude 内置 converter,**失败后降级 anydoc 转 markdown**
   - `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` —— **paddleocr 转 md**(OCR)
   - 转换失败的 → **FAIL**,提示"无法转换 <file></file>,请手动预处理"
-  - 转换入口:**统一 `scripts/convert-to-md.mjs`**,按扩展名分流(详见 design §4.2 / §2.4)
-  - 依赖库清单:`scripts/requirements.txt`(anydoc / paddleocr 等 Python 依赖),**用户必须装**;未装 → 提示并退出
+  - 转换入口:**统一 `scripts/convert-to-md.py`**(Python 3.10+ 单栈),按扩展名分流(详见 design §4.2 / §2.4)
+  - 依赖库清单:`scripts/requirements.txt`(anydoc / paddleocr / jsonschema / pyyaml 等 Python 依赖),**用户必须装**;未装 → 提示并退出
 - **必须**(分类 + 写入):
   - **路径来自 `inbox/`**:LLM 先**提议**一个 raw 子目录分类 + 短理由
     - **命名飘检查**(Q5,前移自 lint):LLM 提议的子目录名,先与 `raw/` 下已有子目录做相似度比较(Levenshtein ≤ 2 / 前缀差异 / 同义拼写,详见 design §4.4)
@@ -150,7 +149,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - **500~1000 页**:**优先 qmd**(`qmd query "<question>"`);未装 → 提示用户装,降级走 `index.md`
   - **> 1000 页**:**必须 qmd**;未装 → **报错**(提示"wiki 已超 1000 页,请装 qmd 后再 query"),不进入回答
   - 阈值常量:`QUERY_INDEX_THRESHOLD = 500`、`QUERY_QMD_REQUIRED_THRESHOLD = 1000`(详见 design §4.3)
-  - 探查入口:`scripts/check-qmd.mjs`(单次脚本,跑 `qmd --version` 探查可用性)
+  - 探查入口:`scripts/check-qmd.py`(Python 3.10+ 单次脚本,跑 `qmd --version` 探查可用性)
 - **必须**:
   - 回答,**每条断言附 wiki 标准 markdown 链接**
   - 回答结束后**问用户是否落档** —— 落档则新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,与 `sources/` 同约束;**禁止**含 `## 摘要` 小节,query 原问句必须保留在 frontmatter `summary` 字段首行 `**问题**: ...`;详见 design §3.1 §C),追加 log
@@ -201,7 +200,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 不增加 skill,**由 query skill 内置两条触发路径**:
 
 - **路径 A — 同类 entity 触发**:ingest 完成后,LLM 在 source 页落档询问时,如果发现 `entities/<子类>/` 下已有同类 entity(同一 type)≥ 2 个且都是这次新 ingest 的相关对象,**提议**:"要不要建一个常驻 comparison 页把它们对照一下?"
-- **路径 B — 高频检索触发**:query 累计发现用户 ≥ 3 次问"X vs Y"型问题(grep `log.md` 检测模式 `**Action**: ... query ... X.*Y`),**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
+- **路径 B — 高频检索触发**:query 累计发现用户 ≥ 3 次问"X vs Y"型问题(grep `log.md` 检测模式 `**Update**: ... query ... "X.*Y"`,query 落档 log 走 §3.4 五种前缀里的 `Update`,对齐 design §4.6 路径 B + §3.4),**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
 - **命名**:`knowledge/comparisons/<a>-vs-<b>.md`(**不带时间戳**,常驻)
 - **frontmatter**:`type: comparison` + `sources:` 字段链接到对比的 entity/concept 页
 - **不应**:query 一次性给完对比表就结束(那是 answer,不是 comparison);comparison 是**常驻页**,由用户拍板后才建
@@ -233,7 +232,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 │   ├── 13_流程体系/.gitkeep
 │   ├── 14_测试与验证/.gitkeep
 │   └── 15_算法/.gitkeep
-├── scripts/                          # plugin 维护的单次运行脚本(Node 18+,.mjs),init 时从 plugin 拷贝到此(具体文件由实现侧按目录扫描决定,本文档不列举)
+├── scripts/                          # plugin 维护的单次运行脚本(Python 3.10+,.py),init 时从 plugin 拷贝到此(具体文件由实现侧按目录扫描决定,本文档不列举)
 ├── templates/                        # scripts 生成文件时读的"页模板源",init 时拷过来;其他字典/操作手册仍按分散落位策略
 │   ├── source-page.md                # sources/ 页生成模板
 │   ├── analysis-page.md              # analyses/ 页生成模板
@@ -310,18 +309,18 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 ## 8. 风险 / 取舍
 
-| 风险                                                                 | 影响                                                  | 缓解                                                                                                                                                          |
-| -------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OKF v0.x 仍在演进(v0.2 已发),字段可能变化                            | plugin 锁定的 type 集合将来要适配                     | 只锁定 OKF v0.2 已定义的字段,扩展字段显式标注为 plugin 扩展,OKF 工具可忽略                                                                                    |
-| LLM 在 ingest 时跑偏(漏抽 / 错判 entity 还是 concept / 错选 14 子类) | wiki 质量下降                                         | lint skill 兜底,识别"目录名 ↔ type"不一致;SCHEMA.md 给明确子类判定示例                                                                                       |
-| `[[wikilink]]` 与标准 markdown 链接混用                            | OKF 工具可能不解析`[[]]`                            | **plugin 以 `[[wikilink]]` 为一等公民**(详见 Q6)——Obsidian 原生可双链跳;OKF 兼容靠 frontmatter `links:` 字段镜像一份标准 markdown 链接列表,OKF reader 读 frontmatter 即可;lint 不再警告 wikilink |
-| `knowledge/` 与 git 仓污染                                         | 用户误把生成的 wiki 提交                              | README 明确建议`.gitignore` `knowledge/` 或选择性提交;plugin 不强制 git 操作                                                                              |
-| plugin 内部`schema/frontmatter.schema.yaml` 与用户实际 wiki drift  | lint 误报                                             | lint 只读 plugin 的 schema.yaml(权威字段表),不读用户项目;用户项目的`knowledge/SCHEMA.md` 引用同一份 plugin 字段表,不重复列字段                              |
-| inbox 文件被 LLM 误迁移到错误目录                                    | 用户资料找不到                                        | 已存在目录(15 类预建)直接放,出错概率低;字典外的创建**必须拍板**;拍板后 log 留完整 `inbox/ → raw/` 路径便于回滚                                       |
-| inbox 文件用户拍板后忘了删                                           | 下次 ingest 重复处理                                  | ingest 流程内强制`inbox/<file>` 删除;不是用户操作,是 skill 原子步骤                                                                                         |
-| raw 子目录无限增长,LLM 起名飘(15 类之外)                             | 子目录碎片化(`16_公司内部_a`、`16_公司内部_b`...) | init 时 15 类全部预建,日常基本不会触发创建;字典外的创建必须拍板,用户当场就拦下;lint 仍建议合并相似的子目录                                                    |
-| comparison 触发逻辑误报(LLM 提议用户不需要的对比页)                  | `comparisons/` 出现噪声                             | 两条触发路径(同类 entity / 高频检索)都只在落档询问时**提议**,用户拍板才建;**只提一次**,后续不再重复                                               |
-| synthesis 写得太空(只是简单罗列,没真正"综合")                        | synthesis 页失去价值                                  | frontmatter`sources_count` 字段是"参考多少页"硬指标,sources_count 太低(<3)的 synthesis lint 警告;正文不锁骨架,LLM 自由发挥,但搜索功能可"找引用最广的综合页" |
+| 风险                                                                 | 影响                                                  | 缓解                                                                                                                                                                                                         |
+| -------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OKF v0.x 仍在演进(v0.2 已发),字段可能变化                            | plugin 锁定的 type 集合将来要适配                     | 只锁定 OKF v0.2 已定义的字段,扩展字段显式标注为 plugin 扩展,OKF 工具可忽略                                                                                                                                   |
+| LLM 在 ingest 时跑偏(漏抽 / 错判 entity 还是 concept / 错选 14 子类) | wiki 质量下降                                         | lint skill 兜底,识别"目录名 ↔ type"不一致;SCHEMA.md 给明确子类判定示例                                                                                                                                      |
+| `[[wikilink]]` 与标准 markdown 链接混用                            | OKF 工具可能不解析`[[]]`                            | **plugin 以 `[[wikilink]]` 为一等公民**(详见 Q6)——Obsidian 原生可双链跳;OKF 兼容靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别 `[[wikilink]]` + `[text](path.md)` 双格式,**不维护** frontmatter `links:` 镜像字段(Single Source of Truth,详见 design §3.6.2 + `src/schema/OKF-EXTENSION.md`);lint 不再警告 wikilink |
+| `knowledge/` 与 git 仓污染                                         | 用户误把生成的 wiki 提交                              | README 明确建议`.gitignore` `knowledge/` 或选择性提交;plugin 不强制 git 操作                                                                                                                             |
+| plugin 内部`schema/frontmatter.schema.yaml` 与用户实际 wiki drift  | lint 误报                                             | lint 只读 plugin 的 schema.yaml(权威字段表),不读用户项目;用户项目的`knowledge/SCHEMA.md` 引用同一份 plugin 字段表,不重复列字段                                                                             |
+| inbox 文件被 LLM 误迁移到错误目录                                    | 用户资料找不到                                        | 已存在目录(15 类预建)直接放,出错概率低;字典外的创建**必须拍板**;拍板后 log 留完整 `inbox/ → raw/` 路径便于回滚                                                                                      |
+| inbox 文件用户拍板后忘了删                                           | 下次 ingest 重复处理                                  | ingest 流程内强制`inbox/<file>` 删除;不是用户操作,是 skill 原子步骤                                                                                                                                        |
+| raw 子目录无限增长,LLM 起名飘(15 类之外)                             | 子目录碎片化(`16_公司内部_a`、`16_公司内部_b`...) | init 时 15 类全部预建,日常基本不会触发创建;字典外的创建必须拍板,用户当场就拦下;lint 仍建议合并相似的子目录                                                                                                   |
+| comparison 触发逻辑误报(LLM 提议用户不需要的对比页)                  | `comparisons/` 出现噪声                             | 两条触发路径(同类 entity / 高频检索)都只在落档询问时**提议**,用户拍板才建;**只提一次**,后续不再重复                                                                                              |
+| synthesis 写得太空(只是简单罗列,没真正"综合")                        | synthesis 页失去价值                                  | frontmatter`sources_count` 字段是"参考多少页"硬指标,sources_count 太低(<3)的 synthesis lint 警告;正文不锁骨架,LLM 自由发挥,但搜索功能可"找引用最广的综合页"                                                |
 
 ---
 
@@ -343,13 +342,13 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - [X] **Q3**:✅ `--fix` 模式按问题级别分流 —— 已定:**确定性结构修复**(frontmatter / 3 节骨架 / `## 摘要` 残留)直接 patch 应用,`log.md` 追加 `**LintFix**` 条目;**语义级问题**(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅输出提案,等用户确认(详见 §4.4 + design §4.4)
 - [X] **Q4**:✅ ~~`raw/` / `inbox/` 要不要各放一个 `README.md` 告诉用户放什么、不放什么~~ —— 已定:`raw-readme.md` 全量放 15 类边界规则(权威文件:plugin 本体 `templates/raw-readme.md`);`inbox-readme.md` 简版提示
 - [X] **Q5**:✅ ~~`inbox → raw` 迁移时,LLM 提议的子目录名要不要走 `lint` 风格的"相似合并建议"~~ —— 已定:**需要**,命名飘检查**前移到 ingest 提议时**,LLM 必须先比 raw/ 已有子目录,命中相似目录则强制改用已有目录(详见 §4.2 必须 + design §4.4)
-- [X] **Q6**:✅ ~~`[[wikilink]]` 是不是要当"残留"处理?~~ —— 已定:**`[[wikilink]]` 是一等公民**(Obsidian 原生双链 / Karpathy 老 wiki 兼容)。plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]` 形式;OKF 兼容性靠 frontmatter `links:` 字段镜像标准 markdown 链接列表(OKF reader 读 frontmatter 即可);lint **不**再警告 wikilink(详见 §8 风险表对应行 + SCHEMA.md §6 + design §4.4)
+- [X] **Q6**:✅ ~~`[[wikilink]]` 是不是要当"残留"处理?~~ —— 已定:**`[[wikilink]]` 是一等公民**(Obsidian 原生双链 / Karpathy 老 wiki 兼容)。plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]` 形式;OKF 兼容性靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)同时识别 `[[wikilink]]` + `[text](path/to/page.md)` 双格式,**不维护** frontmatter `links:` 镜像字段(Single Source of Truth);lint **不**再警告 wikilink(详见 §8 风险表对应行 + SCHEMA.md §5.3 + design §3.6.2 + `src/schema/OKF-EXTENSION.md`)
 
 ---
 
 ## 11. 参考
 
-- `input/kapathy-llm-wiki/kapathy-llm-wiki.en.md` —— Karpathy LLM Wiki 理念
+- `input/karpathy-llm-wiki/karpathy-llm-wiki.en.md` —— Karpathy LLM Wiki 理念
 - `input/google-OKF/OKF-SPEC.md` —— Open Knowledge Format v0.x 规范
 - `input/google-OKF/OKF-README.md` —— Google Cloud 的 OKF 发布说明
 - `reference/balukosuri__llm-wiki-karpathy/CLAUDE.md` —— Karpathy 模式的 Agent 操作手册范本
@@ -359,3 +358,25 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ---
 
 **下一步**:等本文档 review 通过 → 进入 M2(写 `design.md` + `implement.md`)
+
+---
+
+## 12. Change History
+
+### v0.2(2026-09-02) — 五轮增量
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 1 | **Python 化**:scripts/ 从 Node 18+ `.mjs` 切到 Python 3.10+ `.py` 单栈(任何doc/convert-to-md 直接调 anydoc/paddleocr,消除 Node 套壳 + Python 内核的伪单栈);新增 `scripts/requirements.txt` 含 jsonschema / pyyaml / pytest | — | design §1.1 / §1.2 / §1.4 / §2.4 / §4.2-§4.4 / §7.2;implement §0 / §B2-§B4 / §C10 / §C12 / §C14;scripts/README.md 全文;物理删除 `scripts/check-qmd.mjs`;新增 `scripts/requirements.txt` |
+| 2 | **3-stage ingest 并发 + batch OCR**:多文件场景走 `convert-to-md.py --batch` 单次冷启动 + ≤ 5 subagent 并行 LLM + 主 agent 阶段 3 串行收尾;Bash timeout 显式 600000ms | 用户提"subagent 并行处理" + "paddleocr 冷启动耗时" | design §1.4(支持 --batch) / §2.4(双调用模式) / §4.2.1(新整段) / §5.1(分 N=1 / N≥2 双流程);implement §B2(两调用模式) / §C2.4(8 个测试用例) |
+| 3 | **Q9 双字段 source_file + sources[]**:type: source 页 frontmatter 同时含 `source_file:`(顶层字符串,Obsidian 笔记属性面板可点击)与 `sources[].resource`(OKF §5.1 必填数组,机器可读),值必须相等(lint C5.1 一致性断言) | 用户贴 Obsidian 笔记属性面板截图,Q9 | design §3.6.1.1(新整段);templates/source-page.md(物理新建,frontmatter 锁 + LLM 写入指引 + 不变量);SCHEMA.md §2.2(必填字段表拆 3 行);implement §C5.1(4 个测试用例) |
+| 4 | **Q10 scripts 严禁交互硬契约 + plan 文件 audit trail**:scripts/*.py 严禁 input() / sys.stdin.read() / getpass 等阻塞调用(NFR-1 加严);ingest/lint 走 `temp/proposal-<hash>.md` → SKILL.md 拍板 → `temp/decision-<hash>.md` → scripts --apply 三段落档 | 用户提"自动化分流 vs 人工拍板 卡点" | design §1.4(新整段"scripts/ 严禁交互硬契约(NFR-1 加严,Q10)") + §4.2.x(新整段"ingest 提案/拍板/应用 三段落档(audit trail)");implement §C10.1(ast 静态扫描断言);scripts/README.md 新增"调用约定(scripts/ 严禁交互)"段 |
+| 5 | **Q11 subagent 写权矩阵 + 阶段 3 串行动作清单**:subagent 唯一可写路径是 `temp/<id>-proposal.json`;knowledge/ 下任何文件(index.md / glossary.md / log.md / overview.md / sources/ / entities/ / concepts/ / analyses/ / syntheses/ / comparisons/)在阶段 3 主 agent 串行收尾前绝对禁改;阶段 3 严格 9 步串行(命名飘仲裁 → 拍板汇总 → concept 去重 → entity 去重 → mv → source 页 → entity 页 → concept 页 → 最后一次性改索引) | 用户提"并发处理与阶段解耦(§4.2.1 未完结部分)" | design §4.2.1 新增"写权矩阵(并发安全硬约束,Q11)"整段 + "阶段 3 主 agent 串行动作清单(Q11)"整段;implement §C2.4 新增 Q11 测试用例(4 项) |
+
+**附带**:Q6 wikilink 改造 + `links:` 镜像字段去除 + 新建 `schema/OKF-EXTENSION.md`(plugin 对 OKF v0.2 扩展声明),已在 v0.2 之前一轮独立冻结(Q6 决策 commit `c726a96`)。本表仅列 v0.2 五轮增量。
+
+**兼容性**:v0.2 是 MINOR bump,所有改动对 OKF v0.2 spec 兼容性保持(§9 "consumers MUST NOT reject bundle because of missing optional frontmatter fields" + "consumers SHOULD tolerate unknown constructs")。无 breaking change;既有 v0.1 wiki 升级到 v0.2 plugin 只需重跑 init(scripts/ 重新同步)。
+
+### v0.1(2026-09-02) — 初版冻结
+
+详见 git log:`75502e6` / `078fc0d` / `136cee1` / `8cbfb33` / `c726a96`。初版含 Q1-Q6 拍板、9 节里程碑、M1-M6 阶段切分。

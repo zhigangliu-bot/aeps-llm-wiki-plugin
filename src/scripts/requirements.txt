@@ -7,11 +7,16 @@
 # 强依赖(未装 → SKILL.md 跑前校验并 FAIL,见 prd §4.2):
 anydoc>=0.3.0          # .pptx / .docx / .xlsx / .pdf → markdown(Claude converter 失败时降级)
 paddleocr>=2.7         # .png / .jpg / .jpeg / .bmp / .tiff → markdown(OCR)
+jsonschema>=4.0        # frontmatter schema 校验(validate-frontmatter.py)
+pyyaml>=6.0            # frontmatter 读写(scripts/ 通用)
 
 # 可选依赖(未装 → 按页面数走降级或 FAIL,见 prd §4.3):
 # qmd 不是 Python 包,但统一列在此处提示用户安装命令:
 #   npm install -g @tobilu/qmd    # 本地 markdown 搜索引擎,query skill 在 wiki ≥ 500 页时启用
 #   qmd status                    # 验证安装
+
+# 单测时需要(运行时不需要,跑 `pytest` 时才用):
+pytest>=7.0            # tests/ 单测框架(implement §阶段 C)
 
 # 添加新依赖前请确认:
 # 1. 是否能用 stdlib / Claude 内置 converter 替代(优先原则)

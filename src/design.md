@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:草稿 v0.1(待 review)
+> **状态**:v0.2 已冻结(2026-09-02)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -24,18 +24,20 @@
 
 plugin 生成的 `knowledge/` 必须能直接被 **Obsidian** 打开使用,无需任何格式转换或中间映射层。Obsidian 是 LLM 写完 wiki 之后**人真正读 / 浏览 / 跳链 / 反查**的工具,所有数据契约(链接 / tag / 目录 / frontmatter / 文件命名)都要按 Obsidian 原生语义设计。
 
-| 维度 | Obsidian 期望 | plugin 必须做 | 不得做 |
-|---|---|---|---|
-| **链接** | `[[page]]` / `[[page\|显示]]` / `[[page#章节]]` 双链原生可跳;反向链接面板自动生成 | 把 `[[wikilink]]` 写为一等公民(Q6) | ~~强制只写标准 markdown 链接 / 把 wikilink 当残留~~ |
-| **tag** | frontmatter `tags: [a, b]` 自动扫到 tag 面板;hierarchical tag `#domain/autosar` 也支持 | frontmatter `tags` 字段走 YAML list;六轴受控词表允许斜杠分层的层次 tag | ~~把 tag 塞进正文随机位置 / 用别名 / 拼写漂移~~ |
-| **目录** | vault 子文件夹 = Obsidian 左侧栏树状结构 | `knowledge/{entities,concepts,sources,analyses,comparisons,syntheses}/` 即 vault 子文件夹 | ~~加映射层 / 中间目录 / 软链~~ |
-| **frontmatter** | YAML 块必须严格合法(YAML 1.2);`title` / `tags` / `aliases` 字段 Obsidian 识别为元数据 | frontmatter 走 YAML,字段名小写连字符 / 下划线两种都接受 | ~~JSON 风格 / TOML / 内联字段~~ |
-| **文件名** | Obsidian 用文件名作为 page 标识,文件名即 wikilink 解析目标 | 文件名用 `<slug>.md` 形式,slug 全小写、连字符 | ~~文件名含中文 / 空格 / 大写混用~~ |
-| **反向链接** | Obsidian 自动建反向链接图谱 | 自然产生(每页 frontmatter `sources:` 字段 + 正文 `[[wikilink]]` 是反向链接的天然输入) | ~~手工维护反向链接 / 单独建 backlinks 索引~~ |
+| 维度                  | Obsidian 期望                                                                               | plugin 必须做                                                                               | 不得做                                               |
+| --------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| **链接**        | `[[page]]` / `[[page\|显示]]` / `[[page#章节]]` 双链原生可跳;反向链接面板自动生成      | 把`[[wikilink]]` 写为一等公民(Q6)                                                         | ~~强制只写标准 markdown 链接 / 把 wikilink 当残留~~ |
+| **tag**         | frontmatter`tags: [a, b]` 自动扫到 tag 面板;hierarchical tag `#domain/autosar` 也支持   | frontmatter`tags` 字段走 YAML list;六轴受控词表允许斜杠分层的层次 tag                     | ~~把 tag 塞进正文随机位置 / 用别名 / 拼写漂移~~     |
+| **目录**        | vault 子文件夹 = Obsidian 左侧栏树状结构                                                    | `knowledge/{entities,concepts,sources,analyses,comparisons,syntheses}/` 即 vault 子文件夹 | ~~加映射层 / 中间目录 / 软链~~                      |
+| **frontmatter** | YAML 块必须严格合法(YAML 1.2);`title` / `tags` / `aliases` 字段 Obsidian 识别为元数据 | frontmatter 走 YAML,字段名小写连字符 / 下划线两种都接受                                     | ~~JSON 风格 / TOML / 内联字段~~                     |
+| **文件名**      | Obsidian 用文件名作为 page 标识,文件名即 wikilink 解析目标                                  | 文件名用`<slug>.md` 形式,slug 全小写、连字符                                              | ~~文件名含中文 / 空格 / 大写混用~~                  |
+| **反向链接**    | Obsidian 自动建反向链接图谱                                                                 | 自然产生(每页 frontmatter`sources:` 字段 + 正文 `[[wikilink]]` 是反向链接的天然输入)    | ~~手工维护反向链接 / 单独建 backlinks 索引~~        |
 
 **Obsidian 兼容 ≠ OKF 兼容**:Obsidian 双链 + tag 不在 OKF v0.2 §4/§6 的强制要求里,但 Obsidian 兼容性通过以下方式保证 OKF v0.2 严格兼容:
-- frontmatter `links:` 字段镜像 wikilink 对应的标准 markdown 链接列表(Q6),OKF reader 读 frontmatter 即可
+
+- **正文 wiki link 走 `[[wikilink]]` 一等公民**(Q6)—— Obsidian 原生双链 + Karpathy 老 wiki 无需转换;**OKF reader 由本 plugin 自实现,识别 `[[wikilink]]` 与 `[text](path/to/page.md)` 双格式**(OKF §6.1 标准 markdown bundle-relative 链接),不强制 frontmatter `links:` 镜像字段(详见 §3.6 + `src/schema/OKF-EXTENSION.md`)
 - frontmatter `type:` 严格 OKF 必填字段,OKF 工具可识别为 source/analysis/concept/entity 等
+- OKF v0.2 §9 "consumers MUST NOT reject bundle because of missing optional frontmatter fields" —— 不写 `links:` 仍 OKF 兼容(本 plugin 不依赖该字段)
 
 **Obsidian 不兼容 = plugin FAIL**:任何 Obsidian 不识别的链接 / tag / 目录 / 文件名约定,plugin 设计阶段就要拒绝(NFR-1 衍生)。lint 不容忍这些隐性破坏。
 
@@ -70,8 +72,9 @@ src/
 │   └── inbox-readme.md
 ├── schema/
 │ └── frontmatter.schema.yaml   # 【运行路径】frontmatter 字段机器可读定义
-├── scripts/                      # 【运行路径】skill 调用的辅助脚本(拷到 user-project;Node 18+ .mjs)
-│   └── README.md                  # scripts/ 约定 + 未来脚本规划 + "不带运行时"边界
+├── scripts/                      # 【运行路径】skill 调用的辅助脚本(拷到 user-project;Python 3.10+ .py)
+│   ├── README.md                  # scripts/ 约定 + 未来脚本规划 + "不带运行时"边界
+│   └── requirements.txt           # 【运行路径】第三方 Python 依赖清单(anydoc / paddleocr / jsonschema / pyyaml / pytest);init 时随 scripts/ 一起拷到 user-project 的 scripts/requirements.txt
 ├── docs/                         # 【不进运行路径】给 plugin 用户看
 │   ├── README.md
 │   ├── architecture.md
@@ -83,48 +86,52 @@ src/
 ├── prd.md                        # 【不进运行路径】产品需求
 ├── design.md                     # 【不进运行路径】本文档
 ├── implement.md                  # 【不进运行路径】执行清单
-├── requirements.txt              # 第三方 Python 依赖清单(anydoc / paddleocr;init 时随 scripts/ 一起拷贝到 user-project 的 scripts/requirements.txt)
 ├── LICENSE
  └── .gitignore
 ```
 
+> **注**:`templates/` 跨节引用说明 —— 上图列的是 **plugin 本体** 的目录布局。init 时按 §2.5.1 路由规则把 templates/ 下 7 份核心文件**散落**到 user-project 不同位置(SCHEMA → `knowledge/SCHEMA.md`,raw-readme → `raw/README.md`,inbox-readme → `inbox/README.md`,concept-entities-readme / tag-template / 4 份页生成模板 → `templates/` 顶层)。**user-project 的 `templates/` 不会出现 SCHEMA / raw-readme / inbox-readme**(因为它们**只**与某一个子目录相关,按 §2.5.1 判定规则 1 已散落)。详见 §2.5.1 路由表。
+
 ### 1.2 模块职责(每个一行)
 
-| 模块                                          | 职责                                                                                                                                       | 进 plugin 运行路径?          |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `.claude-plugin/plugin.json`                | plugin manifest,声明 name / version / skills 列表                                                                                          | ✅                           |
-| `skills/*/SKILL.md`                         | 每个 skill 是一个独立的 Agent 入口                                                                                                         | ✅                           |
-| `templates/*`                               | 静态模板,init 时复制到用户项目                                                                                                             | ✅                           |
-| `schema/frontmatter.schema.yaml`            | frontmatter 字段机器可读定义,单一真理源                                                                                                    | ✅(被 skills/templates 引用) |
-| `scripts/*`                                 | skill 调用的辅助脚本(Node 18+ .mjs,init 时拷到 user-project);所有脚本必须**单次运行即退出**,不开 daemon / 不挂监听 / 不暴露服务(与 NFR-1 兼容) | ✅(被 skills 调用)            |
-| `scripts/check-qmd.mjs`                   | query skill 跑前探查 qmd 可用性 + 数 knowledge 页数,按阈值返回 `index` / `qmd` / `fail`(详见 §4.3) | ✅(被 query skill 调用)        |
-| `hooks/hooks.json`                        | Claude Code 事件回调;SessionStart → plugin 仓库更新检查,详见 §8;事件回调同步跑完即退,不开监听 | ✅(被 Claude Code 自动触发)   |
-| `requirements.txt`                          | 第三方 Python / Node 依赖清单(anydoc / paddleocr 强依赖;qmd 可选依赖);init 时随 scripts/ 拷到 `<project>/scripts/requirements.txt`,用户必须 `pip install -r scripts/requirements.txt` 才能用 ingest 的 pptx/docx/xlsx/pdf/图片类 OCR;qmd 单独 `npm install -g @tobilu/qmd` | ✅(被 convert-to-md.mjs / check-qmd.mjs 调用) |
-| `docs/*`                                    | 用户文档                                                                                                                                   | ❌                           |
-| `tests/*`                                   | 离线验证 plugin 产物                                                                                                                       | ❌                           |
-| `prd.md` / `design.md` / `implement.md` | 文档三件套                                                                                                                                 | ❌                           |
-| `LICENSE`                                   | Apache 2.0                                                                                                                                 | ❌                           |
-| `.gitignore`                                | git 忽略规则                                                                                                                               | ❌                           |
+| 模块                                          | 职责                                                                                                                                                                                                                                                                                                          | 进 plugin 运行路径?                         |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `.claude-plugin/plugin.json`                | plugin manifest,声明 name / version / skills 列表                                                                                                                                                                                                                                                             | ✅                                          |
+| `skills/*/SKILL.md`                         | 每个 skill 是一个独立的 Agent 入口                                                                                                                                                                                                                                                                            | ✅                                          |
+| `templates/*`                               | 静态模板,init 时复制到用户项目                                                                                                                                                                                                                                                                                | ✅                                          |
+| `schema/frontmatter.schema.yaml`            | frontmatter 字段机器可读定义,单一真理源                                                                                                                                                                                                                                                                       | ✅(被 skills/templates 引用)                |
+| `scripts/*`                                 | skill 调用的辅助脚本(**Python 3.10+ .py**,init 时拷到 user-project);所有脚本必须**单次运行即退出**,不开 daemon / 不挂监听 / 不暴露服务(与 NFR-1 兼容)                                                                                                                                             | ✅(被 skills 调用)                          |
+| `scripts/check-qmd.py`                      | query skill 跑前探查 qmd 可用性 + 数 knowledge 页数,按阈值返回`index` / `qmd` / `fail`(详见 §4.3)                                                                                                                                                                                                      | ✅(被 query skill 调用)                     |
+| `hooks/hooks.json`                          | Claude Code 事件回调;SessionStart → plugin 仓库更新检查,详见 §8;事件回调同步跑完即退,不开监听                                                                                                                                                                                                               | ✅(被 Claude Code 自动触发)                 |
+| `scripts/requirements.txt`                  | 第三方 Python 依赖清单(anydoc / paddleocr / jsonschema / pyyaml 强依赖;pytest 单测时需要;qmd 不在此清单,单独`npm install -g @tobilu/qmd`);init 时随 scripts/ 拷到`<project>/scripts/requirements.txt`,用户必须 `pip install -r scripts/requirements.txt` 才能用 ingest 的 pptx/docx/xlsx/pdf/图片类 OCR | ✅(被 convert-to-md.py / check-qmd.py 调用) |
+| `docs/*`                                    | 用户文档                                                                                                                                                                                                                                                                                                      | ❌                                          |
+| `tests/*`                                   | 离线验证 plugin 产物                                                                                                                                                                                                                                                                                          | ❌                                          |
+| `prd.md` / `design.md` / `implement.md` | 文档三件套                                                                                                                                                                                                                                                                                                    | ❌                                          |
+| `LICENSE`                                   | Apache 2.0                                                                                                                                                                                                                                                                                                    | ❌                                          |
+| `.gitignore`                                | git 忽略规则                                                                                                                                                                                                                                                                                                  | ❌                                          |
 
 ### 1.3 边界规则(明确"进 / 不进运行路径"的作用)
 
 - **运行路径** = plugin 装到用户 Claude Code 后会被读 / 调用的部分(skills + templates + schema + scripts)
 - **不进运行路径** = plugin 维护者自己看 + 开发者自测用;**用户装上 plugin 后不需要这些文件也能正常工作**
-- **`requirements.txt` 是运行时依赖**:ingest 调 `scripts/convert-to-md.mjs` 需要 anydoc / paddleocr(均为 Python 包),用户必须先 `pip install -r scripts/requirements.txt`;**未装 SKILL.md 会先校验并提示**,不进入转换流程。query 在 wiki 规模较大时调 qmd(详见 §4.3),用户需另行 `npm install -g @tobilu/qmd`(可选,未装按阈值降级或 FAIL)
+- **`scripts/requirements.txt` 是运行时依赖**:ingest 调 `scripts/convert-to-md.py` 需要 anydoc / paddleocr(均为 Python 包),用户必须先 `pip install -r scripts/requirements.txt`;**未装 SKILL.md 会先校验并提示**,不进入转换流程。query 在 wiki 规模较大时调 qmd(详见 §4.3),用户需另行 `npm install -g @tobilu/qmd`(可选,未装按阈值降级或 FAIL)。frontmatter 骨架 + schema 校验 + YAML 读写需要 jsonschema / pyyaml(详见 scripts/README.md)
 
 ### 1.4 scripts/ 与 hooks/ 的边界
 
 CLAUDE.md 约束 "plugin 不带运行时"。**真实含义**:不开常驻进程 / 不对外暴露接口 / 不持续监听文件。scripts/ 与 hooks/ 都必须满足这条边界。
 
-**scripts/ 约束**:
+**scripts/ 约束**(Python 3.10+ 栈,详见 §2.4):
 
-- ✅ 单次运行就退出(`node script.mjs <args>`)
+- ✅ 单次运行就退出(`python3 scripts/<name>.py <args>`,SKILL.md 默认显式调用避免依赖 PATH)
+- ✅ **支持 `--batch` 多输入模式**(N 文件一次性喂入,内部共享单 Engine 实例,详见 §2.4 + §4.2.1) — 仍是单次进程跑完即退,**不**缓存 Engine 到下次调用
 - ✅ 无状态(不读全局配置 / 不写 user-project 之外的缓存 / 不维护 session)
 - ✅ 路径用相对路径(对齐 CLAUDE.md「代码中不得使用绝对路径」)
+- ✅ 用 stdlib 优先(`subprocess.run` 不 fork 出脱离 Claude Code 生命周期的进程 / `signal.signal` 而非阻塞监听 / `sys.stdin` 不挂 resume)
 - ❌ 不开 daemon / 不挂监听 / 不暴露服务
 - ❌ 不监听文件系统变化
+- ❌ 不调用 `${CLAUDE_PLUGIN_ROOT}`(plugin 装在 `~/.claude/plugins/cache/` 下,cache 易清)
 
-**hooks/ 约束**:
+**hooks/ 约束**(Python 3.10+ 栈,详见 §7):
 
 - ✅ **事件回调同步跑完即退**(Claude Code 触发 SessionStart → 跑命令 → 退出)
 - ✅ **只读不写 user-project**(hooks 不能动 inbox/raw/knowledge,只能向 system-reminder/conversation 注入提示)
@@ -132,6 +139,7 @@ CLAUDE.md 约束 "plugin 不带运行时"。**真实含义**:不开常驻进程 
 - ❌ 不开持续后台进程(hooks 不能 fork 出脱离 Claude Code 生命周期的进程)
 - ❌ 不监听文件系统变化
 - ❌ 不修改 plugin 自身目录(`~/.claude/plugins/cache/...` 外的修改一律禁止)
+- ✅ 允许用 `${CLAUDE_PLUGIN_ROOT}`(与 scripts/ 不同 —— hook 是 Claude Code 加载阶段跑,plugin 安装目录稳定可知;CLAUDE.md 路径约束是 user-project 内代码,plugin 本体 hooks.json 由维护者掌控)
 
 **判断候选脚本/hook 是否允许加进 plugin**:执行模型是"agent(或 Claude Code)调一次,跑完退,产出结果或修改文件/注入提示",允许;是"持续跑 / 持续监听 / 对外暴露接口",不允许。
 
@@ -144,9 +152,9 @@ CLAUDE.md 约束 "plugin 不带运行时"。**真实含义**:不开常驻进程 
 ```
 <user-project>/
 ├── inbox/                          # 暂存入口,G7,init 时建 + README + .gitkeep
-├── scripts/                        # plugin 单次运行脚本(Node 18+,.mjs),init 时从 plugin 拷贝(详见 §2.4)
+├── scripts/                        # plugin 单次运行脚本(Python 3.10+,.py),init 时从 plugin 拷贝(详见 §2.4)
 │   ├── _meta.json                  # 来源 plugin + 版本 + 同步时间
-│   └── *.mjs                       # 至少:init-vault / lint-frontmatter / check-inbox-target
+│   └── *.py                        # 至少:init-vault / lint-frontmatter / check-inbox-target
 ├── templates/                      # scripts 生成文件时读的"页模板源",init 时拷过来(详见 §2.5)
 │   ├── source-page.md              # sources/ 页生成模板
 │   ├── analysis-page.md            # analyses/ 页生成模板
@@ -240,9 +248,9 @@ CLAUDE.md 约束 "plugin 不带运行时"。**真实含义**:不开常驻进程 
 - **analysis 页命名**:`knowledge/analyses/<ISO 8601 timestamp>-<slug>.md`,例:`2026-09-01T14-30-00z-okf-faq.md`
 - **log.md 日期 heading**:`## YYYY-MM-DD`(裸日期,不带时间;带时间的写到条目的 timestamp 字段)
 - **actor 字符串**(frontmatter `generated.by` / `verified.by`):
-  - agent / 工具:`<producer>/<version>`,例 `aeps-llm-wiki/0.1`
+  - agent / 工具:`agent: <producer>/<plugin>`,例 `agent: producer/aeps-llm-wiki-plugin/0.4.0`(对齐 SCHEMA.md §4)
   - 人:`human:<id>`,例 `human:zhigang.liu`
-  - 进程:`process:<id>`,例 `process:weekly-lint`
+  - 进程:`process:<id>`,例 `process:aeps-llm-wiki-lint`
 
 ### 2.4 用户项目 `scripts/` 目录
 
@@ -254,7 +262,7 @@ SKILL.md 是 prompt(Llm 读),但**有外部依赖或系统调用**的逻辑(批�
 
 - **不**调用 `${CLAUDE_PLUGIN_ROOT}`(plugin 装在 `C:\Users\ThinkPad\.claude\plugins\cache\` 下,cache 易清,symlink 易丢)
 - **不**走 `npx` + npm(违背离线可用)
-- **改**:把脚本**拷到 user-project 的 `scripts/`**,SKILL.md 用**相对路径** `./scripts/<name>.mjs` 调,**永远在 user-project 目录里跑**
+- **改**:把脚本**拷到 user-project 的 `scripts/`**,SKILL.md 用**相对路径** `./scripts/<name>.py` 调,**永远在 user-project 目录里跑**
 
 #### 拷贝内容
 
@@ -262,18 +270,23 @@ SKILL.md 是 prompt(Llm 读),但**有外部依赖或系统调用**的逻辑(批�
 
 #### 运行时
 
-- **Node 18+ .mjs**(Claude Code 内置 Node,**无 npm 依赖**,纯 stdlib:fs / path / url)
+- **Python 3.10+**(Claude Code 内置 Python;**单栈** —— scripts/ 与 hooks/ 统一,见 §7)
 - **禁止**绝对路径、禁止 `${CLAUDE_PLUGIN_ROOT}`、禁止从 plugin 安装目录反向引用
 - 脚本必须接受 `--project-dir <path>` 参数(默认 `.`),**不假设 cwd**
+- SKILL.md 默认用 `python3 ./scripts/<name>.py ...` 显式调用(避免依赖 PATH + shebang);脚本顶部加 `#!/usr/bin/env python3` 仍允许双调用形式
+- 脚本单次执行即退(`subprocess.run` 不 fork 出脱离 Claude Code 生命周期的进程,`signal.signal` 而非阻塞监听,`sys.stdin` 不挂 resume)
 
-#### Python 依赖(转换/OCR 路径)
+#### Python 依赖
 
-`scripts/convert-to-md.mjs` 调用 anydoc / paddleocr(均为 Python 包),**依赖清单写在 `scripts/requirements.txt`**,init 时一并拷贝到 user-project:
+`scripts/requirements.txt` 是 scripts/ 的运行时依赖清单(强依赖,任何未装 → SKILL.md 跑前 FAIL 提示),init 时一并拷贝到 user-project:
 
 ```
 # scripts/requirements.txt
-anydoc>=0.3.0   # pptx/docx/xlsx/pdf → md
-paddleocr>=2.7  # png/jpg/jpeg/bmp/tiff → md
+anydoc>=0.3.0        # pptx/docx/xlsx/pdf → md
+paddleocr>=2.7       # png/jpg/jpeg/bmp/tiff → md
+jsonschema>=4.0      # frontmatter schema 校验
+pyyaml>=6.0          # frontmatter 读写
+pytest>=7.0          # tests/ 单测(运行时不需要,跑测试时需要)
 ```
 
 **用户必须装**(自己虚拟环境 / venv 都行,plugin 不强制创建 venv):
@@ -284,26 +297,31 @@ pip install -r scripts/requirements.txt
 
 **未装 → SKILL.md 跑前先校验**,提示"请先 `pip install -r scripts/requirements.txt`",**退出**(避免跑到一半才报缺包)。
 
-#### SKILL.md 调用约定(convert-to-md.mjs)
+#### SKILL.md 调用约定(convert-to-md.py)
 
-ingest skill 跑前先校验依赖,再按扩展名分流调用:
+ingest skill 跑前先校验依赖,再按扩展名分流调用。**两种调用形式**(单文件 / 批量):
 
 ```bash
-# 入口脚本(按扩展名分流)
-node ./scripts/convert-to-md.mjs --project-dir . --input inbox/<file> --output <tmp-md-path>
+# 单文件入口(按扩展名分流;inbox 仅 1 份文件时走这个)
+python3 ./scripts/convert-to-md.py --project-dir . --input inbox/<file> --output <tmp-md-path>
+
+# 批量入口(inbox 多文件时走这个;避免 N 次 paddleocr 冷启动,详见 §4.2.1 阶段 1)
+python3 ./scripts/convert-to-md.py --project-dir . --batch inbox/<f1> inbox/<f2> ... inbox/<fn> --output-dir temp/
+# SKILL.md 必须显式 Bash timeout: 600000ms(Claude Code max)
 ```
 
-- 输入:`inbox/<file>`(任意扩展名)
-- 输出:**临时 markdown 文件路径**(由 SKILL.md 决定,读完即删)
+- **单文件模式**:`--input <file> --output <tmp-md-path>`,1 次冷启动处理 1 个文件
+- **批量模式**:`--batch <f1> <f2> ... <fn> --output-dir temp/`,**单次进程内只初始化 1 次 paddleocr Engine / anydoc 实例**,依次处理 N 个文件,输出 `temp/<basename>.md`(N 份独立 md)
 - 脚本内部按扩展名走"Claude converter → 降级 anydoc / OCR"的三段策略(详见 §4.2 步骤 2 表格)
+- 两种模式都仍"单次跑完即退"(NFR-1 兼容,详见 §1.4);**不开 daemon、不缓存 Engine 到下次调用**(避免违反 NFR-1)
 
-#### SKILL.md 调用约定(check-qmd.mjs)
+#### SKILL.md 调用约定(check-qmd.py)
 
 query skill 跑前先探查引擎决策:
 
 ```bash
 # 探查 qmd 可用性 + 数 knowledge 页数 → 返回 JSON
-node ./scripts/check-qmd.mjs --project-dir .
+python3 ./scripts/check-qmd.py --project-dir .
 ```
 
 - 输出:`{pageCount, qmdAvailable, qmdVersion, engine: 'index'|'qmd'|'fail', reason}`
@@ -314,23 +332,27 @@ node ./scripts/check-qmd.mjs --project-dir .
 
 ```bash
 # ✅ 正确:相对路径 + 传 --project-dir
-node ./scripts/<script>.mjs --project-dir .
+python3 ./scripts/<script>.py --project-dir .
+
+# ✅ 正确(batch 模式):显式 Bash timeout 600000ms
+python3 ./scripts/convert-to-md.py --project-dir . --batch inbox/<f1> inbox/<f2> --output-dir temp/
 
 # ❌ 错误
-node /absolute/path/to/scripts/<script>.mjs
-node ${CLAUDE_PLUGIN_ROOT}/scripts/<script>.mjs
-node ~/.claude/plugins/cache/.../scripts/<script>.mjs
-node ./scripts/<script>.mjs --raw-dir custom-raw    # 目录名固定,不允许自定义
+python3 /absolute/path/to/scripts/<script>.py
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py
+python3 ~/.claude/plugins/cache/.../scripts/<script>.py
+python3 ./scripts/<script>.py --raw-dir custom-raw    # 目录名固定,不允许自定义
+python3 ./scripts/convert-to-md.py --batch ...       # 不显式 timeout(PaddleOCR 冷启动可能超时)
 ```
 
 #### Sync 策略(plugin 升级时)
 
-| 情况 | 行为 |
-|---|---|
-| plugin 新版**新增**脚本 | 拷贝到 user-project `scripts/` |
-| plugin 新版**修改了**脚本 | **user-project 副本不动**,lint 报告"plugin 新版修改了 X.mjs,要采纳吗?",用户拍板后覆盖 |
-| 用户本地**新增**了脚本(如 `my-custom-check.mjs`) | **保留**,plugin 不动 |
-| 用户本地**删了** plugin 自带的脚本 | 不补回,lint 提示"plugin 新版有 X 你本地没有" |
+| 情况                                                     | 行为                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| plugin 新版**新增**脚本                            | 拷贝到 user-project`scripts/`                                                      |
+| plugin 新版**修改了**脚本                          | **直接覆盖** user-project 副本(plugin 自带脚本以 plugin 本体为权威,升级时跟随) |
+| 用户本地**新增**了脚本(如 `my-custom-check.py`) | **保留**,plugin 不动                                                           |
+| 用户本地**删了** plugin 自带的脚本                 | 不补回,lint 提示"plugin 新版有 X 你本地没有"                                         |
 
 **为什么用户本地修改不自动覆盖**:用户可能在 scripts/ 里写了自定义 helper,plugin 升级不能覆盖用户资产。
 
@@ -344,6 +366,65 @@ scripts 是**单次执行就退**(`agent 调一次,跑完退,产出结果或修�
 - 复杂 UI 交互(进度条、确认对话)→ 走 SKILL.md prompt
 - 跨平台不确定的原生调用(Win32 API、macOS launchctl)→ **禁**,改用 stdlib
 
+#### scripts/ 严禁交互硬契约(NFR-1 加严,Q10)
+
+**问题根源澄清**:scripts/ 当前是空设计(M3 才落地),不存在"挂起卡死"的现实现状;但设计若**不**明确禁止交互式调用,未来实现者(图省事)很容易在脚本里写 `input()` 或 `sys.stdin.read()`,导致:
+- 无交互终端调用时挂死(如 CI / git hook / 用户手动命令行)
+- Claude Skill 调用时若脚本自己抓 stdin,会与 Claude 的 tool use 流抢输入、状态不可预测
+- 单测无法跑(测试环境无 stdin)
+
+**硬契约(NFR-1 加严)**:`scripts/*.py` 严禁任何形式的运行时交互,**纯函数工具**:
+
+| 禁止调用 | 替代方案 |
+|---|---|
+| `input()` / `input(prompt)` | 由 SKILL.md 在 Claude 对话层发起交互,拍板结果通过参数传入 |
+| `sys.stdin.read()` / `sys.stdin.readline()` | 同上 |
+| `getpass.getpass()` | 完全禁 |
+| `select.select([sys.stdin], ...)` 等待 stdin | 同上 |
+| 任何阻塞事件循环(`while True: pass` 等) | 同 §1.4 NFR-1 单次运行即退约束 |
+
+**scripts/ 边界**:scripts 是**机械执行器**(IO / 校验 / OCR / qmd / 命名飘检测),决策永远在 Claude 对话层(SKILL.md prompt)。scripts 接受**确定参数 + 配置文件**(如 `--apply temp/plan-<hash>.md`),按参数执行,不发起任何 prompt。
+
+**lint C10 静态扫描断言**(M3 实现时加):`tests/test_no_daemon.py` 增加 `ast` 模块扫描所有 `scripts/*.py` 源文件,断言不出现 `input` / `sys.stdin.read` / `sys.stdin.readline` / `getpass` 调用。**违反 FAIL**。
+
+**scripts/ 与 SKILL.md 责任分工**:
+
+| 职责 | 谁负责 |
+|---|---|
+| 读 inbox 文件 / 提取文本 / OCR | scripts (`convert-to-md.py`) |
+| LLM 提议 raw 子目录 / entity / concept 抽取 | SKILL.md (Claude LLM) |
+| 拍板门(目标目录不存在 / 命名飘仲裁) | SKILL.md (Claude 对话问用户) |
+| mv / mkdir / 写 log | scripts (`safe-mv.py` / `ensure-dirs.py` / `append-log.py`) |
+| 提案 / 拍板落档(详见 §4.2) | SKILL.md 写 `temp/plan-<hash>.md` |
+| 读 plan 文件应用 | scripts (CLI 参数 `--apply temp/plan-<hash>.md`) |
+
+#### `_meta.json` 字段定义
+
+init / re-run init 时,`<project>/scripts/_meta.json` 记录"这次 scripts/ 来自哪个 plugin 版本 + 什么时候同步的",用于后续 lint 报告"plugin 新版修改了 X.py,要采纳吗?"时定位 sync 来源。**没有用户价值,plugin 升级时总是覆盖**(详见 §4.1.1 scripts/ sync 策略)。
+
+```json
+{
+  "plugin": "aeps-llm-wiki-plugin",
+  "version": "<plugin 本体 plugin.json 的 version 字段,如 0.1>",
+  "synced_at": "<ISO 8601 + 显式 UTC 偏移,如 2026-09-02T18:00:00Z>"
+}
+```
+
+**字段说明**:
+
+| 字段          | 类型             | 必填? | 含义                                                                                                |
+| ------------- | ---------------- | ----- | --------------------------------------------------------------------------------------------------- |
+| `plugin`    | string           | ✅    | plugin 名称(固定`aeps-llm-wiki-plugin`)                                                           |
+| `version`   | string           | ✅    | 来自 plugin 本体`.claude-plugin/plugin.json` 的 `version` 字段;语义化版本 `MAJOR.MINOR.PATCH` |
+| `synced_at` | string(ISO 8601) | ✅    | 本次 sync 触发时间;`init` 时 = init 触发时间;`re-run init` 时 = 当前时间                        |
+
+**约束**:
+
+- ❌ 不存任何 user-project 私有信息(防止 plugin 升级泄露)
+- ❌ 不存 git commit hash / plugin 本体绝对路径(plugin 装在 `~/.claude/plugins/cache/` 下,cache 易清)
+- ❌ 不存脚本内容 hash(增量 sync 不是 M2 范围,M5 再说)
+- ✅ 文件只由 init skill 写,其他 skill 不动
+
 ### 2.5 用户项目 `templates/` 目录(B 简化版)
 
 #### 职责边界
@@ -352,41 +433,41 @@ scripts 是**单次执行就退**(`agent 调一次,跑完退,产出结果或修�
 
 三类文件切分:
 
-| 类别 | 放在 user-project 哪 | 谁读 | 例子 |
-|---|---|---|---|
-| **页生成模板**(scripts 用) | `<project>/templates/`(B 简化版,新增) | scripts(`.mjs`) | `source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md` |
-| **全栈字典**(人 + LLM 读) | `<project>/templates/`(与页生成模板同层) | LLM agent + 用户 | `concept-entities-readme.md` / `tag-template.md` |
-| **子目录专属字典 / 操作手册**(人 + LLM 读) | 分散落到对应子目录顶层 | LLM agent + 用户 | `knowledge/SCHEMA.md` / `raw/README.md` / `inbox/README.md` |
+| 类别                                             | 放在 user-project 哪                       | 谁读              | 例子                                                                                 |
+| ------------------------------------------------ | ------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------ |
+| **页生成模板**(scripts 用)                 | `<project>/templates/`(B 简化版,新增)    | scripts(`.py`) | `source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md` |
+| **全栈字典**(人 + LLM 读)                  | `<project>/templates/`(与页生成模板同层) | LLM agent + 用户  | `concept-entities-readme.md` / `tag-template.md`                                 |
+| **子目录专属字典 / 操作手册**(人 + LLM 读) | 分散落到对应子目录顶层                     | LLM agent + 用户  | `knowledge/SCHEMA.md` / `raw/README.md` / `inbox/README.md`                    |
 
 **判定规则**:横跨 ≥ 2 个 user-project 子目录的字典 → `templates/`;只与一个子目录相关的字典 / 操作手册 → 该子目录顶层。详见 §2.5.1 路由规则。
 
 #### 拷贝内容(初始集)
 
-| 文件 | 类别 | 用途 |
-|---|---|---|
-| `source-page.md` | 页生成模板 | sources/ 页生成模板(3 节 H2 骨架:重点摘录 / 我的思考 / 总结) |
-| `analysis-page.md` | 页生成模板 | analyses/ 页生成模板(同上 3 节) |
-| `entity-page.md` | 页生成模板 | entities/<子类>/ 页生成模板(自由发挥,不锁骨架) |
-| `concept-page.md` | 页生成模板 | concepts/<子类>/ 页生成模板(自由发挥) |
-| `concept-entities-readme.md` | 全栈字典 | 14 子类 ↔ 目录绑死表(entities × 7 + concepts × 7);被 SKILL.md 显式读、被 lint 显式对照 |
-| `tag-template.md` | 全栈字典 | 六轴受控词表(domain / layer / phase / docform / maturity / tec);被 SKILL.md 显式读、被 lint 显式对照 |
+| 文件                           | 类别       | 用途                                                                                                 |
+| ------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `source-page.md`             | 页生成模板 | sources/ 页生成模板(3 节 H2 骨架:重点摘录 / 我的思考 / 总结)                                         |
+| `analysis-page.md`           | 页生成模板 | analyses/ 页生成模板(同上 3 节)                                                                      |
+| `entity-page.md`             | 页生成模板 | entities/<子类>/ 页生成模板(自由发挥,不锁骨架)                                                       |
+| `concept-page.md`            | 页生成模板 | concepts/<子类>/ 页生成模板(自由发挥)                                                                |
+| `concept-entities-readme.md` | 全栈字典   | 14 子类 ↔ 目录绑死表(entities × 7 + concepts × 7);被 SKILL.md 显式读、被 lint 显式对照            |
+| `tag-template.md`            | 全栈字典   | 六轴受控词表(domain / layer / phase / docform / maturity / tec);被 SKILL.md 显式读、被 lint 显式对照 |
 
 #### §2.5.1 路由规则:plugin 本体 `templates/*.md` 拷到 user-project 哪里
 
 plugin 本体 `templates/` 下维护 7 份核心 .md(操作手册 / 字典 / 页生成模板)。init 时按"用途路由"散落到 user-project 不同位置,**不**全部堆在 user-project 顶层 `templates/`:
 
-| plugin 本体 `templates/` 文件 | 类型 | 拷到 user-project 哪里 | 理由 |
-|---|---|---|---|
-| `knowledge-SCHEMA.md` | 操作手册 | `knowledge/SCHEMA.md` | SCHEMA 是 knowledge 操作手册,**只**与 knowledge 相关 |
-| `knowledge-index.md` / `knowledge-overview.md` / `knowledge-glossary.md` / `knowledge-log.md` | knowledge 种子 | `knowledge/{index,overview,glossary,log}.md` | 同上 |
-| `raw-readme.md` | raw 专属字典 | `raw/README.md` | raw 15 类边界规则,**只**与 raw 相关 |
-| `inbox-readme.md` | inbox 专属提示 | `inbox/README.md` | 同上 |
-| `concept-entities-readme.md` | **全栈字典** | `templates/concept-entities-readme.md` | 14 子类 ↔ 目录映射涉及 entities/ + concepts/,**不属于 raw 专属**,放 templates/ 顶层 |
-| `tag-template.md` | **全栈字典** | `templates/tag-template.md` | 六轴受控词表涉及 knowledge/ 内所有页 + raw/,**不属于 raw 专属**,放 templates/ 顶层 |
-| `source-page.md` | 页生成模板 | `templates/source-page.md` | 通用页模板,与 skills 协作,放 templates/ 顶层 |
-| `analysis-page.md` | 页生成模板 | `templates/analysis-page.md` | 同上 |
-| `entity-page.md` | 页生成模板 | `templates/entity-page.md` | 同上 |
-| `concept-page.md` | 页生成模板 | `templates/concept-page.md` | 同上 |
+| plugin 本体`templates/` 文件                                                                        | 类型               | 拷到 user-project 哪里                         | 理由                                                                                       |
+| ----------------------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `knowledge-SCHEMA.md`                                                                               | 操作手册           | `knowledge/SCHEMA.md`                        | SCHEMA 是 knowledge 操作手册,**只**与 knowledge 相关                                 |
+| `knowledge-index.md` / `knowledge-overview.md` / `knowledge-glossary.md` / `knowledge-log.md` | knowledge 种子     | `knowledge/{index,overview,glossary,log}.md` | 同上                                                                                       |
+| `raw-readme.md`                                                                                     | raw 专属字典       | `raw/README.md`                              | raw 15 类边界规则,**只**与 raw 相关                                                  |
+| `inbox-readme.md`                                                                                   | inbox 专属提示     | `inbox/README.md`                            | 同上                                                                                       |
+| `concept-entities-readme.md`                                                                        | **全栈字典** | `templates/concept-entities-readme.md`       | 14 子类 ↔ 目录映射涉及 entities/ + concepts/,**不属于 raw 专属**,放 templates/ 顶层 |
+| `tag-template.md`                                                                                   | **全栈字典** | `templates/tag-template.md`                  | 六轴受控词表涉及 knowledge/ 内所有页 + raw/,**不属于 raw 专属**,放 templates/ 顶层   |
+| `source-page.md`                                                                                    | 页生成模板         | `templates/source-page.md`                   | 通用页模板,与 skills 协作,放 templates/ 顶层                                               |
+| `analysis-page.md`                                                                                  | 页生成模板         | `templates/analysis-page.md`                 | 同上                                                                                       |
+| `entity-page.md`                                                                                    | 页生成模板         | `templates/entity-page.md`                   | 同上                                                                                       |
+| `concept-page.md`                                                                                   | 页生成模板         | `templates/concept-page.md`                  | 同上                                                                                       |
 
 **判定规则**:
 
@@ -491,7 +572,7 @@ sources:
     last_modified: 2026-07-25T00:00:00Z
 # 2. Trust: how the content was generated(OKF §5.2)
 generated:
-  by: aeps-llm-wiki/0.1
+  by: agent: producer/aeps-llm-wiki-plugin/0.4.0
   at: 2026-09-01T14:00:00Z
 # 3. Trust: who verified(OKF §5.2)
 verified:
@@ -516,22 +597,22 @@ tags:
 - `verified` 接受 list 或单 mapping(OKF §5.2 `Consumers MUST treat a bare mapping as a one-element list`)
 - `status` 缺省 = `stable`
 
-**`tags` 五轴受控词表设计**(plugin 行为约束,**OKF 字段 + plugin 强制写法**):
+**`tags` 六轴受控词表设计**(plugin 行为约束,**OKF 字段 + plugin 强制写法**):
 
-> OKF v0.2 §4.1 把 `tags` 定义为 "a YAML list of short strings for cross-cutting categorization",本身是 folksonomy 层。Plugin 在此基础上引入 **五轴受控词表**,解决两个真实痛点:拼写漂移(`autosar` / `AUTOSAR` / `Autosar` 三种写法)+ 维度混乱(同一 tag 跨多个语义维度)。详见 [`templates/tag-template.md`](templates/tag-template.md),权威字典。
+> OKF v0.2 §4.1 把 `tags` 定义为 "a YAML list of short strings for cross-cutting categorization",本身是 folksonomy 层。Plugin 在此基础上引入 **六轴受控词表**,解决两个真实痛点:拼写漂移(`autosar` / `AUTOSAR` / `Autosar` 三种写法)+ 维度混乱(同一 tag 跨多个语义维度)。详见 [`templates/tag-template.md`](templates/tag-template.md),权威字典。
 
 **写法**:**`<axis>/<value>` 前缀命名空间**(如 `domain/ai`),Obsidian YAML 不解析为 map key,机读友好。**禁止**无前缀的裸 tag(`ai` 单独出现非法)。
 
-**五轴**:
+**六轴**:
 
-| axis      | 词数 | 单值/多值                            | 必填?                                |
-| --------- | ---- | ------------------------------------ | ------------------------------------ |
-| `domain`   | 14   | 单值(软上限 ≤ 2,最多 5)| ⚠️ 推荐必填                          |
-| `layer`    | 9    | 单值优先(纯物理/逻辑堆栈)| 可选                                 |
-| `phase`    | 8    | **可多值**(纯时间/研发阶段)| 可选                                 |
-| `docform`  | 14   | **单值必填**(文档用途;详见 `templates/tag-template.md` §6)| ✅ 必填 |
-| `maturity` | 5    | **单值必填**(`concept < research < pilot < production < standard`,用于笔记权重判断) | ✅ 必填 |
-| `tec`      | ~45  | 单值优先 | 可选                                 |
+| axis         | 词数 | 单值/多值                                                                                   | 必填?         |
+| ------------ | ---- | ------------------------------------------------------------------------------------------- | ------------- |
+| `domain`   | 14   | 单值(软上限 ≤ 2,最多 5)                                                                    | ⚠️ 推荐必填 |
+| `layer`    | 9    | 单值优先(纯物理/逻辑堆栈)                                                                   | 可选          |
+| `phase`    | 8    | **可多值**(纯时间/研发阶段)                                                           | 可选          |
+| `docform`  | 14   | **单值必填**(文档用途;详见 `templates/tag-template.md` §6)                         | ✅ 必填       |
+| `maturity` | 5    | **单值必填**(`concept < research < pilot < production < standard`,用于笔记权重判断) | ✅ 必填       |
+| `tec`      | ~45  | 单值优先                                                                                    | 可选          |
 
 **LLM 工作流**(SKILL.md 显式告诉 LLM):
 
@@ -544,18 +625,18 @@ tags:
 
 **lint 规则**(对应 §4.4):
 
-| 现象 | 行为 |
-|---|---|
-| 裸 tag(`ai` 无前缀) | FAIL |
-| 字典外 tag | WARN,累计 ≥ 5 次建议下次 plugin 升级时加入字典 |
-| 缺失 `maturity/` | FAIL(必填) |
-| 缺失 `domain/` | WARN |
-| 单页 `domain` > 5 个 | 提示"切片失去区分度,建议合并" |
-| 同一 axis 重复(如 `domain/ai` 出现 2 次) | FAIL |
-| 拼写变体聚类(`autosar` / `AUTOSAR`) | WARN,推荐字典 prefLabel |
-| 词序变体(`autosar-adaptive` / `adaptive-autosar`) | WARN,推荐字典 prefLabel |
-| 频次 ≥ 10 | "热门,可考虑固化" |
-| 频次 = 1 | "冷僻,真的需要保留?" |
+| 现象                                                  | 行为                                            |
+| ----------------------------------------------------- | ----------------------------------------------- |
+| 裸 tag(`ai` 无前缀)                                 | FAIL                                            |
+| 字典外 tag                                            | WARN,累计 ≥ 5 次建议下次 plugin 升级时加入字典 |
+| 缺失`maturity/`                                     | FAIL(必填)                                      |
+| 缺失`domain/`                                       | WARN                                            |
+| 单页`domain` > 5 个                                 | 提示"切片失去区分度,建议合并"                   |
+| 同一 axis 重复(如`domain/ai` 出现 2 次)             | FAIL                                            |
+| 拼写变体聚类(`autosar` / `AUTOSAR`)               | WARN,推荐字典 prefLabel                         |
+| 词序变体(`autosar-adaptive` / `adaptive-autosar`) | WARN,推荐字典 prefLabel                         |
+| 频次 ≥ 10                                            | "热门,可考虑固化"                               |
+| 频次 = 1                                              | "冷僻,真的需要保留?"                            |
 
 **理论参考**(轻量版,详细见 `templates/tag-template.md` §1、§8):
 
@@ -586,9 +667,9 @@ summary: |
 
 **字段集合**(plugin 内部允许的扩展,**仅两个**):
 
-| 字段 | 类型 | 用途 |
-|---|---|---|
-| `updated` | ISO 8601 timestamp | 最后修改时间(OKF 无对应) |
+| 字段        | 类型               | 用途                            |
+| ----------- | ------------------ | ------------------------------- |
+| `updated` | ISO 8601 timestamp | 最后修改时间(OKF 无对应)        |
 | `summary` | string (multiline) | 长摘要(2-5 段),详见下方写作纪律 |
 
 **字段命名原则**(plugin 维护者遵守,LLM 写入时遵守):
@@ -670,7 +751,7 @@ type_enum:
 
 # actor 字符串格式
 actor_patterns:
-  agent: '^[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+$'    # 例 aeps-llm-wiki/0.1
+  agent: '^agent: producer/[a-z0-9-]+/[0-9]+\.[0-9]+\.[0-9]+$'    # 例 agent: producer/aeps-llm-wiki-plugin/0.4.0(对齐 SCHEMA.md §4)
   human: '^human:.+$'                            # 例 human:zhigang.liu
   process: '^process:.+$'                         # 例 process:weekly-lint
 
@@ -683,12 +764,40 @@ tags_format:
   domain_max_per_page: 5                                        # 软上限
 ```
 
+### 3.2.1 扩展工作流(US-6:加新实体/概念类型)
+
+**触发场景**:用户要加新 type(例:`entities/tool/` 或 `concepts/protocol/`),plugin 维护者要加新一档字段到 schema。
+
+**权威依据**:变更必须保证"三件套同步",否则 lint 误报或 SKILL.md 行为不一致。
+
+**3 步走**(每步必跑自检):
+
+1. **改 `schema/frontmatter.schema.yaml`** —— `type_enum` 列表追加新值,如有新 frontmatter 字段也在 `extensions.plugin` / `extensions.okf` 白名单追加
+2. **改 `templates/concept-entities-readme.md`** —— 对应 H2 章节(§1 Entities 或 §2 Concepts)追加新子类条目 + 含义 + 例子 + 目录名(`<entities|concepts>/<子类>/`)
+3. **新项目 init 自检** —— `python3 ./scripts/init-vault.py --project-dir /tmp/<test-vault>`,验证:
+   - `<entities|concepts>/<新子类>/.gitkeep` 自动建好
+   - 在 `/tmp/<test-vault>/templates/concept-entities-readme.md` 副本里看到新子类条目
+   - 写一份 fixture `<新子类>.md`,跑 `python3 ./scripts/lint-frontmatter.py`,断言不报"未知 type"
+   - 跑 `python3 ./scripts/lint-frontmatter.py --fix` 验证派生/补缺路径仍正常
+
+**变更传播路径**:
+
+| 改的文件                                               | 影响范围                                                            | 自检方法                            |
+| ------------------------------------------------------ | ------------------------------------------------------------------- | ----------------------------------- |
+| `schema/frontmatter.schema.yaml` 的 `type_enum`    | 所有 SKILL.md(写页时引用 type)+ lint 脚本                           | lint 自检                           |
+| `schema/frontmatter.schema.yaml` 的 `extensions.*` | lint(未知扩展键警告)                                                | 写一份带新扩展键的 fixture 验证     |
+| `templates/concept-entities-readme.md`               | 所有 SKILL.md 显式读(instruct LLM 比对字典)+ lint 子类 ↔ 目录 校验 | init 副本验证 + lint 自检           |
+| `templates/tag-template.md`(新 axis 或新词)          | ingest/query/lint 走 tag 校验的全部路径                             | 写一份带新 axis tag 的 fixture 验证 |
+| `knowledge/SCHEMA.md`(用户项目副本)                  | 由 init 自动覆盖(详见 §4.1),plugin 维护者**不需要手动改**    | re-run init 验证                    |
+
+**plugin 升级到已有项目**:用户跑 `/aeps-llm-wiki-init`(幂等再入,详见 §4.1.1)→ 字典 sync 走 append 策略(§4.1.1 字典文件 sync 策略段),用户本地副本里"自定义子类/自定义 tag"**保留**,plugin 新版内容**append**到对应 H2 末尾。
+
 ### 3.3 链接约定(从 prd §6.2 §E 抽出)
 
-- **仅标准 markdown 链接**:`[text](url)`(OKF §6.1 强制;plugin 强制)
+- **wiki link 双格式**(plugin 强制 + OKF 兼容):正文同时支持 `[[wikilink]]`(Obsidian 原生 + plugin 一等公民,Q6)与 `[text](path/to/page.md)`(OKF §6.1 标准 markdown bundle-relative 链接);plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别两种
 - 优先 bundle-relative 绝对路径:`[customers](/tables/customers.md)`(OKF §6.1 推荐)
 - 也接受相对路径:`[neighbor](./other.md)`
-- **`[[wikilink]]` 是一等公民(Q6)** —— plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`;Obsidian 原生可双链跳,Karpathy 老 wiki 无需转换。OKF 兼容性靠 frontmatter `links:` 字段镜像标准 markdown 链接列表(OKF reader 读 frontmatter 即可)
+- **`[[wikilink]]` 是一等公民(Q6)** —— plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`;Obsidian 原生可双链跳,Karpathy 老 wiki 无需转换。**OKF 兼容性靠 plugin 自实现的 OKF reader**:`src/scripts/okf-reader.py` 同时识别 `[[wikilink]]` 与 OKF §6.1 标准 markdown 链接 `[text](path/to/page.md)`(bundle-relative 绝对路径);**不维护 frontmatter `links:` 镜像字段**(详见 §3.6.2 + `src/schema/OKF-EXTENSION.md`)。
 - 链接类型(父子 / 引用 / 依赖)由**正文描述**,不由链接类型化
 - plugin 必须容忍断链(OKF §6.1:不是 malformed)
 
@@ -702,50 +811,58 @@ tags_format:
 * **Update**: Updated [glossary](../glossary.md).
 
 ## 2026-08-25
-* **Initialization**: Created foundational directory structure.
+* **Creation**: Initialized foundational directory structure (first init).
 ```
 
 **强制**:
 
 - 日期 heading 一律 ISO 8601 `YYYY-MM-DD`
 - **最新在前**
-- 粗体前缀仅三个词:`**Creation**` / `**Update**` / `**Deprecation**`(plugin 强制以便 lint 解析)
+- 粗体前缀仅五种(plugin 强制以便 lint 解析):
+  - `**Creation**` —— 新建 wiki 页
+  - `**Update**` —— 修改既有 wiki 页(增删正文段、改 frontmatter)
+  - `**Deprecation**` —— 归档 / `status: deprecated`
+  - `**Migration**` —— inbox → raw 文件迁移
+  - `**LintFix**` —— lint `--fix` 自动应用的结构修复记录(详见 §4.4)
 - inbox → raw 迁移 log 模板:`**Migration**: [file.md](inbox/file.md) → [file.md](../raw/<subdir>/file.md)`
+- lint `--fix` 修复记录模板:`**LintFix**: <rule-name> on [file.md](<path>) — <one-line summary>(如 frontmatter 字段补缺 / 3 节骨架补占位)`
 
 ### 3.5 `knowledge/` 种子文件(顶层 5 个)
 
-| 文件            | 谁写                                    | 模板                                | 模板里要锁什么                                                                                                                                                                                                                                                                             |
-| --------------- | --------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `index.md`    | LLM 每次 ingest/query 后自动维护        | `templates/knowledge-index.md`    | ✅**格式锁**:OKF frontmatter(`type` 必填,`bundle-root: true` 标记,§D);条目格式 `- [name](path) — type · 一句话`;排序规则(按 type 分组?按字母?);空状态文案("还没有条目,先把资料丢进 inbox/ 再跑 /aeps-llm-wiki-ingest")                                                                       |
-| `overview.md` | LLM 视情况更新(大图变化时)              | `templates/knowledge-overview.md` | ⚠️**格式软锁**:frontmatter `type: overview` + `bundle-root: true`;**结构骨架锁**(标题层级:领域全景 / 关键概念 / 当前工作重点 / 待补),具体内容 LLM 自由发挥                                                                                                               |
-| `glossary.md` | LLM 在 ingest 时新增/修改术语           | `templates/knowledge-glossary.md` | ✅**条目格式锁**:`**术语** (英文) — 一句话定义`;**不带 frontmatter**(索引体不是 wiki 页);排序规则(中英按拼音)                                                                                                                                                               |
-| `log.md`      | LLM 在每次变更后追加一条(多 skill 共写) | `templates/knowledge-log.md`      | ✅**格式锁严**:ISO 8601 时间戳;**最新在前**;条目模板 `**Action**: <verb> <object> by <actor>` + 关联路径链接;actor 字符串约定(`agent: aeps-llm-wiki/<skill>` / `human:zhigang.liu`);粗体前缀仅 `Creation/Update/Deprecation/Migration` 四种(plugin 强制以便 lint 解析) |
-| `SCHEMA.md`   | plugin 在 init 时一次性写入             | `templates/knowledge-SCHEMA.md`   | ✅**格式锁 + 内容锁**:frontmatter(`type: schema`);完整目录结构图(用户项目视角)+ frontmatter schema(§A §B §C 三层)+ skill 操作手册(ingest/query/lint 步骤)+ 链接约定 + log 格式。**这是 LLM 的操作手册,不能漂**                                                            |
+| 文件            | 谁写                                    | 模板                                | 模板里要锁什么                                                                                                                                                                                                                                                                                                                                         |
+| --------------- | --------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `index.md`    | LLM 每次 ingest/query 后自动维护        | `templates/knowledge-index.md`    | ✅**格式锁**:OKF frontmatter(`type` 必填,`bundle-root: true` 标记,§D);条目格式 `- [name](path) — type · 一句话`;排序规则(按 type 分组?按字母?);空状态文案("还没有条目,先把资料丢进 inbox/ 再跑 /aeps-llm-wiki-ingest")                                                                                                                  |
+| `overview.md` | LLM 视情况更新(大图变化时)              | `templates/knowledge-overview.md` | ⚠️**格式软锁**:frontmatter `type: overview` + `bundle-root: true`;**结构骨架锁**(标题层级:领域全景 / 关键概念 / 当前工作重点 / 待补),具体内容 LLM 自由发挥                                                                                                                                                                           |
+| `glossary.md` | LLM 在 ingest 时新增/修改术语           | `templates/knowledge-glossary.md` | ✅**条目格式锁**:`**术语** (英文) — 一句话定义`;**不带 frontmatter**(索引体不是 wiki 页);排序规则(中英按拼音)                                                                                                                                                                                                                           |
+| `log.md`      | LLM 在每次变更后追加一条(多 skill 共写) | `templates/knowledge-log.md`      | ✅**格式锁严**:ISO 8601 时间戳;**最新在前**;条目模板 `**Action**: <verb> <object> by <actor>` + 关联路径链接;actor 字符串约定(`agent: producer/aeps-llm-wiki-plugin/<version>` / `human:<id>` / `process:<id>`,与 SCHEMA.md §4 一致);粗体前缀仅 `Creation/Update/Deprecation/Migration/LintFix` 五种(plugin 强制以便 lint 解析) |
+| `SCHEMA.md`   | plugin 在 init 时一次性写入             | `templates/knowledge-SCHEMA.md`   | ✅**格式锁 + 内容锁**:frontmatter(`type: schema`);完整目录结构图(用户项目视角)+ frontmatter schema(§A §B §C 三层)+ skill 操作手册(ingest/query/lint 步骤)+ 链接约定 + log 格式。**这是 LLM 的操作手册,不能漂**                                                                                                                        |
+
+> **澄清(防止读者混淆)**:SCHEMA.md 的"内容锁"指**骨架** —— 目录结构图、三个工作流(ingest/query/lint)步骤、链接约定、log 格式。**frontmatter 字段集合不重复列**,在 SCHEMA.md 里**直接引用** plugin 本体的 `schema/frontmatter.schema.yaml`(权威源)。三件套权威顺序:**OKF 规范** > `schema/frontmatter.schema.yaml` > `knowledge/SCHEMA.md`。前者是字段机器读定义,后者是给人 + LLM 读的入口;改 schema.yaml 后,SCHEMA.md 的引用自动指向新版本,**不需要改 SCHEMA.md 里的字段列表**。
 
 ### 3.6 `knowledge/` 类型子目录与正文骨架
 
-子目录与 `type` 1:1:1 绑死 —— `type: person` 必在 `entities/person/`,`type: theory` 必在 `concepts/theory/`,等等(违规由 lint FAIL)。完整 type ↔ 目录 ↔ 含义 三联表见 §3.4。
+子目录与 `type` 1:1:1 绑死 —— `type: person` 必在 `entities/person/`,`type: theory` 必在 `concepts/theory/`,等等(违规由 lint FAIL)。完整 type ↔ 目录 ↔ 含义 三联表见 §3.1 §A。
 
-| 子目录                     | OKF`type`      | 模板要锁什么                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sources/`               | `source`       | ✅**frontmatter + 正文骨架都锁死**。frontmatter:`type: source` + `source_path` 指向 raw/ 原件相对路径 + `created_at` + 长摘要走 `summary` 字段(2-5 段,见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**(纪律见 §3.1 §C)。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。`## 我的思考` 用第一人称。<br>**raw_category 派生字段**:不在 frontmatter 写死,而是从 `sources[0].resource` 路径解析得到,例 `resource: raw/12_法规_标准_政策/okf-spec.md` → `raw_category: 12_法规_标准_政策`。lint 报告支持按 `raw_category` group by,便于扫"法规相关的源页"。详见 §3.6.1。 |
-| `entities/person/`       | `person`       | ⚠️**frontmatter 锁**(`type: person` + `summary` + `last_reviewed`),**正文自由发挥**(人物页通常包含:身份、关键贡献、引用源)                                                                                                                                                                                                                    |
-| `entities/organization/` | `organization` | ⚠️**frontmatter 锁**;**正文自由发挥**(组织页通常包含:领域定位、代表产品/项目、引用源)                                                                                                                                                                                                                                                               |
-| `entities/project/`      | `project`      | ⚠️**frontmatter 锁**;**正文自由发挥**(项目页通常包含:范围、时间线、关键里程碑、引用源)                                                                                                                                                                                                                                                              |
-| `entities/product/`      | `product`      | ⚠️**frontmatter 锁**;**正文自由发挥**(产品页通常包含:定位、关键参数、典型应用、引用源)                                                                                                                                                                                                                                                              |
-| `entities/event/`        | `event`        | ⚠️**frontmatter 锁**;**正文自由发挥**(事件页通常包含:时间、地点、参与者、产出)                                                                                                                                                                                                                                                                      |
-| `entities/place/`        | `place`        | ⚠️**frontmatter 锁**;**正文自由发挥**(地点页通常包含:地理位置、相关活动/组织)                                                                                                                                                                                                                                                                       |
-| `entities/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                         |
-| `concepts/theory/`       | `theory`       | ⚠️**frontmatter 锁**;**正文自由发挥**(理论页通常包含:核心命题、推导过程、适用边界)                                                                                                                                                                                                                                                                  |
-| `concepts/method/`       | `method`       | ⚠️**frontmatter 锁**;**正文自由发挥**(方法页通常包含:适用场景、步骤、工具链、对比其他方法)                                                                                                                                                                                                                                                          |
-| `concepts/field/`        | `field`        | ⚠️**frontmatter 锁**;**正文自由发挥**(领域页通常包含:范畴、关键问题、与相邻领域关系)                                                                                                                                                                                                                                                                |
-| `concepts/phenomenon/`   | `phenomenon`   | ⚠️**frontmatter 锁**;**正文自由发挥**(现象页通常包含:现象描述、根因分析、影响、应对)                                                                                                                                                                                                                                                                |
-| `concepts/standard/`     | `standard`     | ⚠️**frontmatter 锁**;**正文自由发挥**(标准页通常包含:发布机构、版本、约束范围、与相邻标准关系)                                                                                                                                                                                                                                                      |
-| `concepts/term/`         | `term`         | ⚠️**frontmatter 锁**;**正文自由发挥**(术语页通常包含:定义、起源、典型用例、相邻术语)                                                                                                                                                                                                                                                                |
-| `concepts/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                         |
-| `analyses/`              | `analysis`     | ✅**frontmatter + 正文骨架都锁死**(query 落档强制套)。frontmatter:`type: analysis` + `answer_to`(原问题)+ `generated_by: agent: aeps-llm-wiki/<skill>` + 长摘要走 `summary` 字段(必须**首行保留 query 原问句** `**问题**: <原问句>`,纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。 |
-| `comparisons/`           | `comparison`   | ⚠️**frontmatter 锁**(`type: comparison` + `sources:` 链接到对比的 entity/concept 页 + `last_updated`);**正文自由发挥**,但典型结构:多栏对照表 + 维度差异 + 各自适用场景                                                                                                                                                                        |
-| `syntheses/`             | `synthesis`    | ⚠️**frontmatter 锁**(`type: synthesis` + `sources_count` 引用了多少页 + `last_updated`);**正文自由发挥**,但典型结构:主题脉络梳理 + 多观点融合 + 个人判断                                                                                                                                                                                      |
+| 子目录                     | OKF`type`      | 模板要锁什么                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sources/`               | `source`       | ✅**frontmatter + 正文骨架都锁死**。frontmatter type-specific 必填字段:`source_file`(指向 `raw/<subdir>/<file>`)+ `summary`(≤ 280 字符,长摘要走 `summary` 字段纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**(纪律见 §3.1 §C)。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。`## 我的思考` 用第一人称。**raw_category 派生字段**:不在 frontmatter 写死,而是从 `sources[0].resource` 路径解析得到,例 `resource: raw/12_法规_标准_政策/okf-spec.md` → `raw_category: 12_法规_标准_政策`。lint 报告支持按 `raw_category` group by,便于扫"法规相关的源页"。详见 §3.6.1。字段完整集合与 SCHEMA.md §2.2 一致。 |
+| `entities/person/`       | `person`       | ⚠️**frontmatter 锁**(`type: person` + `aliases:[]` + `summary`,字段完整集合见 SCHEMA.md §2.2 entity/concept 必填项),**正文自由发挥**(人物页通常包含:身份、关键贡献、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `entities/organization/` | `organization` | ⚠️**frontmatter 锁**;**正文自由发挥**(组织页通常包含:领域定位、代表产品/项目、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `entities/project/`      | `project`      | ⚠️**frontmatter 锁**;**正文自由发挥**(项目页通常包含:范围、时间线、关键里程碑、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `entities/product/`      | `product`      | ⚠️**frontmatter 锁**;**正文自由发挥**(产品页通常包含:定位、关键参数、典型应用、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `entities/event/`        | `event`        | ⚠️**frontmatter 锁**;**正文自由发挥**(事件页通常包含:时间、地点、参与者、产出)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `entities/place/`        | `place`        | ⚠️**frontmatter 锁**;**正文自由发挥**(地点页通常包含:地理位置、相关活动/组织)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `entities/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `concepts/theory/`       | `theory`       | ⚠️**frontmatter 锁**;**正文自由发挥**(理论页通常包含:核心命题、推导过程、适用边界)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `concepts/method/`       | `method`       | ⚠️**frontmatter 锁**;**正文自由发挥**(方法页通常包含:适用场景、步骤、工具链、对比其他方法)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `concepts/field/`        | `field`        | ⚠️**frontmatter 锁**;**正文自由发挥**(领域页通常包含:范畴、关键问题、与相邻领域关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `concepts/phenomenon/`   | `phenomenon`   | ⚠️**frontmatter 锁**;**正文自由发挥**(现象页通常包含:现象描述、根因分析、影响、应对)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `concepts/standard/`     | `standard`     | ⚠️**frontmatter 锁**;**正文自由发挥**(标准页通常包含:发布机构、版本、约束范围、与相邻标准关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `concepts/term/`         | `term`         | ⚠️**frontmatter 锁**;**正文自由发挥**(术语页通常包含:定义、起源、典型用例、相邻术语)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `concepts/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `analyses/`              | `analysis`     | ✅**frontmatter + 正文骨架都锁死**(query 落档强制套)。frontmatter type-specific 必填:`answer_to`(原问题)+ `generated_by: agent: producer/aeps-llm-wiki-plugin/<version>` + 长摘要走 `summary` 字段(必须**首行保留 query 原问句** `**问题**: <原问句>`,纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。字段完整集合与 SCHEMA.md §2.2 一致。                                                                                                                                                                                                                               |
+| `comparisons/`           | `comparison`   | ⚠️**frontmatter 锁**(`type: comparison` + `sources:` ≥ 2 条 `[[wikilink]]` 链接到对比的 entity/concept 页 + `last_updated`);**正文自由发挥**,但典型结构:多栏对照表 + 维度差异 + 各自适用场景                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `syntheses/`             | `synthesis`    | ⚠️**frontmatter 锁**(`type: synthesis` + `topic:` + `sources_count` 引用了多少页 + `last_updated`);**正文自由发挥**,但典型结构:主题脉络梳理 + 多观点融合 + 个人判断                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 **为什么 `sources/` 和 `analyses/` 要锁死正文而其他 type 不锁**:
 
@@ -770,11 +887,13 @@ tags_format:
 - **派生字段,不在 frontmatter 写死**:由 lint / query 在运行时从 `sources[0].resource` 路径解析得到
 - **解析规则**:`raw_category = sources[0].resource.split('/')[1]`(取路径第二段,即 raw 一级子目录名)
 - **示例**:
+
   ```yaml
   sources:
     - id: okf-spec
       resource: raw/12_法规_标准_政策/okf-spec.md   # 第二段是分类
   ```
+
   派生得到 `raw_category: 12_法规_标准_政策`
 
 **为什么是派生而非写死**:
@@ -821,18 +940,88 @@ $ /aeps-llm-wiki-lint --by raw_category
 - A 方案需要 frontmatter 新增 `raw_category` 字段(写死),引入双源不一致风险(目录名改了但 frontmatter 没改)
 - B 方案派生字段**零成本拿到 80% 价值**(group by + 过滤),无目录结构变动
 
+#### §3.6.1.1 `source_file` + `sources[].resource` 双字段同源(source 页)
+
+**动机**:`type: source` 的页需要指回 `raw/<subdir>/<file>` 原始文件。当前设计用 OKF §5.1 的 `sources[].resource` 字段(机器可读),但 Obsidian UI 不解析 frontmatter 任意字段为可点击链接——用户点不到原始文件(Q9)。
+
+**新方案**:`type: source` 页 frontmatter 同时含两个字段,值同源:
+
+| 字段 | 类型 | 谁读 | 作用 |
+|---|---|---|---|
+| `source_file:` | 顶层字符串 | **Obsidian UI**(笔记属性面板) | Obsidian 识别 `source_file` 字段为可点击链接,用户点这个字段值就能跳转 / 打开原始文件 |
+| `sources[0].resource` | OKF §5.1 数组元素 | **OKF reader / lint / 外部工具** | OKF v0.2 spec 必填,机器可读 + 带 id / title / author / last_modified provenance |
+
+**为什么不只留一个**:
+
+- 单留 `source_file:` → OKF 工具不识别(非 spec 字段)、失去 provenance 子字段
+- 单留 `sources[].resource:` → Obsidian 用户在笔记属性面板看不到可点击链接(Q9 解决不了)
+- 两个并存 = Obsidian 用户能点 + OKF reader 能消费 + lint 能校验一致性,零妥协
+
+**示例**:
+
+```yaml
+type: source
+title: Andes Overview and RISC-V Solutions
+source_file: raw/02_芯片/Andes Overview and RISC-V Solutions_260130.pdf   # Obsidian 可点
+sources:
+  - id: andes-overview-risc-v
+    resource: raw/02_芯片/Andes Overview and RISC-V Solutions_260130.pdf   # OKF §5.1
+    title: Andes Overview and RISC-V Solutions
+    author: "Andes Technology(晶心科技)"
+    last_modified: 2026-08-28T00:00:00Z
+```
+
+**lint C5 一致性断言**:`source_file` 与 `sources[0].resource` **必须值相等**(同源)。不一致 FAIL。
+
+**`raw_category` 派生继续走 `sources[0].resource`**(不变):§3.6.1 解析规则 `raw_category = sources[0].resource.split('/')[1]` 不受新字段影响。
+
+#### §3.6.2 OKF v0.2 wiki link 兼容扩展(替代 frontmatter `links:` 镜像方案)
+
+**动机**:原方案在 frontmatter 镜像 `links:` 字段与正文 `[[wikilink]]` 同步,违反 Single Source of Truth 原则——用户改 Obsidian UI 的 wikilink 后 frontmatter 不自动更新,lint 自动同步又破坏人工编辑精度。OKF v0.2 spec §9 明确"consumers MUST NOT reject bundle because of missing optional frontmatter fields",且 `links:` 不是 spec 字段(OKF 链接走 §6.1 标准 markdown bundle-relative 链接)。
+
+**新方案**:去掉 frontmatter `links:` 镜像字段,改为 plugin 自实现 OKF reader 同时识别两种 wiki link 形式。
+
+**wiki link 数据源唯一 = 正文**:
+
+- **Obsidian 通道**:正文写 `[[wikilink]]` / `[[page|显示]]` / `[[page#章节]]`(Obsidian 原生解析为双链 + 反向链接图)
+- **OKF 通道**:plugin 自实现的 OKF reader(`src/scripts/okf-reader.py`)同时识别:
+  - `[[wikilink]]`(plugin 自实现解析为 OKF `sources` 列表条目)
+  - `[text](path/to/page.md)`(OKF §6.1 标准 bundle-relative markdown 链接)
+- **不维护 frontmatter `links:` 镜像字段**(零双源不一致风险)
+
+**OKF 兼容扩展声明**:`src/schema/OKF-EXTENSION.md` 写明本 plugin 的 wiki link 约定为 OKF §6.1 的扩展——在标准 markdown 链接之外增加 `[[wikilink]]` 双链语法;OKF v0.2 spec §9 "consumers SHOULD tolerate unknown constructs" 允许这种 opt-in 扩展。
+
+**对 lint 的影响**(详见 §5.4):
+
+- ~~frontmatter `links:` ↔ 正文 `[[wikilink]]` 同步 lint~~ —— **删除**(打破 Single Source of Truth)
+- 漏链 / 断链检测仍存在,但只读正文 wiki link 扫描
+- `--fix` 模式不再做"链接镜像同步",只剩"补占位 H2 骨架 / frontmatter 字段对齐"
+
+**对 ingest / query 的影响**:
+
+- ingest 写 source 页时,正文写 `[[wikilink]]`(如有指向已有 entity/concept 页的链接)
+- query 的"4 跳扫描"中跳 3 顺 `[[wikilink]]` 跳邻居 —— 不变
+- OKF reader 解析时把 `[[wikilink]]` 转为 OKF `sources` 列表供外部 OKF 工具消费
+
+**配套文件**:
+
+| 文件                                  | 内容                                                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `src/schema/OKF-EXTENSION.md`       | plugin 对 OKF v0.2 的扩展声明:wiki link 双格式(`[[wikilink]]` + `[text](path.md)`)、不依赖 `links:` 镜像字段 |
+| `src/scripts/okf-reader.py`(M3 落地) | plugin 自实现 OKF reader,识别双格式 wiki link + 输出 OKF `sources` 列表                                       |
+
 **配套模板文件**(init 时复制/填充):
 
-| 模板文件                            | 内容                                              |
-| ----------------------------------- | ------------------------------------------------- |
-| `templates/raw-readme.md`         | 字典本体(15 类 + 边界规则)—— ✅ 已存在          |
-| `templates/inbox-readme.md`       | 简版提示,告诉用户"放什么、放完跑 ingest" |
-| `templates/knowledge-SCHEMA.md`   | 锁得最严(8 节,占位符 init 替换)               |
-| `templates/knowledge-index.md`    | 锁结构                                            |
-| `templates/knowledge-overview.md` | 锁骨架                                            |
-| `templates/knowledge-glossary.md` | 锁条目格式                                        |
-| `templates/knowledge-log.md`      | 锁得严                                            |
-| `templates/source-page.md`       | sources/ 页生成模板:3 节 H2 骨架 + frontmatter 锁;**模板注释里写明 raw_category 派生规则**(从 `sources[0].resource` 解析,详见 §3.6.1),便于 LLM 生成 source 页时正确填 `sources[0].resource` 路径 |
+| 模板文件                            | 内容                                                                                                                                                                                                        |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `templates/raw-readme.md`         | 字典本体(15 类 + 边界规则)—— ✅ 已存在                                                                                                                                                                    |
+| `templates/inbox-readme.md`       | 简版提示,告诉用户"放什么、放完跑 ingest"                                                                                                                                                                    |
+| `templates/knowledge-SCHEMA.md`   | 锁得最严(8 节,占位符 init 替换)                                                                                                                                                                             |
+| `templates/knowledge-index.md`    | 锁结构                                                                                                                                                                                                      |
+| `templates/knowledge-overview.md` | 锁骨架                                                                                                                                                                                                      |
+| `templates/knowledge-glossary.md` | 锁条目格式                                                                                                                                                                                                  |
+| `templates/knowledge-log.md`      | 锁得严                                                                                                                                                                                                      |
+| `templates/source-page.md`        | sources/ 页生成模板:3 节 H2 骨架 + frontmatter 锁;**模板注释里写明 raw_category 派生规则**(从 `sources[0].resource` 解析,详见 §3.6.1),便于 LLM 生成 source 页时正确填 `sources[0].resource` 路径 |
 
 **`schema/frontmatter.schema.yaml`(插件本体权威字段表)** —— 与上面 7 个模板是**两类不同东西**,不混在 templates/ 下:
 
@@ -893,14 +1082,14 @@ $ /aeps-llm-wiki-lint --by raw_category
 
 **字典文件 sync 策略**(按 §2.5.1 路由规则,3 份字典分别落到 user-project 不同位置;sync 策略一致):
 
-| 情况 | 行为 |
-|---|---|
-| 用户项目里**没有**该字典文件 | **直接复制**整份 |
-| 用户项目里有,但 plugin 新版**新增了 H2 章节** | 把新章节 append 到文件末尾 |
-| 用户项目里有,plugin 新版**新增了某个 H2 章节内的条目** | 把新条目 append 到该 H2 章节末尾 |
-| 用户项目里有,**条目已存在但 plugin 新版内容更新了**(说明文字变了) | **不覆盖**用户本地;lint 报告"plugin 新版有 X 条本地无/不一致,要不要采纳?" |
-| 用户项目里有,**用户本地新增的内容**(自定义目录说明、自定义子类、自定义 tag) | **保留**,plugin 不动 |
-| 用户项目里有,**用户本地删除的条目** | **不补回**,lint 提示"plugin 新版有 X 条本地无" |
+| 情况                                                                              | 行为                                                                            |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 用户项目里**没有**该字典文件                                                | **直接复制**整份                                                          |
+| 用户项目里有,但 plugin 新版**新增了 H2 章节**                               | 把新章节 append 到文件末尾                                                      |
+| 用户项目里有,plugin 新版**新增了某个 H2 章节内的条目**                      | 把新条目 append 到该 H2 章节末尾                                                |
+| 用户项目里有,**条目已存在但 plugin 新版内容更新了**(说明文字变了)           | **不覆盖**用户本地;lint 报告"plugin 新版有 X 条本地无/不一致,要不要采纳?" |
+| 用户项目里有,**用户本地新增的内容**(自定义目录说明、自定义子类、自定义 tag) | **保留**,plugin 不动                                                      |
+| 用户项目里有,**用户本地删除的条目**                                         | **不补回**,lint 提示"plugin 新版有 X 条本地无"                            |
 
 **目录 sync 策略**(`raw/<15 类>/`、`knowledge/<17 子目录 = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses>/`):
 
@@ -910,30 +1099,30 @@ $ /aeps-llm-wiki-lint --by raw_category
 
 **scripts/ sync 策略**(详见 §2.4):
 
-| 情况 | 行为 |
-|---|---|
-| plugin 新版**新增**脚本 | 拷贝到 user-project `scripts/` |
-| plugin 新版**修改了**脚本 | **user-project 副本不动**,lint 报告"plugin 新版修改了 X.mjs,要采纳吗?",用户拍板后覆盖 |
-| 用户本地**新增**了脚本(如 `my-custom-check.mjs`) | **保留**,plugin 不动 |
-| 用户本地**删了** plugin 自带脚本 | 不补回,lint 提示"plugin 新版有 X 你本地没有" |
-| `scripts/` 整个目录缺失 | 重建 + 拷贝 plugin 自带脚本 + 写 `_meta.json` |
-| `_meta.json` | **总是覆盖**(只记录 plugin 来源 + 版本 + 时间,无用户价值,plugin 升级时正确反映) |
+| 情况                                                     | 行为                                                                                  |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| plugin 新版**新增**脚本                            | 拷贝到 user-project`scripts/`                                                       |
+| plugin 新版**修改了**脚本                          | **直接覆盖** user-project 副本(plugin 自带脚本以 plugin 本体为权威,升级时跟随)  |
+| 用户本地**新增**了脚本(如 `my-custom-check.py`) | **保留**,plugin 不动                                                            |
+| 用户本地**删了** plugin 自带脚本                   | 不补回,lint 提示"plugin 新版有 X 你本地没有"                                          |
+| `scripts/` 整个目录缺失                                | 重建 + 拷贝 plugin 自带脚本 + 写`_meta.json`                                        |
+| `_meta.json`                                           | **总是覆盖**(只记录 plugin 来源 + 版本 + 时间,无用户价值,plugin 升级时正确反映) |
 
-**templates/ sync 策略**(详见 §2.5):同 scripts/ —— 文件级合并,plugin 修改的版本不自动覆盖用户本地副本。
+**templates/ sync 策略**(详见 §2.5):同 scripts/ —— plugin 修改的页生成模板(`source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md`)**直接覆盖** user-project 副本(plugin 自带页模板以 plugin 本体为权威,升级时跟随);**全栈字典**(`concept-entities-readme.md` / `tag-template.md`)仍走 append 策略(用户本地可能自定义子类/标签,见 §4.1.1 字典 sync 细则)。
 
 **文件 sync 策略**(覆盖首启 + re-run 全部受 init 影响的文件;字典 sync 细则按上方独立表格):
 
-| 文件 | 首次 init | re-run init |
-|---|---|---|
-| `SCHEMA.md` | 从 templates/ 复制 + 占位符替换 | **覆盖** |
-| `index.md` | 从 templates/ 复制(空模板) | **不动** |
-| `overview.md` | 从 templates/ 复制(空模板) | **不动** |
-| `inbox/README.md` | 从 templates/ 复制 | **覆盖** |
-| `log.md` | 从 templates/ 复制 | **append** |
-| `glossary.md` | 从 templates/ 复制 | **不动** |
-| `raw/README.md` | 从 templates/ 复制 | append 字典策略(已有) |
-| `templates/concept-entities-readme.md` | 从 templates/ 复制 | append 字典策略(已有) |
-| `templates/tag-template.md` | 从 templates/ 复制 | append 字典策略(已有) |
+| 文件                                     | 首次 init                       | re-run init           |
+| ---------------------------------------- | ------------------------------- | --------------------- |
+| `SCHEMA.md`                            | 从 templates/ 复制 + 占位符替换 | **覆盖**        |
+| `index.md`                             | 从 templates/ 复制(空模板)      | **不动**        |
+| `overview.md`                          | 从 templates/ 复制(空模板)      | **不动**        |
+| `inbox/README.md`                      | 从 templates/ 复制              | **覆盖**        |
+| `log.md`                               | 从 templates/ 复制              | **append**      |
+| `glossary.md`                          | 从 templates/ 复制              | **不动**        |
+| `raw/README.md`                        | 从 templates/ 复制              | append 字典策略(已有) |
+| `templates/concept-entities-readme.md` | 从 templates/ 复制              | append 字典策略(已有) |
+| `templates/tag-template.md`            | 从 templates/ 复制              | append 字典策略(已有) |
 
 **为什么不覆盖 index.md / overview.md**:它们由 LLM 在 ingest/query/synthesize 时持续 append 用户积累的内容,plugin 升级是配置变更,**不会**影响 LLM 维护这些文件的逻辑;如果直接覆盖,**用户积累的内容会被清零**。plugin 升级带来的模板变化如果真要反映到 index.md / overview.md,**应由 LLM 在后续 ingest/query 流程中自然演进**,不是 plugin re-run 时强行覆盖。
 
@@ -969,19 +1158,21 @@ Init re-run 完成。sync 摘要:
 **Agent 行为**:
 
 1. **扫描入口**:递归遍历 `<project>/inbox/` 下所有文件(含子目录)
+
    - inbox 下无文件 → 提示"inbox/ 为空,先把资料丢进 inbox 再跑",**退出**
    - ~~`raw/<path>` → 走 `arch` 分支(不移动文件)~~ —— **已废弃**:raw/ 是已归档层,**不再支持直接 ingest**;调整归档分类走 `git mv` 或手工
-2. **文件读取策略**(统一入口 `scripts/convert-to-md.mjs`):
+2. **文件读取策略**(统一入口 `scripts/convert-to-md.py`):
 
-   | 扩展名                                                                                       | 一级处理                                              | 降级处理                            | 失败行为             |
-   | -------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------- | -------------------- |
-   | `.md` `.markdown` `.rst` `.txt` `.csv` `.json` `.yaml` `.yml` `.xml` `.html` `.htm`           | **直接读**(纯文本,无 converter)                      | —                                   | —                    |
-   | `.pptx` `.docx` `.xlsx` `.pdf`                                                              | **Claude 内置 converter** → 转 md                     | **anydoc** → 转 md                  | **FAIL**,提示手工预处理 |
-   | `.png` `.jpg` `.jpeg` `.bmp` `.tiff`                                                        | **paddleocr** → 转 md                                 | —                                   | **FAIL**,提示手工预处理 |
-   | 其他                                                                                          | **FAIL**,提示"未支持的扩展名 <ext>"                   | —                                   | —                    |
+   | 扩展名                                                                                                    | 一级处理                                        | 降级处理                  | 失败行为                      |
+   | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------- | ----------------------------- |
+   | `.md` `.markdown` `.rst` `.txt` `.csv` `.json` `.yaml` `.yml` `.xml` `.html` `.htm` | **直接读**(纯文本,无 converter)           | —                        | —                            |
+   | `.pptx` `.docx` `.xlsx` `.pdf`                                                                    | **Claude 内置 converter** → 转 md        | **anydoc** → 转 md | **FAIL**,提示手工预处理 |
+   | `.png` `.jpg` `.jpeg` `.bmp` `.tiff`                                                            | **paddleocr** → 转 md                    | —                        | **FAIL**,提示手工预处理 |
+   | 其他                                                                                                      | **FAIL**,提示"未支持的扩展名 <ext></ext>" | —                        | —                            |
 
-   **SKILL.md 必须先校验依赖**:跑 convert-to-md.mjs 之前检查 `scripts/requirements.txt` 的依赖(anydoc / paddleocr)是否安装;**未装 → 提示并退出**,避免跑到一半才报缺包。详见 §2.4。
+   **SKILL.md 必须先校验依赖**:跑 convert-to-md.py 之前检查 `scripts/requirements.txt` 的依赖(anydoc / paddleocr)是否安装;**未装 → 提示并退出**,避免跑到一半才报缺包。详见 §2.4。
 3. **路径来自 `inbox/`**:
+
    - LLM **提议**一个 raw 子目录分类 + 短理由(参考 `<project>/raw/raw-readme.md` 的 15 类清单和边界规则)
    - 提议格式:`建议迁到 raw/<subdir>/<basename>`,其中 `<subdir>` 可能是:
      - 一级:`06_功能安全`(从 15 类中选)
@@ -1009,10 +1200,172 @@ Init re-run 完成。sync 摘要:
 - `title` = 文件首行(去掉 #)
 - `description` = LLM 生成摘要(中文为主)
 - `sources` = OKF §B 结构化对象,指向 raw/ 源文件
-- `generated` = `{ by: aeps-llm-wiki/0.1, at: <now ISO 8601> }`
+- `generated` = `{ by: agent: producer/aeps-llm-wiki-plugin/0.4.0, at: <now ISO 8601> }`
 - `tags` = LLM 抽取 3~5 个
 - `created` / `updated` = `<now ISO 8601>`
 - `summary` = `description` 同值(Q1 暂留冗余)
+
+#### 4.2.1 并发处理 + batch OCR(ingest 多文件并行)
+
+**触发场景**:inbox/ 下有 ≥ 2 份文档需要 ingest 时(用户期望加速,而不是逐个串行等)。
+
+**核心动机**:`paddleocr` / `anydoc` 加载权重模型首次冷启动 5-30 秒,每次脚本重启重新初始化 Engine 2-5 秒 ——**冷启动开销远大于单文件 OCR 本身**。如果走"subagent 并行 N 份文档,每份都调 convert-to-md.py 一次",等于 **N 次冷启动叠加**,反而更慢。正确做法是**IO 批处理 + LLM 并行 + 主 agent 收尾** 三阶段,把冷启动压到 1 次,LLM 任务并行。
+
+**3 阶段流程**:
+
+```
+┌─ 阶段 1:batch IO(主 agent 单进程)───────────────┐
+│ 主 agent 收齐 inbox/ 全部待处理文件(按 §4.2 step1)│
+│ 一次性调 python3 ./scripts/convert-to-md.py    │
+│   --batch <f1> <f2> ... <fn>                     │
+│   --project-dir . --output-dir temp/             │
+│   ↓                                              │
+│ 脚本内部:                                         │
+│   - 共享单 paddleocr Engine(只1 次冷启动)        │
+│   - 共享单 anydoc 实例                           │
+│   - 依次处理 N 个文件,输出 temp/<basename>.md   │
+│   - 仍单次跑完即退(NFR-1 约束)                  │
+│   - Bash timeout 显式 600000ms(Claude Code max) │
+└──────────────────────────────────────────────────┘
+                       ↓
+┌─ 阶段 2:LLM 并行(subagent 派发)──────────────┐
+│ 主 agent 把 N 个 temp/<basename>.md 按 N ≤ 5  切批│
+│ 派 ≤ 5 个 subagent(Claude Code Task 工具),每个:   │
+│   - 读自己那批的 md 内容                          │
+│   - LLM 提议 raw 子目录 + 抽概念/特性/术语       │
+│   - 写到 temp/<doc-id>-proposal.json:           │
+│       {file, suggested_subdir, raw_category,    │
+│        concepts:[{name,type,aliases}],...}       │
+│   - 不动 knowledge/ 任何文件(避免并发写冲突)    │
+│ ↓                                                │
+│ 主 agent 收齐所有 subagent 的 proposal JSON     │
+└──────────────────────────────────────────────────┘
+                       ↓
+┌─ 阶段 3:主 agent 收尾合并─────────────────────┐
+│ 主 agent 串行做(并发不安全):                       │
+│   1. 命名飘仲裁:按 design §4.2 step3 命名飘规则  │
+│      对每个 proposal 的 suggested_subdir 与      │
+│      raw/ 已有子目录做相似度比较;命中已有 → 强制 │
+│      改用已有目录                                  │
+│   2. concept 去重:跨 proposal 按 aliases 合并,  │
+│      同一概念不同名 → 合并到一页                 │
+│   3. mv inbox → raw/<subdir>/(走拍板门)         │
+│   4. 写 knowledge/sources/<basename>.md         │
+│   5. 写 knowledge/entities/<子类>/*.md          │
+│      /knowledge/concepts/<子类>/*.md            │
+│   6. 追加 knowledge/log.md(一次写完,N 条合并)  │
+│   7. 更新 knowledge/index.md / glossary.md      │
+│      / overview.md                              │
+│ 所有写入在主 agent 进程内串行,无并发冲突       │
+└──────────────────────────────────────────────────┘
+```
+
+**关键边界**:
+
+- **batch IO 入口**:`convert-to-md.py --batch <f1> <f2> ... <fn>`(替代逐文件调用);脚本内部仍"单次跑完即退"(NFR-1 兼容,详见 §1.4 / §2.4)
+- **subagent 仅用于 LLM 任务**,不用于 IO/OCR 调用;每个 subagent 独立的 LLM 上下文(读 md + 提议),**不**直接动 knowledge/
+- **并发上限 ≤ 5**(Claude Code Task 工具工程保守值;Claude Code 文档上限 10,留缓冲)
+- **Bash timeout**:**SKILL.md 调 convert-to-md.py --batch 必须显式 `timeout: 600000`**(Claude Code Bash 工具 max 600000ms = 10 分钟;paddleocr 冷启动 5-30s + N 文件 OCR ≈ N×1-3s + 收尾合并,远低于 10 分钟上限;若实测不够,M5 调整)
+- **冷启动只发生 1 次**(在阶段 1 batch 进程内);阶段 2 subagent 不调 convert-to-md,完全不触发 paddleocr
+- **写文件只在阶段 3**(主 agent 串行);阶段 2 subagent 只产出 JSON proposal,不直接写 knowledge/
+- **不阻塞单文件场景**:inbox 仅 1 份文件时,跳过阶段 2 subagent 派发,主 agent 自己跑完整流程(避免派发开销)
+
+#### 写权矩阵(并发安全硬约束,Q11)
+
+**问题根源**:多个 subagent 并发处理 inbox 多份文档,LLM 抽取的 entity / concept 经常有重叠(如"ISO 26262"和"功能安全"两个 subagent 都可能抽到)。若允许 subagent 直接写 `knowledge/`,会触发竞争条件:
+- index.md / glossary.md / log.md / overview.md 这类全局索引被多 subagent 并发改写 → 丢失条目 / 顺序错乱
+- 同名 entity/concept 被多 subagent 重复建页 → 漂移目录 / 重复内容
+- inbox mv 操作并发触发 → 文件名冲突 / raw/ 不一致
+
+**硬约束(写权矩阵)**:
+
+| 路径/操作 | 阶段 1 batch | 阶段 2 subagent | 阶段 3 主 agent |
+|---|---|---|---|
+| 读 `inbox/<file>` | ✅(convert-to-md.py 读) | ❌(只读 temp/<basename>.md) | ❌ |
+| 写 `temp/<basename>.md` | ✅ | ❌ | ❌ |
+| 写 `temp/<id>-proposal.json` | ❌ | ✅(**唯一**允许 subagent 写的路径) | ❌ |
+| 读 `temp/<id>-proposal.json` | ❌ | ❌(自己那份写完即退) | ✅ |
+| 读 `raw/`(字典比对) | ❌ | ✅(只读,做命名飘检查) | ✅ |
+| **写** `raw/<subdir>/<file>`(mv) | ❌ | ❌(**绝对禁**) | ✅(串行,拍板后) |
+| 写 `knowledge/sources/<basename>.md` | ❌ | ❌(**绝对禁**) | ✅ |
+| 写 `knowledge/entities/<子类>/*.md` | ❌ | ❌(**绝对禁**) | ✅ |
+| 写 `knowledge/concepts/<子类>/*.md` | ❌ | ❌(**绝对禁**) | ✅ |
+| 写 `knowledge/comparisons/*.md` | ❌ | ❌(**绝对禁**) | ✅(用户拍板后) |
+| **改** `knowledge/index.md`(全局索引) | ❌ | ❌(**绝对禁**) | ✅(最后一次合并写) |
+| **改** `knowledge/glossary.md`(常驻,append-only) | ❌ | ❌(**绝对禁**) | ✅(append 收集到的术语) |
+| **改** `knowledge/log.md`(append-only) | ❌ | ❌(**绝对禁**) | ✅(追加所有迁移条目) |
+| **改** `knowledge/overview.md`(大图) | ❌ | ❌(**绝对禁**) | ✅(总结后整体改写) |
+
+**子代理 prompt 硬约束**(M3 SKILL.md 落地时嵌入 subagent prompt):
+
+```
+你(阶段 2 subagent)的唯一可写路径是 temp/<id>-proposal.json。
+绝对禁止:
+- 修改 knowledge/ 下任何文件(index.md / glossary.md / log.md / overview.md / sources/ / entities/ / concepts/ / analyses/ / syntheses/ / comparisons/)
+- 移动 inbox/ 下任何文件
+- 创建 raw/ 下任何目录
+- 调用 safe-mv.py / ensure-dirs.py / append-log.py 等任何写操作脚本
+你的输出:只产出 temp/<id>-proposal.json,主 agent 阶段 3 统一收尾。
+```
+
+**为什么这样设计**:
+
+- **写权分离**:并发任务只在"写 proposal JSON"上竞争(各自独立文件名),其他所有写动作集中在主 agent 阶段 3,串行执行
+- **JSON proposal 是并发安全的介质**:每个 subagent 写自己的 `<id>-proposal.json`,文件名带 hash,不冲突;主 agent 阶段 3 收集所有 JSON,按需合并
+- **全局索引一致性**:index.md / glossary.md / log.md / overview.md 只能在主 agent 阶段 3 写一次,避免多 subagent 并发改写导致丢失 / 顺序错乱
+
+#### 阶段 3 主 agent 串行动作清单(Q11)
+
+主 agent 收集完所有 `temp/<id>-proposal.json` 后,**严格按顺序串行**执行以下动作:
+
+```
+1. 命名飘仲裁(读 raw/ 已有子目录做相似度比较)
+   - 命中已有相似目录 → 强制改用已有目录
+   - 未命中 → 进入拍板门
+
+2. 拍板门汇总(把所有需要拍板的决策合成一次对话提问)
+   - 用户回复 → 写 temp/decision-<hash>.md(详见 §4.2.x Q10)
+
+3. 概念去重(跨 proposal 按 aliases 合并同义 concept)
+   - 例:subagent A 提出 concept "SOME/IP" + subagent B 提出 "Someip"
+   - 阶段 3 选一名(优先级:更早出现 / 字数更多 / 用户历史偏好)
+
+4. entity 去重(同 concept,按 name + aliases 合并)
+   - 同名 entity 跨 proposal → 合并到一页(选最早出现,aliases 累加)
+
+5. 串行 mv inbox → raw/<subdir>/(读 temp/decision-<hash>.md 应用)
+   - 用 scripts/safe-mv.py --apply temp/decision-<hash>.md(零交互)
+
+6. 串行写 knowledge/sources/<basename>.md(每份文件)
+   - 用 scripts/generate-source-page.py(零交互)
+
+7. 串行写 knowledge/entities/<子类>/*.md
+   - 用 scripts/generate-entity-page.py(零交互)
+
+8. 串行写 knowledge/concepts/<子类>/*.md
+   - 用 scripts/generate-concept-page.py(零交互)
+
+9. 最后一次性更新全局索引(在所有 source/entity/concept 写完后):
+   - knowledge/index.md — 整体重写(基于最新 sources/entities/concepts 全集)
+   - knowledge/glossary.md — append(收集到的术语,绝不覆盖)
+   - knowledge/log.md — append(本次 ingest 所有迁移条目,**Migration** + **Creation** 格式)
+   - knowledge/overview.md — 整体重写(总结新增内容)
+```
+
+**为什么 9 在最后**:如果先改索引再写 page,过程中失败会导致索引指向不存在的 page;反之,page 全写完再一次性算索引,要么全成功要么全失败(主 agent 阶段 3 收尾前的所有动作都有 idempotent / 可重试的设计,详见 §4.2.x Q10)。
+
+**并发上限 ≤ 5 仍生效**:只限制 subagent 数量,**不**影响阶段 3 串行动作的执行。
+
+**为什么不用 IO 并发替代 LLM 并发**:
+
+- **IO 并发**(Layer 2,`concurrent.futures.ThreadPoolExecutor` 多线程调 convert-to-md)→ N 份文件**各自 1 个 paddleocr Engine** → N 次冷启动叠加 → 不节省时间反而更慢
+- **batch 模式**才解决冷启动问题(1 次 Engine,N 文件复用)
+
+**为什么不动 query / lint**:
+
+- query 是单问题串行的 4 跳扫描,无"多文件并行"语义
+- lint 是扫已知结构(knowledge/**/*.md),无 paddleocr 等冷启动瓶颈,串行已够
+- 仅 ingest 同时具备"多文件 + paddleocr 冷启动"两个并行动机
 
 ### 4.3 `/aeps-llm-wiki-query`
 
@@ -1020,20 +1373,20 @@ Init re-run 完成。sync 摘要:
 
 **Agent 行为**(4 跳扫描):
 
-**先决条件** —— 跑前跑 `scripts/check-qmd.mjs`(单次,探查 `qmd --version` 是否可用),并数 `knowledge/**/*.md` 当前页数 N,按阈值决定用 `index.md` 还是 `qmd`:
+**先决条件** —— 跑前跑 `scripts/check-qmd.py`(单次,探查 `qmd --version` 是否可用),并数 `knowledge/**/*.md` 当前页数 N,按阈值决定用 `index.md` 还是 `qmd`:
 
-| 页数 N | 入口 | qmd 缺失行为 |
-|---|---|---|
-| N < 500 | **纯 `index.md` + 4 跳扫描** | 不需要 qmd |
-| 500 ≤ N < 1000 | **优先 qmd**(`qmd query "<question>"`) | 提示用户装 qmd,走纯 `index.md` 降级 |
-| N ≥ 1000 | **必须 qmd** | **报错**(提示"wiki 已超 1000 页,请装 qmd"),不进入回答 |
+| 页数 N          | 入口                                           | qmd 缺失行为                                                |
+| --------------- | ---------------------------------------------- | ----------------------------------------------------------- |
+| N < 500         | **纯 `index.md` + 4 跳扫描**           | 不需要 qmd                                                  |
+| 500 ≤ N < 1000 | **优先 qmd**(`qmd query "<question>"`) | 提示用户装 qmd,走纯`index.md` 降级                        |
+| N ≥ 1000       | **必须 qmd**                             | **报错**(提示"wiki 已超 1000 页,请装 qmd"),不进入回答 |
 
 阈值常量:
 
-```js
-// scripts/check-qmd.mjs 内部(仅示意,实际由该脚本返回)
-QUERY_INDEX_THRESHOLD = 500      // N < 此值纯 index
-QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
+```python
+# scripts/check-qmd.py 内部(仅示意,实际由该脚本返回)
+QUERY_INDEX_THRESHOLD = 500      # N < 此值纯 index
+QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
 ```
 
 **4 跳扫描算法**(当选择纯 `index.md` 或 qmd 缺失降级时):
@@ -1078,13 +1431,13 @@ qmd query "<question>" --collection <wiki-knowledge-dir> --limit 20
 
 #### 4.3.1 top-K 与命中阈值常量
 
-```js
-// scripts/query-rank.mjs(纯算法骨架,实际由 SKILL.md 提示词驱动,不写死)
-QUERY_CANDIDATE_K = 10           // 跳 1 选 top-K
-QUERY_NEIGHBOR_MAX = 8           // 跳 3 邻居硬上限
-QUERY_LOG_RECENT = 10            // 跳 4 log 取最近 N 条
-QUERY_INDEX_THRESHOLD = 500      // N < 此值纯 index
-QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
+```python
+# scripts/query-rank.py(纯算法骨架,实际由 SKILL.md 提示词驱动,不写死)
+QUERY_CANDIDATE_K = 10           # 跳 1 选 top-K
+QUERY_NEIGHBOR_MAX = 8           # 跳 3 邻居硬上限
+QUERY_LOG_RECENT = 10            # 跳 4 log 取最近 N 条
+QUERY_INDEX_THRESHOLD = 500      # N < 此值纯 index
+QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
 ```
 
 **为何不引入 RAG / 向量索引**:`index.md` + 4 跳在 ~100 个源 / 几百页规模足够(Karpathy `llm-wiki.md` line 47 验证);qmd 作为可选搜索引擎补充更大规模,plugin 不自建 RAG(对齐 NFR-1)。
@@ -1098,13 +1451,14 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
    - **孤儿页**:无出入链接的页(可豁免 `index.md` / `overview.md` / `glossary.md`)
    - **矛盾**:两个页对同一事实说法不同(LLM 判断)
    - **陈旧页**:
+
      - **优先判定**:`stale_after` 字段存在且 `now >= stale_after` → 陈旧(OKF §5.5 语义)
      - **回退判定**:`stale_after` 缺失 + `updated` 时间 > **180 天** + 最近 `log.md` 无提及 → 陈旧
      - **豁免**:`status: deprecated` 页(已声明归档,不算陈旧)
      - **不豁免**:`status: draft`(草稿也会陈旧,提示"长期未更新草稿")
-     - 阈值常量 `STALE_THRESHOLD_DAYS = 180`,plugin 本体 `constants.py` 可改
-
+     - 阈值常量 `STALE_THRESHOLD_DAYS = 180`,plugin 本体 `scripts/constants.py` 可改(与 design §1.4 scripts 约束一致,Python 3.10+ .py)
    - **LLM 命名飘**:相似子目录/页面名检测,触发"合并建议"
+
      - **触发条件**(任意一条):(a) 两目录名归一化后(Levenshtein 距离 ≤ 2 + 全小写 + `-` 归一)高度相似(如 `socke-design` vs `socket-design`);(b) 两目录仅前缀或后缀差异(如 `01_驱动` vs `01_驱动_v2`);(c) 同一目录下出现 `soc_design.md` + `soc-design.md`(同义命名漂移)
      - **lint 报告**:
        ```
@@ -1116,12 +1470,12 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
      - **LLM ingest 时**也要预警,提议新文件归档到已有目录名而非新建漂移名
    - **漏链**:某 page 里反复出现但链接缺失的术语
    - **frontmatter 不合规**:必填字段缺失 / 类型错位 / 未知 type
-   - ~~**`[[wikilink]]` 残留**~~ —— **wikilink 是一等公民(Q6)**,Obsidian 原生双链 + Karpathy 老 wiki 兼容,lint **不再警告**;OKF 兼容性靠 frontmatter `links:` 字段镜像标准 markdown 链接列表
+   - ~~**`[[wikilink]]` 残留**~~ —— **wikilink 是一等公民(Q6)**,Obsidian 原生双链 + Karpathy 老 wiki 兼容,lint **不再警告**;OKF 兼容性靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)双格式识别(`[[wikilink]]` + `[text](path.md)`)
    - **raw_category 派生失败**:从 `sources[0].resource` 路径解析失败(无 sources / 非 raw 本地路径 / 分类不在 15 类清单)→ WARN/FAIL(详见 §3.6.1)
 3. 默认只报告;**`--fix` 模式按问题级别分流**:
    - **确定性结构修复** —— `--fix` 直接 patch 应用,`log.md` 追加 `**LintFix**` 条目记录每处改动:
      - **frontmatter 字段缺失** → 补占位值 + WARN(`type` 缺失用 frontmatter 路径推测的实体/概念子类填充)
-     - **frontmatter 字段类型错位** → 强转(如 `tags: autosar` → `tags: [autosar]`)
+     - **frontmatter 字段类型错位** → 强转(如 `tags: domain/ai` → `tags: [domain/ai]`,list 化即可;**不**做轴前缀补全或拼写改写,那种是语义级问题)
      - **`## 摘要` / `## Summary` H2 残留** → 删小节,把内容合并到 frontmatter `summary` 字段
      - **sources/analyses 缺 3 节骨架** → 文件末尾追加占位 H2(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`),空内容
      - ~~**`[[wikilink]]` 残留未替换**~~ —— wikilink 是一等公民(Q6),不再自动替换
@@ -1195,13 +1549,13 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
 
 触发点:`/aeps-llm-wiki-query` 完成,**在落档询问时**,LLM 检查 `knowledge/log.md`:
 
-- 用模式 `**Action**: ... query ... X.*Y` 匹配历史 query 条目
+- 用模式 `**Update**: ... query ... "X.*Y"` 匹配历史 query 条目(query 落档的 log 行走 §3.4 五种前缀里的 `Update`,因为 query 会更新 glossary + index + 候选页)
 - 若 "X vs Y" 累计 ≥ 3 次,**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
 
 **comparison 页生成规则**:
 
 - 路径:`knowledge/comparisons/<a>-vs-<b>.md`(**不带时间戳**,常驻)
-- frontmatter:`type: comparison` + `sources:` 字段(`[aurix.md, tc397.md]` 列表) + `last_updated: <ISO 8601>`
+- frontmatter:`type: comparison` + `sources:` 字段(≥ 2 条 `[[wikilink]]`,对齐 SCHEMA.md §2.2 + design §3.6 comparisons 行) + `last_updated: <ISO 8601>`
 - 正文**自由发挥**,SKILL.md 给提示:典型结构 = 多栏对照表 + 维度差异 + 各自适用场景
 
 **关键边界**:
@@ -1216,33 +1570,59 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
 
 ### 5.1 Ingest 流程(inbox → raw → knowledge)
 
+**单文件场景**(N=1,跳过 subagent 派发,主 agent 直接跑完整流程):
+
 ```
 [用户丢 inbox/<file>]
        ↓
 [用户跑 /aeps-llm-wiki-ingest(无参数,自动扫 inbox/)]
        ↓
-[skill:LLM 读 inbox/<file>]
+[主 agent:阶段 1 batch IO]
+   └→ python3 ./scripts/convert-to-md.py --input inbox/<file> --output temp/<basename>.md
        ↓
-[skill:LLM 提议 raw/<subdir>/<file> + 理由]
-       ↓
-[用户拍板 / 改 / --raw-subdir]
-       ↓
-[skill:mv inbox/<file> → raw/<subdir>/<file>]
-       ↓
-[skill:log.md 记 **Migration**]
-       ↓
-[skill:LLM 读 raw/<subdir>/<file>]
-       ↓
-[skill:生成 knowledge/sources/<basename>.md]
-       ↓
-[skill:抽取 → 生成 knowledge/entities/<子类>/*.md / knowledge/concepts/<子类>/*.md]
-       ↓
-[skill:更新 knowledge/index.md / glossary.md / overview.md]
-       ↓
-[skill:log.md 记 **Creation** / **Update**]
+[主 agent:阶段 2 + 3 合并(N=1 时跳过 subagent 派发,主 agent 自己完成)]
+   ├→ 提议 raw/<subdir>/<file> + 理由
+   ├→ 拍板门 / 命名飘仲裁
+   ├→ mv inbox/<file> → raw/<subdir>/<file>
+   ├→ log.md 记 **Migration**
+   ├→ 生成 knowledge/sources/<basename>.md
+   ├→ 抽取 → 生成 knowledge/entities/<子类>/*.md / knowledge/concepts/<子类>/*.md
+   ├→ 更新 knowledge/index.md / glossary.md / overview.md
+   └→ log.md 记 **Creation** / **Update**
        ↓
 [可选路径 A:同类 entity ≥ 2 → LLM 提议建 knowledge/comparisons/<a>-vs-<b>.md]
 ```
+
+**多文件场景**(N ≥ 2,走 §4.2.1 三阶段并发处理):
+
+```
+[用户丢 inbox/<f1> ... inbox/<fn>]
+       ↓
+[用户跑 /aeps-llm-wiki-ingest]
+       ↓
+[主 agent:阶段 1 batch IO(单进程共享 1 次冷启动)]
+   └→ python3 ./scripts/convert-to-md.py --batch inbox/<f1> ... inbox/<fn> --output-dir temp/
+       ↓
+[主 agent:阶段 2 LLM 并行(N ≤ 5 subagent)]
+   ├→ subagent 1:读 temp/<f1>.md → 写 temp/f1-proposal.json
+   ├→ subagent 2:读 temp/<f2>.md → 写 temp/f2-proposal.json
+   ├→ ...
+   └→ subagent k(k ≤ 5):读 temp/<fk>.md → 写 temp/fk-proposal.json
+       ↓
+[主 agent:阶段 3 收尾合并(串行,无并发写冲突)]
+   ├→ 命名飘仲裁(各 proposal.suggested_subdir 与 raw/ 已有目录相似度比较)
+   ├→ concept aliases 去重(跨 proposal 合并同义)
+   ├→ mv inbox → raw/<subdir>/(走拍板门)
+   ├→ 写 knowledge/sources/<basename>.md(每份)
+   ├→ 写 knowledge/entities/<子类>/*.md / knowledge/concepts/<子类>/*.md
+   ├→ 追加 knowledge/log.md(一次写完 N 条 **Creation** / **Migration**)
+   ├→ 更新 knowledge/index.md / glossary.md / overview.md
+   └→ 删 temp/*.md / temp/*.json(临时文件不进版本)
+       ↓
+[可选路径 A:同类 entity ≥ 2 → LLM 提议建 knowledge/comparisons/<a>-vs-<b>.md]
+```
+
+**SKILL.md 怎么挑流程**:扫描 inbox/ 后,统计待处理文件数 N。N = 1 → 单文件流程;N ≥ 2 → 三阶段并发流程。详见 §4.2.1。
 
 **`--raw-subdir=<name>` 适用边界**:
 
@@ -1251,6 +1631,58 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 **Lint 规则**:
 
 - 出现 `ingest --raw-subdir=<name>` 且 `<name>` 不在 init 预建的 15 类 → **WARN**,提示"自定义目录,需要拍板门确认"
+
+#### §4.2.x ingest 提案 / 拍板 / 应用 三段落档(audit trail,Q10)
+
+**目的**:ingest 涉及 LLM 提议 → 用户拍板 → 脚本机械执行三阶段,需要**显式中间文件**作为 audit trail,便于:
+- 拍板后 `log.md` 引用 plan 文件追溯决策(谁拍的 / 何时拍 / 改了啥)
+- 多 subagent 并发 ingest(§4.2.1)各产 proposal → 主 agent 阶段 3 仲裁 → 应用,需共享 plan 介质
+- 用户事后可读 `temp/plan-<hash>.md` 复核决策
+- `scripts/*.py` **零交互**(§1.4 硬契约)— 读 plan 文件应用,不发起任何 prompt
+
+**三段落档流程**:
+
+```
+阶段 ① 提议(proposal)
+  SKILL.md 调 scripts/convert-to-md.py --batch ...
+  scripts 读 inbox/<file> → 输出 temp/proposal-<hash>.md
+    (内容:inbox 文件清单 + 每份的 suggested_subdir + 命名飘候选 + 概念抽取候选)
+
+阶段 ② 拍板(confirmation)
+  SKILL.md 读 proposal → Claude 在对话里展示给用户
+  用户回复 yes/no/改建议 → SKILL.md 写 temp/decision-<hash>.md
+    (内容:用户对每份文件的拍板结果 — 接受提议 / 改子目录 / 跳过)
+
+阶段 ③ 应用(application)
+  SKILL.md 调 scripts/safe-mv.py --apply temp/decision-<hash>.md
+  scripts 读 decision 文件 → 机械 mkdir / mv / 写 log.md / 写 knowledge/
+    (任何 LLM 不参与的环节都委托给 scripts,零交互)
+```
+
+**plan 文件格式**(`temp/proposal-<hash>.md` / `temp/decision-<hash>.md`):
+
+- 文件名:`<type>-<hash>.md`,`hash` = 内容 sha256 前 8 位(便于去重 / 复用)
+- 位置: `<project>/temp/`(CLAUDE.md "临时文件 temp/ 目录"约束)
+- 生命周期: ingest 完成后由 SKILL.md 提示用户"是否保留 plan 文件供回溯";默认 `--cleanup` 删除,留 `--keep` 备份
+- **log.md 引用**:`**Migration**: inbox/... → raw/... (see plan temp/decision-<hash>.md)` — plan 文件路径留痕
+
+**scripts 调用形式**(举例):
+
+```bash
+# 阶段 ①:提脚本读 inbox,产出 proposal(无 stdin / 无 input)
+python3 ./scripts/propose-ingest.py --project-dir . --output temp/proposal-abc123.md
+
+# 阶段 ③:scripts 读用户拍板后的 decision,机械应用
+python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.md
+```
+
+**scripts 不发起任何 prompt**(NFR-1 + §1.4 硬契约)。SKILL.md 负责:
+- 把 proposal 渲染为人类可读文本在 Claude 对话展示
+- 接收用户回复(yes/no/改建议)
+- 把结果写入 decision 文件
+- 调用 scripts 应用 decision
+
+**与 lint `--fix` 的一致性**:lint 提案同样落 `temp/lint-proposal-<hash>.md`,确定性结构修复走 `temp/lint-decision-<hash>.md` → scripts 应用;语义级问题不进 decision,只输出报告(详见 §4.4.x)。
 
 ### 5.2 Synthesize 流程(/aeps-llm-wiki-synthesize)
 
@@ -1337,12 +1769,12 @@ git ls-remote --tags --refs origin \
 
 **行为**:
 
-| 情况 | 行为 |
-|---|---|
-| remote 有更高版本 | 向 system-reminder / conversation 注入提示:`[plugin 更新提示] 当前 v<current>,remote 有 v<latest> 可用。升级命令:/plugin install zhigangliu-bot/aeps-llm-wiki-plugin` |
-| 当前已是最新 | 不注入任何提示,完全静默 |
-| `git` 不可用 / 无网 / 仓库 404 | 静默,不报错,不阻塞 plugin 启动 |
-| `git ls-remote` 超时(> 3s) | 静默跳过,下次启动再查 |
+| 情况                             | 行为                                                                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| remote 有更高版本                | 向 system-reminder / conversation 注入提示:`[plugin 更新提示] 当前 v<current>,remote 有 v<latest> 可用。升级命令:/plugin install zhigangliu-bot/aeps-llm-wiki-plugin` |
+| 当前已是最新                     | 不注入任何提示,完全静默                                                                                                                                                 |
+| `git` 不可用 / 无网 / 仓库 404 | 静默,不报错,不阻塞 plugin 启动                                                                                                                                          |
+| `git ls-remote` 超时(> 3s)     | 静默跳过,下次启动再查                                                                                                                                                   |
 
 **关键边界**:
 
@@ -1362,7 +1794,7 @@ git ls-remote --tags --refs origin \
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/check-update.mjs",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/check-update.py",
             "timeout": 5
           }
         ]
@@ -1376,24 +1808,24 @@ git ls-remote --tags --refs origin \
 
 - `command` 里**允许**用 `${CLAUDE_PLUGIN_ROOT}`(Claude Code 官方变量,此处**与 scripts/ 不同**)—— 因为 hook 是**在 Claude Code 加载阶段**跑,Plugin 安装目录是稳定可知的(不像 scripts 是 skill 触发时才跑);hooks 是 Claude Code 自身的事,**CLAUDE.md「不引入绝对路径」是 user-project 内代码约束,plugin 本体的 hooks.json 由 plugin 维护者掌控**
 - `timeout: 5` —— 超时 5s 强制 kill(避免阻塞 plugin 启动)
-- `check-update.mjs` 是 Node 18+ 脚本,与 scripts/ 同样的"单次运行即退"约束(详见 §1.4)
+- `check-update.py` 是 Python 3.10+ 脚本,与 scripts/ 同样的"单次运行即退"约束(详见 §1.4)
 
 ### 7.3 与已有 G6 / NFR-1 兼容性声明
 
-| 约束 | 检查 |
-|---|---|
-| G6 "plugin 不带常驻运行时" | ✅ hook 是事件回调,跑完即退,**不是 daemon** |
-| G3 "不做自动监控文件变动" | ✅ 监控的是**plugin 仓库**,**不是 user-project** |
-| inbox 拍板门 | ✅ 完全不涉及 user-project 写入 |
-| 离线可用 | ✅ 失败静默,无网环境也能装上 plugin |
+| 约束                       | 检查                                                         |
+| -------------------------- | ------------------------------------------------------------ |
+| G6 "plugin 不带常驻运行时" | ✅ hook 是事件回调,跑完即退,**不是 daemon**            |
+| G3 "不做自动监控文件变动"  | ✅ 监控的是**plugin 仓库**,**不是 user-project** |
+| inbox 拍板门               | ✅ 完全不涉及 user-project 写入                              |
+| 离线可用                   | ✅ 失败静默,无网环境也能装上 plugin                          |
 
 ### 7.4 未来可能加的 hook(列出但当前不实现)
 
-| 触发事件 | 用途 | 当前实现? |
-|---|---|---|
-| `SessionStart` | plugin 仓库更新检查 | ✅ 已实现 |
-| `PostToolUse(Write)` | 检测写入路径是否为 `inbox/`,若有则提示"是否要 ingest" | ❌ 后续版本考虑 |
-| `PreCompact` | compact 前给 LLM 提示"即将压缩上下文,plugin 相关状态保留 X / Y / Z" | ❌ 后续版本考虑 |
+| 触发事件               | 用途                                                                | 当前实现?       |
+| ---------------------- | ------------------------------------------------------------------- | --------------- |
+| `SessionStart`       | plugin 仓库更新检查                                                 | ✅ 已实现       |
+| `PostToolUse(Write)` | 检测写入路径是否为`inbox/`,若有则提示"是否要 ingest"              | ❌ 后续版本考虑 |
+| `PreCompact`         | compact 前给 LLM 提示"即将压缩上下文,plugin 相关状态保留 X / Y / Z" | ❌ 后续版本考虑 |
 
 **判断新 hook 是否加**:能用 prompt(SKILL.md) 解决的不加 hook;hook 仅用于**跨 session / 跨 skill 的全局事件**(更新检查 / 写盘提示 / 上下文压缩)。
 
@@ -1403,12 +1835,12 @@ git ls-remote --tags --refs origin \
 
 > **状态**:以下条目**已拍板**(决策已写入对应章节),本表保留仅作历史索引。冻结后将统一移入末尾「变更历史」章节。
 
-- [x] **T2**:`summary` 字段去留(Q1) — 留 `summary`,去掉 source 正文里的 `## 摘要` 小节(summary 走 frontmatter)
-- [x] **T3**:`--raw-subdir` 适用边界 + 取消 raw/ 入口 — **`--raw-subdir` 仅 inbox 生效**;**取消 raw/ 直接 ingest 入口**,raw/ 是已归档不可变层,调整走 `git mv` 或手工
-- [x] **T4**:`SCHEMA.md` 模板 — `templates/knowledge-SCHEMA.md`(8 节,含占位符 init 替换)
-- [x] **T5**:`templates/inbox-readme.md` 提示语 — 已完成
-- [x] **T6**:陈旧阈值 + LLM 起名飘 lint — 180 天 / `stale_after` 优先 / 命名飘仅 prompt 不合并
-- [x] **T7**:hooks 支持 + SessionStart plugin 仓库更新检查 — 允许 hooks;触发 SessionStart → `git ls-remote` → 注入更新提示;失败静默。详见 §7
+- [X] **T2**:`summary` 字段去留(Q1) — 留 `summary`,去掉 source 正文里的 `## 摘要` 小节(summary 走 frontmatter)
+- [X] **T3**:`--raw-subdir` 适用边界 + 取消 raw/ 入口 — **`--raw-subdir` 仅 inbox 生效**;**取消 raw/ 直接 ingest 入口**,raw/ 是已归档不可变层,调整走 `git mv` 或手工
+- [X] **T4**:`SCHEMA.md` 模板 — `templates/knowledge-SCHEMA.md`(8 节,含占位符 init 替换)
+- [X] **T5**:`templates/inbox-readme.md` 提示语 — 已完成
+- [X] **T6**:陈旧阈值 + LLM 起名飘 lint — 180 天 / `stale_after` 优先 / 命名飘仅 prompt 不合并
+- [X] **T7**:hooks 支持 + SessionStart plugin 仓库更新检查 — 允许 hooks;触发 SessionStart → `git ls-remote` → 注入更新提示;失败静默。详见 §7
 
 ---
 
@@ -1416,10 +1848,54 @@ git ls-remote --tags --refs origin \
 
 - [prd.md](prd.md) —— 产品需求(本文件的源头)
 - [implement.md](implement.md) —— 执行清单(下一步)
-- [../../input/kapathy-llm-wiki/kapathy-llm-wiki.en.md](../../input/kapathy-llm-wiki/kapathy-llm-wiki.en.md) —— Karpathy LLM Wiki 理念
+- [../../input/karpathy-llm-wiki/karpathy-llm-wiki.en.md](../../input/karpathy-llm-wiki/karpathy-llm-wiki.en.md) —— Karpathy LLM Wiki 理念
 - [../../input/google-OKF/OKF-SPEC.md](../../input/google-OKF/OKF-SPEC.md) —— OKF v0.x 规范(本文件 §3 主要依据)
 - [../../reference/balukosuri__llm-wiki-karpathy/CLAUDE.md](../../reference/balukosuri__llm-wiki-karpathy/CLAUDE.md) —— Karpathy 模式 Agent 操作手册范本
 
 ---
 
 **下一步**:等本文件 review 通过 + T1~T7 拍板 → 进入 M3(写 `implement.md`)
+
+---
+
+## 9. Change History
+
+### v0.2(2026-09-02) — 五轮增量
+
+**Round 1: Python 化(scripts/ Node 18+ .mjs → Python 3.10+ .py)**
+
+- §1.1 目录树 scripts/ 节点 + §1.2 模块职责表 + §1.3 边界说明 + §1.4 scripts/ 与 hooks/ 边界(整段重写为 Python 3.10+ 约束:`subprocess.run` / `signal.signal` / `sys.stdin` 不挂 resume / 单次运行即退)
+- §2.4 scripts 内容段 + hooks 段引用(`check-update.mjs` → `check-update.py`)
+- §4.2 / §4.3 / §4.4 / §4.3.1 SKILL.md 流程所有 `node ./scripts/<name>.mjs` → `python3 ./scripts/<name>.py`
+- §7.2 hooks 配置 JSON `command` 字段全部切到 `python3`
+- §2.4 增加 frontmatter 骨架 / schema 校验 / YAML 读写需要 `jsonschema` / `pyyaml` / `pytest`
+- §1.4 增加"支持 `--batch` 多输入模式"约束
+
+**Round 2: 3-stage ingest 并发 + batch OCR**
+
+- §1.4 / §2.4 / §4.2.1(新整段,含 ASCII flow 图 + 关键边界 + 为什么不用 IO 并发 + 为什么不动 query/lint)
+- §5.1 Ingest 流程分**单文件场景 (N=1)** + **多文件场景 (N ≥ 2)** 两版本
+- `convert-to-md.py` 两调用模式:`--input inbox/<file>`(单文件入口) + `--batch inbox/<f1>...inbox/<fn>`(批量入口)
+- SKILL.md 调 convert-to-md.py --batch 必须显式 Bash timeout: 600000ms(Claude Code Bash 工具 max)
+
+**Round 3: Q9 双字段 source_file + sources[].resource**
+
+- **§3.6.1.1** 新整段:`source_file:` 顶层字符串(Obsidian 笔记属性面板可点击)+ `sources[].resource` OKF §5.1 数组(机器可读),值必须相等(lint C5.1 一致性断言);`raw_category` 派生继续走 `sources[0].resource`(不变)
+- 物理新建 `templates/source-page.md`(frontmatter 锁 + LLM 写入指引 + 不变量)
+- SCHEMA.md §2.2 `type: source` 必填字段表拆 3 行
+
+**Round 4: Q10 scripts 严禁交互硬契约 + plan 文件 audit trail**
+
+- **§1.4** 新整段 "scripts/ 严禁交互硬契约(NFR-1 加严,Q10)":禁止 `input(` / `sys.stdin.read` / `getpass` / `select` 等调用 + 替代方案 + scripts/ 与 SKILL.md 责任分工表
+- **§4.2.x** 新整段 "ingest 提案 / 拍板 / 应用 三段落档(audit trail)":`temp/proposal-<hash>.md` → SKILL.md 拍板 → `temp/decision-<hash>.md` → scripts `--apply`;log.md 引用 plan 文件路径留痕
+- scripts/README.md 新增"调用约定(scripts/ 严禁交互)"段
+
+**Round 5: Q11 subagent 写权矩阵 + 阶段 3 串行动作清单**
+
+- **§4.2.1** 新整段 "写权矩阵(并发安全硬约束,Q11)":13 行路径 × 3 阶段写权表 + 子代理 prompt 硬约束文本 + 为什么这样设计 3 条
+- **§4.2.1** 新整段 "阶段 3 主 agent 串行动作清单(Q11)":命名飘 → 拍板汇总 → concept 去重 → entity 去重 → mv → source 页 → entity 页 → concept 页 → 最后一次性改索引(9 步严格串行)
+- 关键设计:索引写顺序——所有 page 写完**才**统一改 index.md / glossary.md / log.md / overview.md,避免过程中失败导致索引指向不存在页
+
+**附带**:Q6 wikilink 改造 + `links:` 镜像字段去除(frontmatter 不维护,正文 `[[wikilink]]` 一等公民;OKF 兼容靠 plugin 自实现 OKF reader 双格式识别)在 v0.2 之前一轮独立冻结,详见 `schema/OKF-EXTENSION.md`。
+
+**兼容性**:v0.2 MINOR bump,所有改动对 OKF v0.2 spec §9 兼容性保持。无 breaking change。

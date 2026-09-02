@@ -14,8 +14,7 @@
 src/                                    已完成
 ├── design.md                           ✅
 ├── prd.md                              ✅
-├── requirements.txt                    ❌ 已删除(统一归 scripts/requirements.txt)
-├── scripts/                            ❌ 待新建(convert-to-md.mjs + 其他脚本)
+├── scripts/                            ❌ 待新建(convert-to-md.py + 其他脚本,Python 3.10+ 单栈)
 │   └── (暂无)                           ❌
 └── templates/                          ✅
     ├── raw-readme.md                   ✅(15 类权威字典,plugin 主)
@@ -83,11 +82,18 @@ plugin 上架资产                          ❌ 待新建
 **核心边界**:
 - 入口:**递归**扫 `<project>/inbox/`(含子目录),不递归 raw/
 - **跑前先校验依赖**:`scripts/requirements.txt` 的 anydoc / paddleocr 是否安装;未装 → 提示 + 退出
-- 文件读取走统一入口 **`scripts/convert-to-md.mjs --project-dir . --input inbox/<file> --output <tmp>`**:
+- 文件读取走统一入口(两种模式,详见 design §2.4 + §4.2.1):
+  - **单文件**(inbox N=1):`python3 ./scripts/convert-to-md.py --project-dir . --input inbox/<file> --output <tmp>`
+  - **批量**(inbox N ≥ 2):`python3 ./scripts/convert-to-md.py --project-dir . --batch inbox/<f1> ... inbox/<fn> --output-dir temp/`(**显式 Bash timeout: 600000ms**,Claude Code max;paddleocr 冷启动 5-30s + N 文件 OCR ≈ N×1-3s)
   - md / txt / csv / json / yaml / xml / html / htm / rst → 直接读
   - pptx / docx / xlsx / pdf → Claude converter 失败则降级 anydoc
   - png / jpg / jpeg / bmp / tiff → paddleocr
   - 其他 / 失败 → FAIL,提示"无法转换 <file>,请手动预处理"
+- **三阶段并发处理**(design §4.2.1;N ≥ 2 时走):
+  - **阶段 1 batch IO**:主 agent 单进程跑 convert-to-md.py --batch,**paddleocr Engine 只加载 1 次**(避免 N 次冷启动叠加)
+  - **阶段 2 LLM 并行**:主 agent 切 ≤ 5 批,派 ≤ 5 个 subagent(Claude Code Task 工具)各自读自己那批 md + 写 proposal JSON,**不动 knowledge/**
+  - **阶段 3 主 agent 收尾**:命名飘仲裁 / concept aliases 去重 / mv / 写 sources + entities + concepts / 追加 log.md / 更新 index / glossary / overview — 全部串行,无并发写冲突
+  - **N = 1 时跳过阶段 2**(避免派发开销);主 agent 自己跑完阶段 1 + 3
 - 拍板门分流:目标目录已存在无需拍板;不存在必须拍板
 - 3 节 H2 骨架硬约束(## 重点摘录 / ## 我的思考 / ## 总结:最有收获的一句话)
 - 禁止 `## 摘要` / `## Summary` 小节
@@ -101,7 +107,7 @@ plugin 上架资产                          ❌ 待新建
 - 一次性 query:直接答 + `[[wikilink]]`,不建页
 - 多次 query 同主题 / 用户显式说"对比一下" → 提议建 `knowledge/comparisons/<a>-vs-<b>.md`,用户拍板
 - **绝不编造 wiki 里没有的内容**(AC-3 硬验收)
-- **跑前先跑** `node ./scripts/check-qmd.mjs --project-dir .`,根据返回 `engine` 决定入口:
+- **跑前先跑** `python3 ./scripts/check-qmd.py --project-dir .`,根据返回 `engine` 决定入口:
   - `engine: index` → 4 跳扫描(跳 1 读 index.md + tag 过滤;跳 2 读候选页 description/title/全文;跳 3 顺 `[[wikilink]]` 跳邻居 ≤ 8;跳 4 读 glossary + log 最近 10 条)
   - `engine: qmd` → `qmd query "<question>" --collection knowledge --limit 20`,拿 top-20 进入跳 2
   - `engine: fail` → 直接退出,提示用户装 qmd(N ≥ 1000 强约束)
@@ -115,7 +121,7 @@ plugin 上架资产                          ❌ 待新建
 - 默认只报告
 - `--fix` 模式按问题级别分流(详见 prd §4.4 + design §4.4):
   - **确定性结构修复直接 patch 应用**,`log.md` 追加 `**LintFix**` 条目:frontmatter 字段补缺 / 类型强转 / `## 摘要` 残留转 `summary` / sources/analyses 缺 3 节骨架 H2 占位
-  - **wikilink 是一等公民(Q6)**:plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`,Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 frontmatter `links:` 字段镜像;lint **不再警告** wikilink
+  - **wikilink 是一等公民(Q6)**:plugin 正文写 `[[page]]` / `[[page|显示]]` / `[[page#章节]]`,Obsidian 原生双链 / Karpathy 老 wiki 兼容;OKF 兼容靠 plugin 自实现 OKF reader(`scripts/okf-reader.py`)识别 `[[wikilink]]` + `[text](path.md)` 双格式(详见 design §3.6.2 + `src/schema/OKF-EXTENSION.md`);**不维护 frontmatter `links:` 镜像字段**(Single Source of Truth);lint **不再警告** wikilink
   - **语义级问题仅输出提案**(不应用):矛盾 / 命名飘合并 / 漏链 / 陈旧页处理
 - 无 `--fix` 时不静默改文件;`--fix` 模式也不静默应用语义级修改
 - lint 规则全集见 SCHEMA.md §6 + design.md §4.4(含 LLM 命名飘 / 陈旧 / frontmatter / 摘要小节残留)
@@ -132,6 +138,18 @@ plugin 上架资产                          ❌ 待新建
 ### 阶段 C:测试用例(预计 1-2 天,CLAUDE.md 硬约束)
 
 按 AC 清单编写可执行测试。每条 AC 一组测试用例。
+
+**测试组织**:`tests/` 下的测试脚本包括但不限于 [design §6.1](../src/design.md) 列出的三个核心脚本:
+
+| 脚本 | 用途 | 对应阶段 C 子段 |
+|---|---|---|
+| `tests/test_templates.py` | 每份 `templates/*.md` 渲染后 frontmatter 合规 | C1(模板锁验证)+ C5(模板填充验证) |
+| `tests/test_frontmatter_compliance.py` | 模拟各种 §A~§D frontmatter 输入,断言 OKF 字段识别正确 + jsonschema 校验 | C5(AC-5)+ C4.1(`--fix` frontmatter 修复) |
+| `tests/test_okf_compliance.py` | 用 [input/google-OKF/OKF-SPEC.md](../../input/google-OKF/OKF-SPEC.md) 的 OKF 校验规则反向校验 plugin 产物 | COMPAT-1(§7.3)+ M5 端到端 |
+
+**本阶段其他子段**(C1~C14 + M-V1/M-V2)的测试用例可以**直接用 pytest 函数写在上面三个脚本里**,也可以拆成 `tests/test_<scenario>.py`(`test_init_vault.py` / `test_ingest_pipeline.py` / `test_query_ranking.py` / `test_lint_rules.py` / `test_requirements_txt.py` 等)。**不强求一一对应**,按 fixture 复用度自定。
+
+**scripts/ 与 tests/ 一律 Python 3.10+ 单栈**:tests/ 跑 `pytest`,断言 `scripts/*.py` 内容(原 Node 18+ .mjs 设计已切到 Python,见 design §1.4 + §2.4)。
 
 #### C1:AC-1(init 首次 5 分钟建齐)
 - [ ] 临时目录跑 init,验证 `inbox/`、`raw/`(15 子目录 + .gitkeep)、`knowledge/`(SCHEMA.md / index.md / overview.md / glossary.md / log.md + 14 子目录 + .gitkeep)都建好
@@ -157,6 +175,22 @@ plugin 上架资产                          ❌ 待新建
 - [ ] fixture 在 `inbox/notes/s32g/` 下放两个 `.md` 文件
 - [ ] 跑 ingest,验证两个文件都被处理(子目录文件路径作为 LLM 分类依据之一,raw_category 派生按最终 raw 路径,与 inbox 子目录无关)
 
+#### C2.4:三阶段并发处理(N ≥ 2 + batch OCR + 收尾合并)
+- [ ] **batch OCR 单次冷启动**:fixture inbox 放 5 份 `.png`(每份 1-3s OCR 时间);mock paddleocr 加载计数,验证 convert-to-md.py --batch 只调 1 次 Engine 初始化(N=5 个文件 → 冷启动 = 1 次,**不是** 5 次)
+- [ ] **单文件场景跳过阶段 2**:fixture inbox 放 1 份 `.md`;验证 SKILL.md 直接走主 agent 完整流程,**不**派 subagent(避免派发开销)
+- [ ] **subagent 并发上限 ≤ 5**:fixture inbox 放 12 份 `.md`;验证派发的 subagent 数 = min(12, 5) = 5,每批 ≤ 5 个 subagent 共享 N/5 份文件
+- [ ] **阶段 2 不写 knowledge/**:fixture inbox 放 3 份 `.md`;验证 subagent 只产出 `temp/<doc-id>-proposal.json`,**不**直接写 `knowledge/sources/` / `index.md` / `log.md`(并发写冲突检测)
+- [ ] **阶段 3 命名飘仲裁**:fixture inbox 放 2 份 `.md`,subagent 提议 `raw/03_芯片` + `raw/芯片_v2`(均与已有 `raw/02_芯片/` Levenshtein ≤ 2);验证主 agent 收尾时**强制合并**到 `raw/02_芯片/`,**不**新建漂移目录
+- [ ] **阶段 3 concept 去重**:fixture inbox 放 2 份 `.md`,subagent 抽 concept "AUTOSAR" + "Autosar"(同义);验证主 agent 收尾时按 aliases 合并到 1 页,**不**生成 2 个 concept 页
+- [ ] **log.md 不冲突**:fixture inbox 放 5 份;验证 `log.md` 只追加 1 段 (按日期 heading 汇总 N 条 `**Migration**` / `**Creation**`),**不**并发 5 段写入
+- [ ] **Bash timeout = 600000**:SKILL.md 调 convert-to-md.py --batch 必须显式 `timeout: 600000ms`(模拟超过 30s 默认 timeout 不报错)
+- [ ] **冷启动时间断言**:fixture 5 份 `.png` + 1 份 `.pdf`,跑 batch 模式;断言脚本 wall-clock 启动 + 处理总时间 < (5 × 30s) — 必须**显著小于**串行调用 N 次的耗时
+- [ ] **Q11 subagent 写权隔离**(详见 design §4.2.1 写权矩阵):
+  - [ ] fixture inbox 放 3 份相关 `.md`(会抽到重叠 entity/concept);验证 subagent 跑完后,`knowledge/` 下**任何文件均未被修改**(包括 index.md / glossary.md / log.md / overview.md / sources/ / entities/ / concepts/);只有 `temp/<id>-proposal.json` 新增
+  - [ ] fixture 同上,跑完整 ingest 走阶段 3;验证 `knowledge/index.md` / `glossary.md` / `log.md` / `overview.md` 在所有 source/entity/concept 页写完后**才**统一修改一次(快照对比 — 阶段 3 收尾后这些文件 mtime 接近)
+  - [ ] fixture 同名 entity 跨 subagent 重复抽取(如 subagent A 抽 "ISO 26262",subagent B 抽 "ISO26262");验证阶段 3 合并到 1 页 + aliases 累加,不重复建页
+  - [ ] **subagent prompt 硬约束扫描**:fixture 提供一个故意违反的 SKILL.md 子代理 prompt(如包含 "请直接修改 knowledge/index.md");验证 SKILL.md 的 M3 review 流程拒绝该 prompt(subagent 必须只允许写 temp/<id>-proposal.json)
+
 #### C3:AC-3(query 不编造)
 - [ ] 准备 fixture:已知 wiki 内容
 - [ ] 跑 query 问已知答案 → 答对 + 链接
@@ -178,7 +212,7 @@ plugin 上架资产                          ❌ 待新建
 - [ ] fixture wiki 1100 页,qmd 未装,跑 query → 验证直接报错退出,提示"必须装 qmd",**不**进入回答
 - [ ] fixture wiki 1100 页,qmd 已装,跑 query → 正常返回 qmd top-20 命中
 
-#### C3.4:check-qmd.mjs 单测
+#### C3.4:check-qmd.py 单测
 - [ ] 单元测 `<500 / 500~1000 / ≥1000` 三种 pageCount 边界
 - [ ] qmd 在 / 不在两种组合 → 共 6 种 case,验证返回 `engine` 字段正确
 
@@ -188,10 +222,20 @@ plugin 上架资产                          ❌ 待新建
 - [ ] **C4.1 lint --fix 确定性 vs 语义分流**:
   - [ ] 确定性结构修复 fixture:造缺 frontmatter `type` / `tags` 不是 list / `## 摘要` 小节 / sources 缺 3 节骨架 各一份 → 跑 `--fix` → 验证文件被改 + log.md 追加 `**LintFix**` 条目
   - [ ] 语义级问题 fixture:造矛盾页 + 命名飘子目录 + 漏链 + 陈旧页 → 跑 `--fix` → 验证**文件未被改**,只输出提案(包含候选改写 / `git mv` 命令 / 候选链接列表 / 陈旧处理建议)
+- [ ] **C4.2 wiki link 双格式识别 + 不维护 links 镜像**(详见 design §3.6.2):
+  - [ ] 写 `tests/test_okf_reader.py`,断言 `scripts/okf-reader.py` 识别 `[[wikilink]]` + `[text](path.md)` 双格式,输出 OKF `sources` 列表
+  - [ ] 写 `tests/test_no_links_mirror.py`:fixture 故意在前置插件生成的页里有 frontmatter `links:` 字段,跑 lint → 验证 lint **不**做任何 `links:` 镜像同步操作(只读正文 wiki link);跑 ingest → 验证新生成页**不**含 `links:` 字段
+  - [ ] 写 `tests/test_obsidian_edit_drift.py`:fixture 模拟用户改 Obsidian UI 的 `[[wikilink]]`(改 slug),跑 lint → 验证 lint **不**报错、不试图"修复"前向不一致(因为已经没有 `links:` 镜像,无后向漂移)
+  - [ ] 写 `tests/test_okf_extension_compliance.py`:fixture 含 `[[wikilink]]` 的页通过 OKF 自实现 reader → 验证产出 OKF bundle `sources` 列表非空 + 类型合规
 
 #### C5:AC-5(frontmatter 自动校验)
 - [ ] 写 Python 脚本 `tests/test_frontmatter_schema.py`,对所有 fixture `knowledge/**/*.md` 跑 jsonschema 校验
 - [ ] 任何不合规立刻 FAIL
+- [ ] **C5.1 source 页双字段同源断言**(详见 design §3.6.1.1):
+  - [ ] fixture 造 `type: source` 页:`source_file: raw/02_芯片/foo.pdf` + `sources[0].resource: raw/02_芯片/foo.pdf` → 跑 lint → 通过
+  - [ ] fixture 改 source_file 与 sources[0].resource 值不一致(如 source_file 指向 foo.pdf,sources[0].resource 指向 bar.pdf)→ 跑 lint → FAIL
+  - [ ] fixture 缺 source_file 或 sources[0].resource 任一字段 → 跑 lint → FAIL
+  - [ ] 写 `tests/test_source_obsidian_link.py`:fixture 在 Obsidian 笔记属性面板里 source_file 字段值渲染为可点击链接(由 jsonschema 校验该字段存在 + 值符合 `raw/<subdir>/<basename>.<ext>` 正则)
 
 #### C6:AC-6(ingest inbox 拍板门)
 - [ ] fixture 在 `inbox/<file>`,跑 `/aeps-llm-wiki-ingest`,验证未拍板前 inbox 文件不动
@@ -208,13 +252,106 @@ plugin 上架资产                          ❌ 待新建
 - [ ] 造子目录:`raw/02_芯片/` + `raw/03_芯片_v2/`,lint 命名飘提示
 - [ ] **C9.1 命名飘前移到 ingest**:fixture 已存在 `raw/02_芯片/`,丢一份 `s32g-datasheet.pdf` 到 inbox,跑 ingest,验证 LLM 提议的子目录若写成 `03_芯片` / `芯片_v2` / `soc_chips`(与已有 `02_芯片` Levenshtein ≤ 2 或同义拼写),会被检测并**强制改用 `raw/02_芯片/`**,而不是新增
 
-### 阶段 D:发布(预计 0.5 天)
+#### C10:NFR-1 + NFR-4(无 daemon + 无绝对路径)
 
-- [ ] **D1** 在 GitHub 建 `zhigangliu-bot/aeps-llm-wiki-plugin` 仓库(public)
-- [ ] **D2** 把 plugin 根目录内容 push 到 main
-- [ ] **D3** 在 `docs/` 配 GitHub Pages(可选)
-- [ ] **D4** 在 README.md 写明 `/plugin install zhigangliu-bot/aeps-llm-wiki-plugin`
-- [ ] **D5** 发 GitHub release `v0.4.0`,挂上 changelog(从 `templates/tag-template.md` §9 演进记录提炼)
+**CLAUDE.md 硬约束 + PRD NFR-1 + NFR-4**:plugin 不开 daemon + 代码中不得使用绝对路径。
+
+- [ ] `tests/test_no_absolute_paths.py`:扫所有 `scripts/*.py` + `skills/*/SKILL.md` + `templates/*.md` + `schema/*.yaml`,断言**不出现**以下模式:
+  - 绝对 Unix 路径:`/(Users|home|tmp|opt)/...`、`/etc/...`、`/var/...`
+  - 绝对 Windows 路径:`C:\` / `D:\` / `E:\`(任意盘符)
+  - plugin 反向引用:`${CLAUDE_PLUGIN_ROOT}`(scripts/ 内禁用,hooks/ 内允许,见 design §1.4)
+  - 显式 home:`~/.claude/...` / `~/.config/...`
+- [ ] `tests/test_no_daemon.py`:扫 `scripts/*.py`,断言**不出现**:
+  - `http.server.HTTPServer` / `socketserver.TCPServer` / `http.server.BaseHTTPRequestHandler`(Python 服务接口)
+  - `subprocess.Popen(` 启动**长生命周期**子进程(单次 `subprocess.run` 允许)
+  - `signal.signal(` + 阻塞 loop(`while True:` + `time.sleep()` 之类)
+  - **C10.1 scripts/ 严禁交互(Q10,详见 design §1.4 硬契约)**:
+    - [ ] 用 `ast` 模块扫所有 `scripts/*.py`,断言不出现以下调用:
+      - `input(` / `input (`(Python 内置 `input()` / `input(prompt)`)
+      - `sys.stdin.read` / `sys.stdin.readline` / `sys.stdin.readlines`
+      - `getpass.getpass` / `getpass(`
+      - `select.select([sys.stdin]` 等 stdin 等待调用
+    - [ ] fixture 反例测试:故意造一个 `scripts/_bad_example.py` 含 `input("拍板:")` → 跑 `tests/test_no_daemon.py` → 断言 **FAIL** + 报告指出文件路径与行号
+    - [ ] fixture 正例测试:现有所有 `scripts/*.py` → 跑 `tests/test_no_daemon.py` → 断言 **PASS**
+  - `sys.stdin` 长时间读取 / `signal.pause()` 阻塞
+- [ ] 全部断言通过 → PASS;任意一条命中 → FAIL + 列出文件:行号 + 命中字符串
+
+#### C11:NFR-3(中文为主 + 术语英文)
+
+- [ ] `tests/test_chinese_first.py`:抽查以下文件的**正文**字符占比:
+  - `skills/*/SKILL.md`(5 份)
+  - `templates/*.md`(5 份)
+  - `prd.md` / `design.md` / `implement.md`(3 份,内部维护文档同样遵循)
+- [ ] 断言:中文字符(Unicode 范围 `\u4e00-\u9fff`)占**总可读字符数**(去除空白 + Markdown 控制符)的 > 60%
+- [ ] 例外:代码块(````` ``` ````` 包裹的内容)、frontmatter YAML 块、frontmatter schema.yaml 不计入
+- [ ] 术语保留英文(`type: source` / `raw_category` / `bundle-root` 等)**不**翻译,本测试只看语言比例不查翻译
+
+#### C12:NFR-5(临时文件进 `temp/`)
+
+- [ ] `tests/test_gitignore_temp.py`:验证 `temp/` 出现在 `.gitignore`
+- [ ] `tests/test_temp_dir_usage.py`(运行时验证):fixture 跑一遍 init + ingest,检查**临时目录**只创建在 `<project>/temp/` 下,**不**在 `/tmp/` / `C:\Users\...\AppData\Local\Temp\` 等系统临时目录
+- [ ] `scripts/convert-to-md.py` / `scripts/check-qmd.py` 输出临时 md 文件 → 必须在 `temp/`(可通过 grep `--output temp/` 断言调用约定)
+
+#### C13:NFR-6(LICENSE = Apache 2.0)
+
+- [ ] `tests/test_license.py`:验证:
+  - `LICENSE` 文件存在
+  - 文件首 50 行包含 `Apache License` / `Version 2.0` / `Licensed under the Apache License` 之一
+  - 包含完整 Apache 2.0 必备条款(Grant of Copyright License / Grant of Patent License / Redistributions / 等等关键短语)
+- [ ] 校验脚本可选:`tests/test_license.py` 用 regex 抓"Apache 2.0 + 关键短语 ≥ 5 处"作为最低门槛
+
+#### C14:NFR-7(`scripts/requirements.txt` 依赖清单)
+
+- [ ] `tests/test_requirements_txt.py`:
+  - `scripts/requirements.txt` 存在
+  - 包含 `anydoc`(强依赖,对应 §4.2 .pptx/.docx/.xlsx/.pdf 降级)
+  - 包含 `paddleocr`(强依赖,对应 §4.2 .png/.jpg/.jpeg/.bmp/.tiff OCR)
+  - 包含 `jsonschema` + `pyyaml`(强依赖,对应 frontmatter schema 校验 + YAML 读写)
+  - 包含 `pytest`(单测时需要;运行时不需要)
+- [ ] 不强制 `qmd`(可选依赖,对应 §4.3 wiki 规模较大时降级),但若有 `qmd` 引用应在 README.md 单独标注"可选,`npm install -g @tobilu/qmd`"
+
+### 手动验证清单(自动测试难以覆盖的项目)
+
+> **范围**:COMPAT-3(SCHEMA.md zero-shot)+ hooks `SessionStart` 行为。两者**难自动化**,走"LLM 阅读 + 人工评估"或"本地手动跑 + 现象记录"路径。CLAUDE.md "写完代码必须要做你所能做的测试"硬约束下,作为自动测试的**降级方案**记录在案,M5 自测阶段逐项跑一遍。
+
+#### M-V1:COMPAT-3(SCHEMA.md zero-shot 可执行)
+
+- [ ] 准备一份独立 fixture wiki(50 页)+ 全新聊天上下文(脱离本对话的 LLM 实例)
+- [ ] 把 `knowledge/SCHEMA.md` 给该 LLM,任务:"按 SCHEMA.md 步骤给 fixture 加一篇 source 页"
+- [ ] 评估清单(每条 PASS/FAIL):
+  - [ ] 产出页 frontmatter 必填字段齐全(`type` / `title` / `description` / `tags` 含 maturity + docform)
+  - [ ] 产出页正文含 3 节骨架(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`)
+  - [ ] 产出页**无** `## 摘要` / `## Summary` H2
+  - [ ] log.md 追加 `**Creation**` 条目,actor 字符串符合 `agent: producer/aeps-llm-wiki-plugin/<version>`(对齐 SCHEMA.md §4)
+  - [ ] 关联的 entity/concept 子页路径符合 §3.1 §A 子类 ↔ 目录 1:1 绑死
+- [ ] 任意一条 FAIL → SCHEMA.md 表述有歧义,回 §3.5 调整措辞
+
+#### M-V2:hooks `SessionStart` 行为(design §7)
+
+- [ ] **更新提示注入**:mock `git ls-remote` 返回高于本地版本号,启动 Claude Code,验证 system-reminder 出现 `[plugin 更新提示]` 字样
+- [ ] **已是最新**:mock `git ls-remote` 返回等于本地版本号,验证**不**出现更新提示
+- [ ] **无网静默**:断开网络启动,验证不报错、不阻塞 plugin 加载
+- [ ] **git 不可用**:`PATH` 移除 `git`,启动 Claude Code,验证不报错
+- [ ] **超时 kill**:`--mock-delay 10s`(hooks `timeout: 5`),验证 5s 后 kill,不阻塞 plugin 启动
+- [ ] **不修改 user-project**:跑完任一场景,验证 `<user-project>/inbox/` / `raw/` / `knowledge/` 内容未变
+- [ ] **不修改 plugin 本体**:跑完任一场景,验证 `plugin.json` version / 文件 mtime 未变
+
+### 阶段 D:GitHub release 准备清单(预计 0.5 天,git commit 走 Trellis `Phase 3.4 Commit changes`)
+
+**与 Trellis 流程的边界**:本阶段只列 GitHub release 相关动作(创建仓库、推 main、配 Pages、tag + release)。日常 commit / PR / 分支管理全部走 Trellis `Phase 3.4 Commit changes` + `/trellis:finish-work`,**不**在本阶段列 git commit 命令。
+
+- [ ] **D1** 用 `gh repo create zhigangliu-bot/aeps-llm-wiki-plugin --public --description "<plugin 一句话定位>"`(public;private 也可但后续 marketplace 公开更顺)
+- [ ] **D2** 把 plugin 根目录内容(`.claude-plugin/` / `skills/` / `templates/` / `scripts/` / `schema/` / `docs/` / `tests/` / `prd.md` / `design.md` / `implement.md` / `LICENSE` / `README.md` / `.gitignore`)push 到 main;**首次 push 用 `git push -u origin main`**
+- [ ] **D3** 在 `docs/` 配 GitHub Pages(可选,等 plugin 稳定后再开;Pages 源选 `Deploy from a branch` → `main` / `/docs`)
+- [ ] **D4** 在 README.md 写明 `/plugin install zhigangliu-bot/aeps-llm-wiki-plugin` + 链接到 `docs/` 对外快照(由 `src/prd.md` / `src/design.md` / `src/implement.md` 镜像)
+- [ ] **D5** 发 GitHub release:
+  - `gh release create v0.4.0 --title "v0.4.0" --notes-file CHANGELOG.md`
+  - **CHANGELOG.md 从设计文档提炼**(M4 上架前从 design.md §0 + implement.md §0 现状盘点摘出"v0.4.0 含哪些能力";tag-template.md §9 是 tag 组合实例,不是演进记录,**不**作为 CHANGELOG 来源)
+  - tag 命名规范:`v<MAJOR>.<MINOR>.<PATCH>`,与 plugin.json `version` 字段一致
+  - release notes 必须包含:G1~G9 达成情况、AC-1~8 自测结果、手动验证清单 M-V1/M-V2 通过情况
+- [ ] **D6** 在 GitHub 仓库 About 栏贴 plugin 简介 + 关键词(`claude-code` / `plugin` / `llm-wiki` / `okf` / `automotive-electronics`),便于 GitHub 搜索发现
+
+**Trellis 衔接**:本阶段完成后,`/trellis:finish-work` 会处理剩余 task 收尾 + 文档冻结 + 下次 session 上下文加载。本文档不重复列。
 
 ---
 
@@ -268,3 +405,41 @@ git tag -l "v*" | sort -V | tail -5
 - v0.5:Web 端 UI(目前纯 CLI / Claude Code 形态)
 - v0.6:多语言(目前 NFR-3 中文优先,英文术语保留)
 - v1.0:正式 GA,定稿 schema,冻结 tag-template.md 6 轴
+
+---
+
+## 6. Change History
+
+### v0.2(2026-09-02) — 五轮增量
+
+**Round 1: Python 化(测试栈同步切 Python 3.10+)**
+
+- §0 现状盘点 scripts/ 节点 → Python 3.10+ 单栈
+- §阶段 B2 ingest 核心边界 / §阶段 B3 query 核心边界 / §阶段 B4 lint 核心边界 命令行约定切 Python
+- §阶段 C10 NFR-1 + NFR-4 测试:`tests/test_no_daemon.py` 扫 `http.server.HTTPServer` / `socketserver.TCPServer` / `subprocess.Popen` / `signal.signal` / `sys.stdin` 等 Python 等价断言(原 Node jest 等价);tests/ 跑 pytest
+- §阶段 C 测试组织表:"scripts/ 与 tests/ 一律 Python 3.10+ 单栈"
+
+**Round 2: 3-stage ingest 并发测试用例(§C2.4 整段)**
+
+- 8 个测试用例:batch OCR 单次冷启动 / 单文件场景跳过阶段 2 / subagent 并发上限 ≤ 5 / 阶段 2 不写 knowledge/ / 阶段 3 命名飘仲裁 / 阶段 3 concept 去重 / log.md 不冲突 / Bash timeout = 600000
+
+**Round 3: Q9 双字段同源测试用例(§C5.1 新子段)**
+
+- 4 个测试用例:source_file 与 sources[0].resource 值相等 PASS / 不一致 FAIL / 缺字段 FAIL / Obsidian 笔记属性面板识别(`tests/test_source_obsidian_link.py` 用 jsonschema 校验字段值正则)
+
+**Round 4: Q10 scripts 严禁交互静态扫描(§C10.1 新子段)**
+
+- 用 `ast` 模块扫所有 `scripts/*.py`,断言不出现 `input(` / `sys.stdin.read` / `sys.stdin.readline` / `getpass.getpass` / `select.select([sys.stdin]`
+- fixture 反例:`scripts/_bad_example.py` 含 `input("拍板:")` → 测试 FAIL + 报告行号
+- fixture 正例:现有所有 scripts/*.py → 测试 PASS
+
+**Round 5: Q11 subagent 写权隔离测试用例(§C2.4 新增 4 项)**
+
+- fixture inbox 3 份相关 .md,subagent 跑完后 `knowledge/` 下**任何文件均未被修改**(包括 index.md / glossary.md / log.md / overview.md / sources/ / entities/ / concepts/),只有 `temp/<id>-proposal.json` 新增
+- fixture 同上,跑完整 ingest 阶段 3 收尾;验证全局索引文件 mtime 接近(在所有 source/entity/concept 页写完后**才**统一修改一次)
+- fixture 同名 entity 跨 subagent 重复抽取;验证阶段 3 合并到 1 页 + aliases 累加,不重复建页
+- subagent prompt 硬约束扫描:fixture 提供故意违反的 SKILL.md 子代理 prompt;验证 SKILL.md M3 review 流程拒绝该 prompt
+
+**附带**:Q6 wikilink 改造测试用例在 §C4.2(4 项:双格式识别 / 不维护镜像 / Obsidian 编辑漂移 / OKF 扩展合规),在 v0.2 之前独立冻结。
+
+**兼容性**:v0.2 MINOR bump,无 breaking change。
