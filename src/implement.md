@@ -295,6 +295,16 @@ plugin 上架资产                          ❌ 待新建
       - `select.select([sys.stdin]` 等 stdin 等待调用
     - [ ] fixture 反例测试:故意造一个 `scripts/_bad_example.py` 含 `input("拍板:")` → 跑 `tests/test_no_daemon.py` → 断言 **FAIL** + 报告指出文件路径与行号
     - [ ] fixture 正例测试:现有所有 `scripts/*.py` → 跑 `tests/test_no_daemon.py` → 断言 **PASS**
+  - **C10.2 plan 文件格式硬约束(详见 design §4.2.x JSON schema)**:
+    - [ ] 写 `tests/test_plan_json_schema.py`,断言所有 `temp/<type>-<hash>.json` 文件符合设计 schema:
+      - 顶层 `schema_version` 字段必填,scripts 读到不认版本 → FAIL + 报错
+      - proposal JSON `type: ingest_proposal` / `doc_id` / `source` / `raw_category_suggestion` / `decision_needed` 必填
+      - decision JSON `type: ingest_decision` / `decided_at` / `actor` / `proposal_refs[]` / `actions[]` 必填
+      - `actions[].op` 仅允许 `mv` / `mkdir` / `cp` / `write_file`(枚举)
+      - **反例测试**:造一个 `temp/proposal-test.json` 缺 `schema_version` → 跑 `safe-mv.py --apply temp/decision-test.json` → 断言 FAIL + 报告"missing schema_version field"
+      - **反例测试**:造一个 `temp/decision-test.json` 含 `op: rm`(不允许的操作)→ 跑 scripts → 断言 FAIL
+      - **反例测试**:造一个 `temp/proposal-test.json` `schema_version: "0.9"`(scripts 只认 1.0+)→ 跑 → 断言 FAIL + 报告"unsupported schema_version"
+    - [ ] 写 `tests/test_decision_apply_idempotent.py`:同一 `decision-<hash>.json` 跑两次 → 第二次应判定 no-op 并退出 0,避免重跑误操作
   - `sys.stdin` 长时间读取 / `signal.pause()` 阻塞
 - [ ] 全部断言通过 → PASS;任意一条命中 → FAIL + 列出文件:行号 + 命中字符串
 

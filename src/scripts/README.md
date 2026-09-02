@@ -22,8 +22,8 @@ skill 调用的辅助脚本。**只放单次运行即退出的 helper**,不开 d
 **调用模式(Proposal-Apply 两阶段,Q10)**:
 
 - **SKILL.md 在 Claude 对话里发起交互**(如 "文件 X 提议归档到 raw/06_功能安全/, 是否同意?")
-- 用户回复后,**SKILL.md 写 `temp/decision-<hash>.md`**(详见 design §4.2.x 三段落档)
-- **SKILL.md 调 `python3 ./scripts/<name>.py --apply temp/decision-<hash>.md`**
+- 用户回复后,**SKILL.md 写 `temp/decision-<hash>.json`**(详见 design §4.2.x 三段落档)
+- **SKILL.md 调 `python3 ./scripts/<name>.py --apply temp/decision-<hash>.json`**
 - scripts 读 decision 文件机械执行(mv / mkdir / 写 log.md / 写 knowledge/),**不发起任何 prompt**
 
 **调用方约定**:

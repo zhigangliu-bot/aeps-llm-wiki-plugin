@@ -295,7 +295,7 @@ SKILL.md 是 prompt(Llm 读),但**有外部依赖或系统调用**的逻辑(批�
 
 - ✅ **人机交互层**完全由 **SKILL.md(Claude Prompt)** 承担 —— 对话问答、拍板确认、错误恢复均走 SKILL.md 提示用户
 - ✅ **scripts/ 仅负责机械式 IO 转换、校验、文件移动** —— 接收决策结果(命令行 / JSON 文件),执行,退出
-- ✅ **`--apply` 模式**:scripts 读 `temp/decision-<hash>.md` 或 `temp/<id>-proposal.json` 这类已拍板文件,**不**重新发起任何 prompt
+- ✅ **`--apply` 模式**:scripts 读 `temp/decision-<hash>.json` 或 `temp/<id>-proposal.json` 这类已拍板文件,**不**重新发起任何 prompt
 
 **调用方契约**:
 
@@ -1369,7 +1369,7 @@ Init re-run 完成。sync 摘要:
    - 未命中 → 进入拍板门
 
 2. 拍板门汇总(把所有需要拍板的决策合成一次对话提问)
-   - 用户回复 → 写 temp/decision-<hash>.md(详见 §4.2.x Q10)
+   - 用户回复 → 写 temp/decision-<hash>.json(详见 §4.2.x Q10)
 
 3. 概念去重(跨 proposal 按 aliases 合并同义 concept)
    - 例:subagent A 提出 concept "SOME/IP" + subagent B 提出 "Someip"
@@ -1378,8 +1378,8 @@ Init re-run 完成。sync 摘要:
 4. entity 去重(同 concept,按 name + aliases 合并)
    - 同名 entity 跨 proposal → 合并到一页(选最早出现,aliases 累加)
 
-5. 串行 mv inbox → raw/<subdir>/(读 temp/decision-<hash>.md 应用)
-   - 用 scripts/safe-mv.py --apply temp/decision-<hash>.md(零交互)
+5. 串行 mv inbox → raw/<subdir>/(读 temp/decision-<hash>.json 应用)
+   - 用 scripts/safe-mv.py --apply temp/decision-<hash>.json(零交互)
 
 6. 串行写 knowledge/sources/<basename>.md(每份文件)
    - 用 scripts/generate-source-page.py(零交互)
@@ -1428,9 +1428,9 @@ Init re-run 完成。sync 摘要:
 2. **跨文件汇总所有 entities / concepts**,按 `name + aliases` 做模糊匹配(Levenshtein ≤ 2 / 前缀差异 / 同义拼写),合并去重
 3. **命名飘仲裁**(读 `raw/` 现有子目录做相似度比较;命中已有相似目录 → 强制改用;未命中 → 走拍板门)
 4. **拍板门汇总**:把所有 subagent 提的"未存在 raw 子目录 / 文件归类"决策合成**一次性合并提问**(避免 N 次来回)
-   - 用户回复 → 写 `temp/decision-<hash>.md`(详见 §4.2.x Q10)
+   - 用户回复 → 写 `temp/decision-<hash>.json`(详见 §4.2.x Q10)
    - 触发条件:`raw_category_suggestion` 指向未存在的 `raw/` 子目录,或 `decision_needed: true`
-5. **一次性串行调用** `python3 ./scripts/safe-mv.py --apply temp/decision-<hash>.md` **批量迁移** `inbox/` → `raw/<subdir>/`(含拍板门通过的 mkdir)
+5. **一次性串行调用** `python3 ./scripts/safe-mv.py --apply temp/decision-<hash>.json` **批量迁移** `inbox/` → `raw/<subdir>/`(含拍板门通过的 mkdir)
 6. **串行落盘**:
    - `knowledge/sources/<basename>.md`(每份 inbox 文件一份)
    - `knowledge/entities/<子类>/<slug>.md`(去重合并后)
@@ -1448,7 +1448,7 @@ Init re-run 完成。sync 摘要:
 | `inbox/<f>` | 只读 | 只读 | 串行 mv |
 | `temp/<basename>.md` | 写 | 只读 | 只读 |
 | `temp/proposal-<id>.json` | — | 写(独占) | 只读 + 合并 |
-| `temp/decision-<hash>.md` | — | — | 写 |
+| `temp/decision-<hash>.json` | — | — | 写 |
 | `raw/<subdir>/` | 只读 | 只读 | mkdir + 串行 mv |
 | `knowledge/sources/` | 只读 | **严禁写** | 串行写 |
 | `knowledge/entities/` `concepts/` | 只读 | **严禁写** | 串行写 |
@@ -1739,44 +1739,92 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 ```
 阶段 ① 提议(proposal)
   SKILL.md 调 scripts/convert-to-md.py --batch ...
-  scripts 读 inbox/<file> → 输出 temp/proposal-<hash>.md
+  scripts 读 inbox/<file> → 输出 temp/proposal-<hash>.json
     (内容:inbox 文件清单 + 每份的 suggested_subdir + 命名飘候选 + 概念抽取候选)
 
 阶段 ② 拍板(confirmation)
   SKILL.md 读 proposal → Claude 在对话里展示给用户
-  用户回复 yes/no/改建议 → SKILL.md 写 temp/decision-<hash>.md
+  用户回复 yes/no/改建议 → SKILL.md 写 temp/decision-<hash>.json
     (内容:用户对每份文件的拍板结果 — 接受提议 / 改子目录 / 跳过)
 
 阶段 ③ 应用(application)
-  SKILL.md 调 scripts/safe-mv.py --apply temp/decision-<hash>.md
+  SKILL.md 调 scripts/safe-mv.py --apply temp/decision-<hash>.json
   scripts 读 decision 文件 → 机械 mkdir / mv / 写 log.md / 写 knowledge/
     (任何 LLM 不参与的环节都委托给 scripts,零交互)
 ```
 
-**plan 文件格式**(`temp/proposal-<hash>.md` / `temp/decision-<hash>.md`):
+**plan 文件格式**(`temp/proposal-<hash>.json` / `temp/decision-<hash>.json`):
 
-- 文件名:`<type>-<hash>.md`,`hash` = 内容 sha256 前 8 位(便于去重 / 复用)
+- 文件名:`<type>-<hash>.json`,`hash` = 内容 sha256 前 8 位(便于去重 / 复用)
 - 位置: `<project>/temp/`(CLAUDE.md "临时文件 temp/ 目录"约束)
 - 生命周期: ingest 完成后由 SKILL.md 提示用户"是否保留 plan 文件供回溯";默认 `--cleanup` 删除,留 `--keep` 备份
-- **log.md 引用**:`**Migration**: inbox/... → raw/... (see plan temp/decision-<hash>.md)` — plan 文件路径留痕
+- **后缀统一 `.json`**:proposal + decision 都用 JSON,scripts 用 `json.load()` 解析,**零 markdown 解析路径**,彻底落实 §2.4.1 无交互硬约束
+- **log.md 引用**:`**Migration**: inbox/... → raw/... (see plan temp/decision-<hash>.json)` — plan 文件路径留痕
+
+**proposal JSON schema**(`temp/proposal-<doc_id>.json`,阶段 2 subagent 写):
+
+```json
+{
+  "schema_version": "1.0",
+  "type": "ingest_proposal",
+  "doc_id": "okf-v0-2-spec",
+  "created_at": "2026-09-02T14:30:00Z",
+  "actor": "agent: producer/aeps-llm-wiki-plugin/0.2.0",
+  "source": "inbox/okf-v0-2-spec.md",
+  "raw_category_suggestion": "12_法规_标准_政策",
+  "raw_path_suggestion": "raw/12_法规_标准_政策/okf-v0-2-spec.md",
+  "decision_needed": true,
+  "decision_reason": "raw_category_suggestion 目录已存在,可直迁;但子目录 raw/12_法规_标准_政策/OKF/ 不存在,需拍板门确认是否新建",
+  "entities": [
+    {"name": "Open Knowledge Format", "type": "concept", "subtype": "standard", "aliases": ["OKF"]}
+  ],
+  "concepts": [
+    {"name": "frontmatter", "type": "concept", "subtype": "term", "aliases": []}
+  ]
+}
+```
+
+**decision JSON schema**(`temp/decision-<hash>.json`,SKILL.md 拍板后写):
+
+```json
+{
+  "schema_version": "1.0",
+  "type": "ingest_decision",
+  "decided_at": "2026-09-02T14:32:00Z",
+  "actor": "human:zhigang.liu",
+  "proposal_refs": ["temp/proposal-okf-v0-2-spec.json"],
+  "actions": [
+    {"op": "mv", "src": "inbox/okf-v0-2-spec.md", "dst": "raw/12_法规_标准_政策/okf-v0-2-spec.md", "mkdir_parent": false},
+    {"op": "mkdir", "path": "raw/12_法规_标准_政策/OKF"},
+    {"op": "mv", "src": "inbox/okf-v0-2-errata.md", "dst": "raw/12_法规_标准_政策/OKF/okf-v0-2-errata.md", "mkdir_parent": false}
+  ],
+  "merge_concepts": [
+    {"canonical": "Open Knowledge Format", "merge": ["OKF", "okf"]}
+  ]
+}
+```
 
 **scripts 调用形式**(举例):
 
 ```bash
-# 阶段 ①:提脚本读 inbox,产出 proposal(无 stdin / 无 input)
-python3 ./scripts/propose-ingest.py --project-dir . --output temp/proposal-abc123.md
+# 阶段 ①:提脚本读 inbox,产出 proposal JSON(无 stdin / 无 input)
+python3 ./scripts/propose-ingest.py --project-dir . --output temp/proposal-abc123.json
 
-# 阶段 ③:scripts 读用户拍板后的 decision,机械应用
-python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.md
+# 阶段 ③:scripts 读用户拍板后的 decision JSON,机械应用
+python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.json
+
+# scripts 内部用 json.load() 解析,无 markdown 解析、无 stdin、无 input
 ```
 
-**scripts 不发起任何 prompt**(NFR-1 + §1.4 硬契约)。SKILL.md 负责:
-- 把 proposal 渲染为人类可读文本在 Claude 对话展示
+**scripts 不发起任何 prompt**(NFR-1 + §2.4.1 硬契约)。SKILL.md 负责:
+- 把 proposal JSON 渲染为人类可读文本在 Claude 对话展示(LLM 自己解释,scripts 不参与)
 - 接收用户回复(yes/no/改建议)
-- 把结果写入 decision 文件
-- 调用 scripts 应用 decision
+- 把结果按 decision schema 写入 decision JSON 文件
+- 调用 `python3 ./scripts/<name>.py --apply temp/decision-<hash>.json`
 
-**与 lint `--fix` 的一致性**:lint 提案同样落 `temp/lint-proposal-<hash>.md`,确定性结构修复走 `temp/lint-decision-<hash>.md` → scripts 应用;语义级问题不进 decision,只输出报告(详见 §4.4.x)。
+**schema_version 字段**:JSON 顶层带 `schema_version: "1.0"`,scripts 读到不认版本 → FAIL + 报错(避免 schema 演化后 silently 解析错)。详见 implement §C10.2 schema_version 校验测试。
+
+**与 lint `--fix` 的一致性**:lint 提案同样落 `temp/lint-proposal-<hash>.json`,确定性结构修复走 `temp/lint-decision-<hash>.json` → scripts 应用;语义级问题不进 decision,只输出报告(详见 §4.4.x)。
 
 ### 5.2 Synthesize 流程(/aeps-llm-wiki-synthesize)
 
@@ -1981,7 +2029,7 @@ git ls-remote --tags --refs origin \
 **Round 4: Q10 scripts 严禁交互硬契约 + plan 文件 audit trail**
 
 - **§1.4** 新整段 "scripts/ 严禁交互硬契约(NFR-1 加严,Q10)":禁止 `input(` / `sys.stdin.read` / `getpass` / `select` 等调用 + 替代方案 + scripts/ 与 SKILL.md 责任分工表
-- **§4.2.x** 新整段 "ingest 提案 / 拍板 / 应用 三段落档(audit trail)":`temp/proposal-<hash>.md` → SKILL.md 拍板 → `temp/decision-<hash>.md` → scripts `--apply`;log.md 引用 plan 文件路径留痕
+- **§4.2.x** 新整段 "ingest 提案 / 拍板 / 应用 三段落档(audit trail)":`temp/proposal-<hash>.json` → SKILL.md 拍板 → `temp/decision-<hash>.json` → scripts `--apply`;log.md 引用 plan 文件路径留痕
 - scripts/README.md 新增"调用约定(scripts/ 严禁交互)"段
 
 **Round 5: Q11 subagent 写权矩阵 + 阶段 3 串行动作清单**
