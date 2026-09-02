@@ -198,6 +198,7 @@ plugin 上架资产                          ❌ 待新建
 #### C9:陈旧 + 命名飘专项
 - [ ] 造 fixture:`stale_after: 2025-01-01`(早已过期),lint 标陈旧
 - [ ] 造子目录:`raw/02_芯片/` + `raw/03_芯片_v2/`,lint 命名飘提示
+- [ ] **C9.1 命名飘前移到 ingest**:fixture 已存在 `raw/02_芯片/`,丢一份 `s32g-datasheet.pdf` 到 inbox,跑 ingest,验证 LLM 提议的子目录若写成 `03_芯片` / `芯片_v2` / `soc_chips`(与已有 `02_芯片` Levenshtein ≤ 2 或同义拼写),会被检测并**强制改用 `raw/02_芯片/`**,而不是新增
 
 ### 阶段 D:发布(预计 0.5 天)
 

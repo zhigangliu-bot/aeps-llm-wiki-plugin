@@ -51,7 +51,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 | US-1 | 研究者        | 想在新项目里开 wiki                            | 跑一次 init 就得到可用结构,不用手动建 7 个文件                                            |
 | US-2 | 研究者        | 把刚下载的 OKF spec 放到`inbox/`             | ingest 后`knowledge/concepts/open-knowledge-format.md` 自动出现,`index.md` 自动更新   |
 | US-3 | 学习者        | 读 wiki 时想确认某概念是否被覆盖               | query 给出**带 wiki 引用的**回答,并问要不要落档                                     |
-| US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期;`--fix` 模式直接 patch 应用(无需用户二次确认)                |
+| US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期;`--fix` 模式直接 patch 应用(无需用户二次确认)               |
 | US-5 | 好奇者        | 在 OKF Knowledge Catalog 里发现一个别人的 wiki | 能直接导入到本地(因为我们输出严格 OKF)                                                    |
 | US-6 | plugin 维护者 | 想加新实体类型"法规"或"标准"                   | 改`schema/frontmatter.schema.yaml` + 一行 skill 配置,不用改 plugin 主代码               |
 | US-7 | 研究者        | 拿到一份资料但还没决定归档到 raw/ 哪个分类     | 丢`inbox/`,ingest 时 LLM 提议子目录(如`raw/okf/`),用户一句"好"或改后确认,文件自动迁移 |
@@ -79,19 +79,17 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
   - 目录 sync:用户项目里**缺失**的 15 raw 类 / 17 knowledge 子类 → **补建 + .gitkeep**;plugin 新版**新增的**(用户项目里没有) → **不建**(留给 ingest 拍板门)
   - scripts/ 与 templates/ sync 策略详见 design §2.4 / §2.5
   - 文件 sync(完整表;字典 sync 细则按上方独立条目):
-
-    | 文件 | 首次 init | re-run init |
-    |---|---|---|
-    | `SCHEMA.md` | 从 templates/ 复制 + 占位符替换 | **覆盖** |
-    | `index.md` | 从 templates/ 复制(空模板) | **不动** |
-    | `overview.md` | 从 templates/ 复制(空模板) | **不动** |
-    | `inbox/README.md` | 从 templates/ 复制 | **覆盖** |
-    | `log.md` | 从 templates/ 复制 | **append** |
-    | `glossary.md` | 从 templates/ 复制 | **不动** |
-    | `raw/README.md` | 从 templates/ 复制 | append 字典策略(已有) |
-    | `templates/concept-entities-readme.md` | 从 templates/ 复制 | append 字典策略(已有) |
-    | `templates/tag-template.md` | 从 templates/ 复制 | append 字典策略(已有) |
-
+    | 文件                                     | 首次 init                       | re-run init           |
+    | ---------------------------------------- | ------------------------------- | --------------------- |
+    | `SCHEMA.md`                            | 从 templates/ 复制 + 占位符替换 | **覆盖**        |
+    | `index.md`                             | 从 templates/ 复制(空模板)      | **不动**        |
+    | `overview.md`                          | 从 templates/ 复制(空模板)      | **不动**        |
+    | `inbox/README.md`                      | 从 templates/ 复制              | **覆盖**        |
+    | `log.md`                               | 从 templates/ 复制              | **append**      |
+    | `glossary.md`                          | 从 templates/ 复制              | **不动**        |
+    | `raw/README.md`                        | 从 templates/ 复制              | append 字典策略(已有) |
+    | `templates/concept-entities-readme.md` | 从 templates/ 复制              | append 字典策略(已有) |
+    | `templates/tag-template.md`            | 从 templates/ 复制              | append 字典策略(已有) |
   - 结束向用户报告 sync 摘要(append 条数、覆盖文件列表、补建目录列表)
 - **不应**:覆盖已存在的 `knowledge/` 用户内容;若检测到非空 `knowledge/`,走"幂等再入"分支,**不**警告阻止
 
@@ -107,11 +105,14 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
   - `.md` / `.markdown` / `.rst` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` —— **直接读**(纯文本)
   - `.pptx` / `.docx` / `.xlsx` / `.pdf` —— 先试 Claude 内置 converter,**失败后降级 anydoc 转 markdown**
   - `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` —— **paddleocr 转 md**(OCR)
-  - 转换失败的 → **FAIL**,提示"无法转换 <file>,请手动预处理"
+  - 转换失败的 → **FAIL**,提示"无法转换 <file></file>,请手动预处理"
   - 转换入口:**统一 `scripts/convert-to-md.mjs`**,按扩展名分流(详见 design §4.2 / §2.4)
   - 依赖库清单:`scripts/requirements.txt`(anydoc / paddleocr 等 Python 依赖),**用户必须装**;未装 → 提示并退出
 - **必须**(分类 + 写入):
   - **路径来自 `inbox/`**:LLM 先**提议**一个 raw 子目录分类 + 短理由
+    - **命名飘检查**(Q5,前移自 lint):LLM 提议的子目录名,先与 `raw/` 下已有子目录做相似度比较(Levenshtein ≤ 2 / 前缀差异 / 同义拼写,详见 design §4.4)
+      - 命中已有相似目录 → **强制改用已有目录**(LLM 必须解释归并理由,用户拍板通过后直接 mv)
+      - 未命中 → 进入下面"拍板门分流"
     - **拍板门分流**:
       - 目标目录已存在(init 预建的 15 类或二级已有目录)→ **无需拍板**,直接 mv
       - 目标目录不存在(字典外的自定义目录、LLM 判定的二级子目录)→ **必须人工拍板**才创建 + mv
@@ -325,7 +326,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 - [X] **Q2**:✅ ~~`/aeps-llm-wiki-query` 是不是要支持**纯文本模式**(用户想用 `--no-save` 跳过落档询问)~~ —— 已定:**不加 `--no-save` 参数**,query 永远问"要不要落档",与 ingest / synthesize 行为一致
 - [X] **Q3**:✅ `--fix` 模式直接 patch 应用(用户已通过 flag 表示意图,不二次确认) —— 已定
 - [X] **Q4**:✅ ~~`raw/` / `inbox/` 要不要各放一个 `README.md` 告诉用户放什么、不放什么~~ —— 已定:`raw-readme.md` 全量放 15 类边界规则(权威文件:plugin 本体 `templates/raw-readme.md`);`inbox-readme.md` 简版提示
-- [ ] **Q5**:`inbox → raw` 迁移时,LLM 提议的子目录名要不要走 `lint` 风格的"相似合并建议"?(避免 LLM 每次起新名)
+- [X] **Q5**:✅ ~~`inbox → raw` 迁移时,LLM 提议的子目录名要不要走 `lint` 风格的"相似合并建议"~~ —— 已定:**需要**,命名飘检查**前移到 ingest 提议时**,LLM 必须先比 raw/ 已有子目录,命中相似目录则强制改用已有目录(详见 §4.2 必须 + design §4.4)
 
 ---
 

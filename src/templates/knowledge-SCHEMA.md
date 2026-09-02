@@ -200,6 +200,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 | tag | 裸 tag / 字典外 tag / 拼写漂移 / 状态词混 tag | FAIL/WARN 视 lint 细则 |
 
 **LLM 命名飘不自动合并** —— lint 只提示,人工 `git mv` 归档到 `raw/_archived/`。
+**但 ingest 时前移拦截(Q5)**:LLM 提议 raw 子目录名的瞬间,先与 `raw/` 现有子目录做相似度比较(Levenshtein ≤ 2 / 前缀差异 / 同义拼写);命中已有相似目录 → **强制改用已有目录**(LLM 输出归并理由,用户拍板通过后直接 mv,**不**新建飘名子目录)。lint 是事后被动检测,ingest 是事前主动拦截,两道闸门互补。
 
 ---
 
