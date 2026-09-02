@@ -1,6 +1,9 @@
 # 嵌套的参考仓库(自带 .git)
 reference/*/
 
+# 整个 reference/ 目录不推 remote(本地开发参考用)
+reference/
+
 # 临时文件
 temp/
 *.tmp
