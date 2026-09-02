@@ -12,7 +12,7 @@
 src/                                    已完成
 ├── design.md                           ✅
 ├── prd.md                              ✅
-├── requirements.txt                    ✅(Python 依赖清单,anydoc / paddleocr)
+├── requirements.txt                    ❌ 已删除(统一归 scripts/requirements.txt)
 ├── scripts/                            ❌ 待新建(convert-to-md.mjs + 其他脚本)
 │   └── (暂无)                           ❌
 └── templates/                          ✅
