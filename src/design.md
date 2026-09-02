@@ -1205,6 +1205,7 @@ Init re-run 完成。sync 摘要:
 
    - inbox 下无文件 → 提示"inbox/ 为空,先把资料丢进 inbox 再跑",**退出**
    - ~~`raw/<path>` → 走 `arch` 分支(不移动文件)~~ —— **已废弃**:raw/ 是已归档层,**不再支持直接 ingest**;调整归档分类走 `git mv` 或手工
+   - **raw/ 已有但无 knowledge 页** → 用户手动 `cp` 回 `inbox/` 再走标准 ingest(详见 prd §4.2 "raw/ 已有但无 knowledge 页的场景"),**不**给 plugin 开 raw/ 直接入口(G7 不可变层原则不变)
 2. **文件读取策略**(统一入口 `scripts/convert-to-md.py`):
 
    | 扩展名                                                                                                    | 一级处理                                        | 降级处理                  | 失败行为                      |

@@ -106,6 +106,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - inbox 文件读完 + 用户拍板分类后**迁移**到 `raw/<subdir>/`,`inbox/<file>` 删除(inbox 子目录里的文件也按相同逻辑:LLM 提议 raw 子目录分类、拍板、迁移)
   - raw/ 不被扫描(G7)—— raw 是已归档的不可变层,调整走 `git mv` 或手工
 - **不应**:扫描 `raw/` 下的文件(用户想调整 raw 归档 → `git mv`)
+- **raw/ 已有但无 knowledge 页的场景**:用户历史归档(`cp` 进 raw/ 或 git checkout 旧版)需要补建 → 把文件 `cp` 回 `inbox/` 再走标准 ingest(等价于"先把资料丢 inbox"的标准流),**不**给 plugin 开 raw/ 直接入口(G7 不可变层原则不变)
 - **子命令 `--raw-subdir=<name>`**:跳过分类交互,强制把 inbox 文件迁到 `raw/<name>/`(LLM 不再提议)。**仅 inbox 非空时生效**(详见 design §5.1)
 - **必须**(文件读取策略,详见 design §4.2):
   - `.md` / `.markdown` / `.rst` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` —— **直接读**(纯文本)
