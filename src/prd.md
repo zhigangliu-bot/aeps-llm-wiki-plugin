@@ -9,14 +9,19 @@
 
 ## 1. 背景
 
-LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
+LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可绕开的前端:
 
 1. **Andrej Karpathy 的 LLM Wiki 模式** —— LLM 读源一次,产出持久、累积、互相链接的 markdown wiki,人做策展。代表实现:`balukosuri/llm-wiki-karpathy`,核心是 `CLAUDE.md` 作为 Agent 操作手册 + `wiki/` + `raw/` 两层结构 + `index.md` / `log.md` 双索引。
 2. **Google Cloud 的 Open Knowledge Format(OKF)** —— 把"LLM-wiki pattern"形式化成一个厂商中立、零运行时的开放规范。`markdown + YAML frontmatter`,**唯一必填字段 `type`**,OKF 工具链可直接消费。
+3. **Obsidian 作为 LLM-wiki 的前端** —— Obsidian 是当前最成熟的本地 markdown 知识库 UI(`vault/` + 双链 `[[wikilink]]` + tag 面板 + 反向链接图谱),plugin 生成的 `knowledge/` 必须能直接被 Obsidian 打开使用,无需任何格式转换。具体约束:
+   - **链接必须 Obsidian 原生可跳**:`[[page]]` / `[[page|显示文本]]` / `[[page#章节]]` 一等公民(Q6),不要强行只写标准 markdown 链接
+   - **tag 必须 Obsidian 原生可识别**:frontmatter `tags:` 走 YAML list,Obsidian 自动扫到 tag 面板;六轴受控词表与 Obsidian tag 体系并存(`#domain/autosar` 这种 hierarchical tag 也兼容)
+   - **目录结构 Obsidian 直读**:`knowledge/{entities,concepts,sources,...}/` 即 vault 子文件夹,无需任何映射层
+   - **双链图谱即反向链接图谱**:Obsidian 自动生成的反向链接面板 = plugin 第 3 跳扫描的"邻居页"佐证
 
-`aeps-llm-wiki-plugin` 把这两个范式整合成一个**Claude Code plugin**,让用户用一个 `/aeps-llm-wiki-init` 就在自己的研究 / 学习 / 笔记项目里跑起来,产出**OKF 兼容的、Karpathy 启发的**知识库。
+`aeps-llm-wiki-plugin` 把这三个范式整合成一个**Claude Code plugin**,让用户用一个 `/aeps-llm-wiki-init` 就在自己的研究 / 学习 / 笔记项目里跑起来,产出**OKF 兼容的、Karpathy 启发的、Obsidian 直读的**知识库。LLM 写,人用 Obsidian 读,plugin 管一致性。
 
-**目标用户**:zhigang.liu(汽车电子软件架构师,做内部研究 / 知识沉淀 / 学习笔记),以及任何愿意用 Claude Code 做长期知识管理的人。
+**目标用户**:zhigang.liu(汽车电子软件架构师,做内部研究 / 知识沉淀 / 学习笔记),以及任何愿意用 Claude Code + Obsidian 做长期知识管理的人。
 
 ---
 

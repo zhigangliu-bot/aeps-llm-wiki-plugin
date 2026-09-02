@@ -8,6 +8,8 @@
 
 ## 0. 现状盘点(2026-09-02)
 
+**产品定位**(2026-09-02 增):`aeps-llm-wiki-plugin` 的输出 `knowledge/` 目录是给 **Obsidian** 消费的。LLM 写、人用 Obsidian 读、plugin 管一致性。Obsidian 直读是产品级硬约束,所有链接 / tag / 目录 / 文件名设计必须 Obsidian 原生可识别(详见 prd §1 背景 + design §0 前端契约)。
+
 ```
 src/                                    已完成
 ├── design.md                           ✅

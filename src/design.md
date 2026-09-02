@@ -20,6 +20,27 @@
 
 ---
 
+## 0. 前端契约:Obsidian 直读约束(顶级约束)
+
+plugin 生成的 `knowledge/` 必须能直接被 **Obsidian** 打开使用,无需任何格式转换或中间映射层。Obsidian 是 LLM 写完 wiki 之后**人真正读 / 浏览 / 跳链 / 反查**的工具,所有数据契约(链接 / tag / 目录 / frontmatter / 文件命名)都要按 Obsidian 原生语义设计。
+
+| 维度 | Obsidian 期望 | plugin 必须做 | 不得做 |
+|---|---|---|---|
+| **链接** | `[[page]]` / `[[page\|显示]]` / `[[page#章节]]` 双链原生可跳;反向链接面板自动生成 | 把 `[[wikilink]]` 写为一等公民(Q6) | ~~强制只写标准 markdown 链接 / 把 wikilink 当残留~~ |
+| **tag** | frontmatter `tags: [a, b]` 自动扫到 tag 面板;hierarchical tag `#domain/autosar` 也支持 | frontmatter `tags` 字段走 YAML list;六轴受控词表允许斜杠分层的层次 tag | ~~把 tag 塞进正文随机位置 / 用别名 / 拼写漂移~~ |
+| **目录** | vault 子文件夹 = Obsidian 左侧栏树状结构 | `knowledge/{entities,concepts,sources,analyses,comparisons,syntheses}/` 即 vault 子文件夹 | ~~加映射层 / 中间目录 / 软链~~ |
+| **frontmatter** | YAML 块必须严格合法(YAML 1.2);`title` / `tags` / `aliases` 字段 Obsidian 识别为元数据 | frontmatter 走 YAML,字段名小写连字符 / 下划线两种都接受 | ~~JSON 风格 / TOML / 内联字段~~ |
+| **文件名** | Obsidian 用文件名作为 page 标识,文件名即 wikilink 解析目标 | 文件名用 `<slug>.md` 形式,slug 全小写、连字符 | ~~文件名含中文 / 空格 / 大写混用~~ |
+| **反向链接** | Obsidian 自动建反向链接图谱 | 自然产生(每页 frontmatter `sources:` 字段 + 正文 `[[wikilink]]` 是反向链接的天然输入) | ~~手工维护反向链接 / 单独建 backlinks 索引~~ |
+
+**Obsidian 兼容 ≠ OKF 兼容**:Obsidian 双链 + tag 不在 OKF v0.2 §4/§6 的强制要求里,但 Obsidian 兼容性通过以下方式保证 OKF v0.2 严格兼容:
+- frontmatter `links:` 字段镜像 wikilink 对应的标准 markdown 链接列表(Q6),OKF reader 读 frontmatter 即可
+- frontmatter `type:` 严格 OKF 必填字段,OKF 工具可识别为 source/analysis/concept/entity 等
+
+**Obsidian 不兼容 = plugin FAIL**:任何 Obsidian 不识别的链接 / tag / 目录 / 文件名约定,plugin 设计阶段就要拒绝(NFR-1 衍生)。lint 不容忍这些隐性破坏。
+
+---
+
 ## 1. 模块边界
 
 ### 1.1 目录布局(plugin 本体 = `src/`)
