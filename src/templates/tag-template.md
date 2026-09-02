@@ -163,7 +163,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 
 | 值               | 含义                   | 适用场景         |
 | ---------------- | ---------------------- | ---------------- |
-| `tec/can-fd`   | CAN FD 总线            | 车载 CAN FD 通信 |
+| `tec/can`      | CAN / CAN FD 总线      | 车载 CAN 通信(CAN 2.0 / CAN FD) |
 | `tec/lin`      | LIN 总线               | 车身低速 LIN     |
 | `tec/ethernet` | 车载以太网             | 100/1000BASE-T1  |
 | `tec/tsn`      | 时间敏感网络           | TSN 调度 / 同步  |
