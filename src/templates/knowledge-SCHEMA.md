@@ -1,4 +1,4 @@
-# `{{knowledge_dir}}` / SCHEMA.md — 本知识库操作手册
+# {{knowledge_dir}} / SCHEMA.md — 本知识库操作手册
 
 > **角色**:对应 Karpathy LLM Wiki 的 `CLAUDE.md`,Agent 必读。
 > **生成方式**:`/aeps-llm-wiki-init` 首次启用时,从 `templates/knowledge-SCHEMA.md` 复制并替换占位符。
