@@ -179,6 +179,7 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
    - 确定性结构修复(frontmatter / 3 节骨架 / `## 摘要` 残留)直接 patch 应用,log.md 追加 **LintFix** 条目
    - 语义级问题(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,不应用,等用户确认
    - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;**OKF 兼容靠 frontmatter `links:` 镜像字段自动同步**(详见 design §3.6.2):正文 wikilink 增减时 lint 告警,`--fix` 自动重生成 `links:`
+     - **死循环防护(Q7)**:`--fix` 重写 `links:` 时**绝对不动 `updated` 字段 + 文件 mtime**(详见 design §3.6.2 "`links:` 自动重写的硬约束");陈旧检测回退判定(§6 表格)继续走业务时间,不因镜像修复被错误重置
 ```
 
 ### 5.4 synthesis(综合页)

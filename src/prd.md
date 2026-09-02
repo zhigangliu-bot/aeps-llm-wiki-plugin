@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.3 已冻结(2026-09-02)
+> **状态**:v0.3.1 已冻结(2026-09-02)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -390,6 +390,16 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 **附带**:本次为 MINOR bump,无 OKF schema breaking change;既有 v0.2 wiki 升级到 v0.3 plugin 只需重跑 init(temp/ 自动补建)。
 
 **兼容性**:v0.3 MINOR bump,目录结构新增顶层节点 + 命名契约细化,所有改动对 OKF v0.2 spec 兼容性保持。无 breaking change。
+
+### v0.3.1(2026-09-02) — Round 7 `links:` 死循环防护 PATCH
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 8 | **`links:` 自动重写硬约束(Q7 死循环防护)**:为 §3.6.2 + §5.4 已有"`links:` 自动重写"机制补 3 条确定性规则 —— (1) Set 比对(顺序无关,`frozenset({type, target})` 相等即一致);(2) `updated` 字段绝对不改(对齐 §3.4 "重新生成 ≠ 更新" + SCHEMA.md §7 不变量);(3) 文件 mtime 保留(`os.utime` 强制),禁止用 `Path.write_text` 默认行为。LintFix 日志模板:`**LintFix**: links-mirror-sync on <path> — N added, M removed, K reordered` | 用户提"内部隐患:links: 镜像字段(Q6)与 stale_after / updated 触发 Lint Fix 的死循环风险" | design §3.6.2 新增"`links:` 自动重写的硬约束(Q7 死循环防护)"子段 + LintFix 日志模板;design §5.4 报告段 + 确定性修复段交叉引用;SCHEMA.md §5.3 lint 段加 Q7 死循环防护说明;implement §C4.2 补 2 个测试用例(idempotent + preserves_updated_and_mtime) |
+
+**附带**:本轮无新增顶层结构 / 无命名契约变化,纯 lint 行为加固。
+
+**兼容性**:v0.3.1 PATCH bump:OKF v0.2 schema 无 breaking change;既有 v0.3 wiki 升级到 v0.3.1 plugin **无需**重跑 init(纯 lint 行为规则,scripts/ 不变)。
 
 ### v0.1(2026-09-02) — 初版冻结
 

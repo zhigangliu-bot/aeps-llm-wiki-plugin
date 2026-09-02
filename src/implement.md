@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-02,文档层(src/design.md v0.3 + src/prd.md v0.3 + 4 份 templates)已完成。
+> **状态**:截至 2026-09-02,文档层(src/design.md v0.3.1 + src/prd.md v0.3.1 + 4 份 templates)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -244,6 +244,8 @@ plugin 上架资产                          ❌ 待新建
   - [ ] 写 `tests/test_links_mirror_drift.py`:fixture 故意把 frontmatter `links:` 加一条 ghost(target 不在正文)→ 跑 lint → 验证告警 WARN + `--fix` 自动重生成 `links:` 抹掉 ghost
   - [ ] 写 `tests/test_links_mirror_obsidian_edit.py`:fixture 模拟用户 Obsidian UI 加 wikilink(正文有,frontmatter `links:` 漏)→ 跑 lint → 验证告警 + `--fix` 同步
   - [ ] 写 `tests/test_links_mirror_types.py`:fixture 含正文 `[text](path.md)` markdown 链接 → 跑 ingest → 验证 frontmatter `links:` 含 `{type: markdown, target: path.md}` 条目
+  - [ ] 写 `tests/test_links_mirror_idempotent.py`(**Q7 Round 7 新增**,Set 比对规则):fixture 写一份页 frontmatter `links: [A, B]`(顺序 A→B)+ 正文 wikilink `[[B]]` + `[[A]]`(顺序 B→A)→ 跑 lint → **不告警**(Set 相等)、`--fix` **不重写**文件(content hash 不变 + mtime 不变);正反两次跑结果完全相同(幂等)
+  - [ ] 写 `tests/test_links_mirror_preserves_updated_and_mtime.py`(**Q7 Round 7 新增**,死循环防护):fixture 造一份页 frontmatter `updated: 2026-01-01T00:00:00Z` + 故意把 `links:` 加 ghost → 跑 lint --fix → 断言 (a) `updated` 字段值不变;(b) 文件 mtime 在 fix 前后保持相等(`os.stat().st_mtime` 一致);(c) log.md 追加 `**LintFix**: links-mirror-sync ...` 不含 `updated` 字段字样(暗示业务时间未受影响)
 
 #### C5:AC-5(frontmatter 自动校验)
 
@@ -496,3 +498,15 @@ git tag -l "v*" | sort -V | tail -5
 **附带**:Q11 subagent 写权矩阵(§C2.4 已冻结 4 项)+ Q10 plan JSON contract(§C10.1 / §C10.2 已冻结)在本 round 通过 temp/ 目录契约补全落地路径,无新增独立测试。
 
 **兼容性**:v0.3 MINOR bump:目录结构新增 `temp/` 顶层节点 + plan 文件命名契约细化(proposal 用 doc-id、decision 用 hash),但 OKF v0.2 schema 无 breaking change;既有 v0.2 wiki 升级到 v0.3 plugin 只需重跑 init(temp/ 自动补建 + scripts/ 重新同步)。
+
+### v0.3.1(2026-09-02) — Round 7 `links:` 死循环防护 PATCH
+
+**Round 7:`links:` 自动重写硬约束(Q7 死循环防护)**
+
+- §C4.2 补 2 个新测试用例(详见 design §3.6.2 "硬约束"子段 + 设计 §3.6.2 LintFix 日志模板):
+  - **`tests/test_links_mirror_idempotent.py`**:验证 Set 比对规则 —— fixture frontmatter `links: [A, B]`(顺序 A→B)+ 正文 wikilink 顺序 B→A → lint **不告警**、`--fix` **不重写**(content hash + mtime 双双不变);跑 2 遍结果完全相同(幂等)
+  - **`tests/test_links_mirror_preserves_updated_and_mtime.py`**:验证 3 条硬约束 —— fixture `updated: 2026-01-01T00:00:00Z` + `links:` 含 ghost → 跑 `--fix` → 断言 (a) `updated` 字段值不变;(b) `os.stat().st_mtime` 在 fix 前后保持相等;(c) log.md 追加 `**LintFix**: links-mirror-sync ...` 不含 `updated` 字段字样
+
+**§C4.2 已有 4 个测试用例**(`test_links_mirror_generation` / `_drift` / `_obsidian_edit` / `_types`)在 v0.2 已冻结,本轮不重复新增,仅作 anchor。
+
+**兼容性**:v0.3.1 PATCH bump:无新增顶层结构 / 无命名契约变化,只是为已有 `links:` 镜像机制加 3 条确定性规则(Set 比对 + 不动 `updated` + mtime 保留)。OKF v0.2 schema 无 breaking change;既有 v0.3 wiki 升级到 v0.3.1 plugin **无需**重跑 init(纯 lint 行为加固)。

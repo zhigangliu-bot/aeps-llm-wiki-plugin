@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.3 已冻结(2026-09-02)
+> **状态**:v0.3.1 已冻结(2026-09-02)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -1058,6 +1058,27 @@ links:
 - 与 frontmatter `links:` 对比,差异(Wikilink 漏登记 / `links:` 多余)→ WARN
 - `--fix` 模式:自动重生成 `links:` 字段(全量覆盖,user 拍板写入)
 
+**`links:` 自动重写的硬约束(Q7 死循环防护,Round 7 新增)**:
+
+为避免与 §5.4 陈旧检测 + §3.4 "重新生成 ≠ 更新" 不变量产生循环,`links:` 自动重写必须遵循以下 3 条确定性规则 —— **不允许 plugin 写作者自行取舍**:
+
+1. **Set 比对(顺序无关)**:drift 检测走 `frozenset` 比对,`{type, target}` 元组集合相等即视为一致。**不允许用 list 顺序比对**(用户 Obsidian UI 重排 wikilink 不应触发 WARN);**不允许用 deep equality on JSON object 顺序**(YAML 解析后 key 顺序不稳定)。**仅当 Set 真不等时才触发重写**,触发条件精确描述为 `set(current_links) ^ set(scanned_links) != ∅`
+2. **`updated` 字段绝对不改**:`links:` 自动重写属于**机械镜像修复**,**不是**业务内容变更(对齐 §3.4 "重新生成 ≠ 更新" 不变量 / SCHEMA.md §7 不变量)。即使 fix 触发了文件写入,`updated` 字段保持原值。**反例警戒**:不允许把"`--fix` 跑了"当成"`updated` 改写"
+3. **文件 mtime 保留**:重写时必须用 `os.utime(path, (atime, original_mtime))` 保留原 mtime;**禁止**用普通文件写入(否则 `os.stat().st_mtime` 会被刷新,触发文件系统层面陈旧检测误判)。**反例警戒**:不能用 `Path.write_text(content)` 默认行为;必须先 `stat → utime`
+
+**为什么这样设计**(回应"为什么不直接刷新 updated"疑问):
+
+- **陈旧检测基于业务时间**:`stale_after` / `updated` 反映"该页内容何时有过实质性更新",`links:` 同步是 plugin 维护视图,不进业务时间
+- **陈旧检测回退判定的 log.md 兜底**:§5.4 行 1580 "回退判定: `stale_after` 缺失 + `updated` > 180 天 + 最近 `log.md` 无提及 → 陈旧" —— 如果 `--fix` 跑了一遍,但页面正文没改、log.md 没新增条目,说明这条记录**业务上**确实陈旧,fix 不应掩盖
+- **lint 报告去噪**:如果 Set 比对不严格,用户每次 Obsidian 编辑完跑 lint 都会收到大量误报,lint 报告失去信号意义
+- **mtime 行为对齐 `git`**:git 用 mtime + content hash 判断 working tree 修改,如果 `--fix` 改了 mtime 但 content hash 相同,`git status` 会显示 modified,污染 commit 决策(用户预期 "`--fix` 是无害修复,不应产生 diff")
+
+**LintFix 日志记录**(与 §5.4 一致):
+
+- `log.md` 追加 `**LintFix**: links-mirror-sync on [file.md](<path>) — N links added, M removed, K reordered`
+- **记录什么改了**:N added / M removed / K reordered(顺序变化不计作 drift,但记录下来供审计)
+- **不记录 `updated` 改动**:`updated` 字段本轮没改,日志无需声明
+
 **对 ingest / query 的影响**:
 
 - ingest 写 source / entity / concept 页时,扫正文 wikilink 自动生成 `links:`
@@ -1593,7 +1614,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
      - **LLM ingest 时**也要预警,提议新文件归档到已有目录名而非新建漂移名
    - **漏链**:某 page 里反复出现但链接缺失的术语
    - **frontmatter 不合规**:必填字段缺失 / 类型错位 / 未知 type
-   - **frontmatter `links:` 与正文 `[[wikilink]]` 漂移**:正文 wikilink 增减后 `links:` 未同步 → lint 告警 + `--fix` 自动同步(详见 §3.6)
+   - **frontmatter `links:` 与正文 `[[wikilink]]` 漂移**:正文 wikilink 增减后 `links:` 未同步 → lint 告警 + `--fix` 自动同步(详见 §3.6.2,Set 比对规则 + 不动 `updated` / mtime)
    - **raw_category 派生失败**:从 `sources[0].resource` 路径解析失败(无 sources / 非 raw 本地路径 / 分类不在 15 类清单)→ WARN/FAIL(详见 §3.6.1)
 3. 默认只报告;**`--fix` 模式按问题级别分流**:
    - **确定性结构修复** —— `--fix` 直接 patch 应用,`log.md` 追加 `**LintFix**` 条目记录每处改动:
@@ -1601,7 +1622,7 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
      - **frontmatter 字段类型错位** → 强转(如 `tags: domain/ai` → `tags: [domain/ai]`,list 化即可;**不**做轴前缀补全或拼写改写,那种是语义级问题)
      - **`## 摘要` / `## Summary` H2 残留** → 删小节,把内容合并到 frontmatter `summary` 字段
      - **sources/analyses 缺 3 节骨架** → 文件末尾追加占位 H2(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`),空内容
-     - **frontmatter `links:` ↔ 正文 `[[wikilink]]` 漂移** → 同步 `links:` 字段,与正文 wikilink 一致(详见 §3.6)
+     - **frontmatter `links:` ↔ 正文 `[[wikilink]]` 漂移** → 同步 `links:` 字段,与正文 wikilink 一致(详见 §3.6.2);**绝对不动 `updated` 字段 + 文件 mtime**(详见 §3.6.2 "`links:` 自动重写的硬约束" Q7 防护)
    - **语义级问题** —— `--fix` 模式仍**只输出提案**(不应用,等用户确认):
      - **矛盾**(LLM 判定两页同一事实不同说法)→ 输出 diff + 候选改写 + 用户拍板
      - **命名飘合并** → 输出建议 + `git mv` 命令(用户手动执行,不自动改文件)
@@ -2093,3 +2114,36 @@ git ls-remote --tags --refs origin \
 **不动**:lint 路径(`temp/lint-proposal-<hash>.json` / `temp/lint-decision-<hash>.json`,lint 没有 doc-id 维度,继续用 hash 区分版本),§4.2.x → §4.2.1 命名收敛是 Round 5 已落地的 Q11 设计细化。
 
 **版本号**:Round 6 累计本次 temp/ 目录契约补丁,**v0.3 MINOR bump 已确认**(2026-09-02 冻结):目录结构新增顶层节点 + plan 文件命名契约细化,但无 schema breaking change。
+
+---
+
+**Round 7:`links:` 自动重写硬约束(Q7 死循环防护)**
+
+**背景**:§3.6.2 + §5.4 已有"`links:` 自动重写"机制,但缺三条确定性规则 → 两个潜在循环:
+
+- **循环 1 陈旧检测误重置**:`links:` 漂移修复是机械镜像(对齐 §3.4 "重新生成 ≠ 更新"),但 §5.4 陈旧回退判定走 `updated > 180 天`。若 fix 改了 `updated` 或文件 mtime,**180 天重置 → 陈旧检测被静默绕过**
+- **循环 2 误报噪音**:用户 Obsidian UI 重排 wikilink 不算 drift,但 deep equality on list 顺序会触发 WARN → lint 报告每次跑都收到"漂移"告警 → 信号失真
+
+**改动**:
+
+- **§3.6.2 新增"`links:` 自动重写的硬约束"子段**,3 条确定性规则:
+  1. **Set 比对(顺序无关)**:drift 检测走 `frozenset({type, target})` 相等;顺序差异不算 drift;Set 不等才触发重写
+  2. **`updated` 字段绝对不改**:对齐 §3.4 "重新生成 ≠ 更新" 不变量 + SCHEMA.md §7 不变量
+  3. **文件 mtime 保留**:重写时用 `os.utime(path, (atime, original_mtime))`,禁止用 `Path.write_text()` 默认行为(会刷 mtime,污染 git status + 陈旧检测)
+- **§3.6.2 LintFix 日志模板**:`**LintFix**: links-mirror-sync on [file.md](<path>) — N added, M removed, K reordered`(N/M/K 数字语义清晰;不记录 `updated` 改动,因为本来就没改)
+- **§5.4 交叉引用**:行 1599 "确定性结构修复" 段、行 1617 lint 报告段,加"详见 §3.6.2 Set 比对规则 + 不动 updated / mtime"引用
+- **SCHEMA.md §5.3 lint 段**:加 Q7 死循环防护说明
+- **implement §C4.2**:补 2 个测试用例(test_links_mirror_idempotent + test_links_mirror_preserves_updated_and_mtime)
+
+**为什么这样设计**(防自循环):
+
+- **陈旧检测基于业务时间**:业务上没改的页,即使 plugin 跑了 fix,也不该重置陈旧倒计时;否则陈旧检测失效
+- **lint 报告去噪**:用户跑 lint 应该看到**真问题**,Obsidian 编辑保存产生的顺序差异不应进报告
+- **mtime 行为对齐 git**:fix 跑了但 content hash 不变,mtime 也不变 → `git status` 看到的就是真实业务修改
+
+**不动**:
+
+- Q6 wikilink 一等公民 + Q10 plan JSON + Q11 subagent 写权矩阵:已冻结,本轮不动
+- §3.4 log.md 5 种前缀(`Creation/Update/Deprecation/Migration/LintFix`):本轮新增的 LintFix 子类型 `links-mirror-sync` 不进 log 类别,只是条目内的 `rule-name` 字段
+
+**版本号**:Round 7 累计本次 `links:` 死循环防护,**建议 v0.3 PATCH bump**(无新增顶层结构 / 无命名契约变化,只是为已有 `links:` 镜像机制加 3 条确定性规则)。
