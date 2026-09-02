@@ -1,6 +1,6 @@
 # tag-template — aeps-llm-wiki-plugin 全局 tag 字典(6 轴)
 
-> **状态**:v0.6.5 草稿(2026-09-02)
+> **状态**:v0.6.9 草稿(2026-09-02)
 > **权威性**:plugin 本体权威字典 —— plugin 维护者直接编辑维护
 > **复制策略**:**复制到用户项目**。init 时复制 `tag-template.md` 到 `<project>/raw/tag-template.md`;**用户再次调用 init skill 时按 append 策略同步**(详见 design.md §4.1.1 "幂等再入"):用户为主,plugin 新版内容 append 到本地副本,**不覆盖用户改过的内容**,lint 提示"plugin 新版有 X 条本地没有"。
 > **使用方**:SKILL.md 显式告知"需要时读 templates/tag-template.md";LLM ingest / lint 时必须查字典
@@ -37,7 +37,24 @@
 - **项目 / 客户名称**(`BE13-VDP`、`FAW-CGW` 等)走 `entities/project/<项目名>.md` 路径,**不进 tag**
 - **OKF type 字段**(`source / concept / standard / ...`)由 frontmatter `type` 字段承担,**不进 tag**
 
-### 1.5 命名约定(plugin 维护 + LLM 写入都遵守)
+### 1.5 打标误区与收敛纪律(v0.6.9 引入)
+
+> 当单篇文档 tag 超过 5 个仍不够表达时,通常意味着触发了以下"打标误区"。建议在打签前先自检一次,而不是继续加 tag。
+
+| # | 误区                                                    | 收敛做法                                                                                                                |
+| - | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1 | **`tec/` 轴罗列太多非核心技术**                              | 一篇文档可能用到 Git、CMake、Linux、Python、SOME/IP。**只保留核心突破点**(如 `tec/someip`),基础通用工具(`tec/git` `tec/cmake` `tec/linux`)由正文自然承载,无需打 tag |
+| 2 | **`domain/` 选了太多业务域**                                | 整车级 / 多模块文档不要把座舱 + 智驾 + 底盘全打上。**直接打 `domain/cross-domain` 收敛**(搭配范式 4 的 WARN 触发)                                                  |
+| 3 | **把"属性 / 状态"当成 tag**                              | 项目名(`BE13-VDP`)、作者、版本号、草稿状态 → 走 Frontmatter 字段(`status: draft`、`stale_after: 2027-01` 等),**严格排除在 tag 之外**(详见 §1.4 隔离机制)            |
+
+**自检三问**:
+1. 这 5 个 tag 里,有没有基础通用工具可以下移到正文?(误区 1)
+2. 这 5 个 tag 里,有没有多个 `domain/` 可以收敛到 `cross-domain`?(误区 2)
+3. 这 5 个 tag 里,有没有本该走 Frontmatter 字段的属性?(误区 3)
+
+如果三问都不命中,确实需要 5+ tag,那 5+ 是合理的;否则先收敛再打签。
+
+### 1.6 命名约定(plugin 维护 + LLM 写入都遵守)
 
 - 全小写 + `-` 连字符(例:`autosar-adaptive` 不是 `Autosar_Adaptive`)
 - 不含版本号 / 状态词(`autosar-adaptive-v4.4` 非法;`deprecated` 非法)
@@ -228,6 +245,8 @@
 | `tec/vllm`         | vLLM 高吞吐 LLM 推理框架  | 服务端 LLM 推理      |
 | `tec/langchain`    | LangChain Agent / RAG 框架 | LLM 应用编排        |
 | `tec/llamaindex`   | LlamaIndex RAG / 数据索引框架 | 文档索引与问答      |
+| `tec/enterprise-architect` | Enterprise Architect (EA) | SysML / UML 架构建模 |
+| `tec/simulink`     | MATLAB Simulink      | MBD 基于模型的设计、MIL/SIL 仿真 |
 
 **说明**:
 
@@ -315,7 +334,8 @@
 
 **示例族**:
 - **安全类**:若含 `domain/fusa` 或 `domain/cybersecurity` → `tec/` 中须存在至少一个 `tec/iso26262-*` / `tec/iso21434` / `tec/secoc` / `tec/hsm` / `tec/gmssl` / `tec/sotif`
-- **架构类**:若含 `domain/ee-arch` → `tec/` 中须存在至少一个 `tec/autosar-*` / `tec/someip` / `tec/dds` / `tec/preevision`
+- **架构类**:若含 `domain/ee-arch` → `tec/` 中须存在至少一个 `tec/autosar-*` / `tec/someip` / `tec/dds` / `tec/preevision` / `tec/enterprise-architect`(SysML/UML 架构建模)
+- **建模 / 仿真类**:若含 `phase/modeling` → `tec/` 中须存在至少一个 `tec/simulink`(MBD / MIL-SIL) / `tec/qemu`(虚拟化仿真) / `tec/enterprise-architect`(SysML/MIL 架构建模)
 - **跨域协同类**:若含 `domain/cross-domain` → `tec/` 中须存在至少一个 `tec/someip` / `tec/dds` / `tec/tsn` / `tec/mcp`(跨域通信 / 编排类)
 
 **提示**:`WARN — 检测到主题 [domain/X],建议在 tec/ 轴补充至少一个具体实施技术或标准`
@@ -331,6 +351,7 @@
 - **OS / BSW 层**:若含 `layer/bsw-os` → `tec/` 中应含 OS / 驱动 / AUTOSAR 类(`tec/autosar-cp` / `tec/autosar-ap` / `tec/qnx` / `tec/linux` / `tec/rtos`)
 - **中间件层**:若含 `layer/middleware-soa` → `tec/` 中应含通信协议 / 服务框架(`tec/someip` / `tec/dds` / `tec/doip` / `tec/uds`)
 - **AI / Agent 应用层**:若含 `layer/ai-agent` → `tec/` 中应含 AI / Agent 技术栈(`tec/mcp` / `tec/claude` / `tec/ollama` / `tec/vllm` / `tec/langchain` / `tec/llamaindex`)
+- **算法层**:若含 `layer/algorithm` → `tec/` 中应含 MBD / 模型 / 仿真工具(`tec/simulink` / `tec/qemu`)
 
 **提示**:`WARN — 架构层级 [layer/X] 与所选技术栈 [tec/Y] 抽象层级可能不匹配,请检查 layer 是否填错`
 
@@ -341,8 +362,10 @@
 **通用判定**:
 - **下限约束**:严谨工程文档(`docform/interface-spec` / `docform/issue-analysis` / `docform/test-report` / `docform/standard-spec` / `docform/config-guide`)的 `maturity` 不能低于 `pilot`
 - **上限约束**:纯概念 / 学术文档(`docform/article` / `docform/study-notes` / `docform/whitepaper`)的 `maturity` 不应标为 `production`(白皮书解读标准时例外)
+- **强绑定**:`docform/standard-spec`(行业标准 / 法规全文解读与摘录)应强绑定 `maturity/standard` —— 标准类文档的成熟度在语义上就是"已成标准",若标成 `pilot` / `production` 语义失真
+- **下限豁免**:`docform/poc-case`(POC 验证 / Demo)的下限放行,允许 `maturity/pilot` 是该形态的天然成熟度;若同时打 `maturity/concept` 才视为冲突
 
-**示例**:`docform/interface-spec` + `maturity/concept` → 冲突(未初始化的概念不能作为正式接口规范);`docform/issue-analysis` + `maturity/concept` → 冲突(没有故障可分析)
+**示例**:`docform/interface-spec` + `maturity/concept` → 冲突(未初始化的概念不能作为正式接口规范);`docform/issue-analysis` + `maturity/concept` → 冲突(没有故障可分析);`docform/standard-spec` + `maturity/production` → 冲突(标准不是"在产方案",应是 `maturity/standard`)
 
 **提示**:`FAIL / WARN — 文档形态 [docform/X] 与成熟度 [maturity/Y] 存在工程完备度冲突`
 
@@ -412,6 +435,24 @@
   - **范式 3 — 形态-成熟度约束**(Docform-to-Maturity Constraint):`docform/` ↔ `maturity/` 双向工程合理性约束(下限 + 上限)
   - **范式 4 — 跨域粒度控制**(Cross-Domain Multi-Tag Threshold):`domain/` 多选软上限 + `cross-domain` 收敛提示
   - **设计原则**:每条范式都按"通用判定式 + 示例族 + 提示模板"三段式书写,后续新增任何 `domain/` / `layer/` / `tec/` 词时只需挂到对应范式下,无需改 lint engine
+- **2026-09-02 v0.6.6**(已被 v0.6.7 合并 / 修复记录保留):§10 最后一个 YAML 示例 `docform/analysis` 不在字典 14 个合法值中(字典枚举见 §6),lint 会 FAIL。**修正**:`docform/analysis` → `docform/technical-doc`(TARA 威胁分析 + SecOC 方案是技术方案类,不是事故复盘;若是事故复盘类分析应用 `docform/issue-analysis`)
+- **2026-09-02 v0.6.7**(本版本):§8.1 范式 3 补两类特殊判定:
+  - **强绑定**:`docform/standard-spec` 应强绑定 `maturity/standard`。标准 / 法规全文解读本身就是"已成标准"的产物,标 `pilot` / `production` 是语义失真。WARN
+  - **下限豁免**:`docform/poc-case` 的下限放行,允许 `maturity/pilot` 是天然成熟度;只有同时 `maturity/concept` 才视为冲突(POC 验证报告至少是 pilot,概念阶段不能产出 POC)
+  - 修订后 §8.1 范式 3 判定式扩为 4 条(下限 / 上限 / 强绑定 / 下限豁免)
+- **2026-09-02 v0.6.8**(本版本):§5.5 工具链补 E/E 架构与系统工程传统建模栈:
+  - v0.6.3 / v0.6.5 主要扩 AI 工具链,传统系统工程建模缺位
+  - **新增**:`tec/enterprise-architect`(Enterprise Architect,SysML/UML 架构建模)、`tec/simulink`(MATLAB Simulink,MBD 基于模型的设计 + MIL/SIL 仿真)
+  - 与 `phase/modeling` / `phase/verification` / `domain/ee-arch` 强关联;典型组合:`domain/ee-arch + phase/modeling + tec/simulink + tec/enterprise-architect`
+- **§8.1 联动同步**:新词同步挂进 §8.1 范式 1 / 范式 2 的示例族:
+  - 范式 1(主题-技术共存)→ 架构类示例族挂 `tec/enterprise-architect`;新增"建模 / 仿真类"示例族(`phase/modeling` 触发 `tec/simulink` / `tec/qemu` / `tec/enterprise-architect`)
+  - 范式 2(层级-技术对齐)→ 新增"算法层"示例族(`layer/algorithm` 触发 `tec/simulink` / `tec/qemu`)
+- **2026-09-02 v0.6.9**(本版本):§1.5 引入"打标误区与收敛纪律",正面回答"5 个 tag 不够用怎么办":
+  - 误区 1:`tec/` 罗列基础通用工具(Git / CMake / Linux)→ 保留核心技术,通用工具下移到正文
+  - 误区 2:`domain/` 多业务域(座舱 + 智驾 + 底盘)→ 直接打 `domain/cross-domain` 收敛(搭配范式 4 的 WARN 触发)
+  - 误区 3:把"项目名 / 作者 / 版本 / 状态"打成 tag → 走 Frontmatter 字段(`status` `stale_after` 等),见 §1.4 隔离机制
+  - 配套"自检三问"作为打签前的快速 checklist
+  - 原 §1.5 命名约定顺延为 §1.6(无正文引用,无破坏)
 
 ---
 
@@ -476,7 +517,7 @@ tags:
   - tec/secoc                        # Secure Onboard Communication
   - tec/hsm                          # 硬件安全模块
   - tec/macsec                       # 链路层加密
-  - docform/analysis
+  - docform/technical-doc            # v0.6.5: 原 docform/analysis 不在字典,归 technical-doc(技术方案)
   - maturity/production
 ---
 ```
