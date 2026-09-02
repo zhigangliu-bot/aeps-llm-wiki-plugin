@@ -1,9 +1,32 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:草稿 v0.1(待 review)
+> **状态**:v0.1 已冻结(2026-09-02)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
+
+---
+
+## Change History
+
+> 设计文档冻结前的中间日志、测试用例、变更记录都不进文档;统一在本节汇总。冻结后新增变更以追加方式记录。
+
+| 日期 | 版本 | 变更 | 关联 commit |
+|---|---|---|---|
+| 2026-09-01 | v0.1 草稿 | 初始创建:8 目标 + 7 用户故事 + 6 功能需求 + NFR + Q1-Q5 开放问题 | (历史) |
+| 2026-09-02 | v0.1 | **§4.1 init 同步策略表** 扩展到 9 行(raw/README.md / templates/concept-entities-readme.md / templates/tag-template.md),prd/design 镜像同步 | 设计会话内 |
+| 2026-09-02 | v0.1 | **§4.2 ingest** 触发简化:移除 `--into <type>` / `--as <page-name>` / `<path>` 三个参数(无参数,自动扫 inbox/);文件读取走统一 `scripts/convert-to-md.mjs`,按扩展名 4 类分流(md/txt/... 直接读 / pptx/docx/xlsx/pdf Claude converter 失败降级 anydoc / png/jpg/jpeg/bmp/tiff paddleocr / 其他 FAIL) | 设计会话内 |
+| 2026-09-02 | v0.1 | **§4.3 query** 4 跳扫描(index → 候选 → wikilink 邻居 → glossary/log)+ qmd 阈值分流(< 500 纯 index / 500-1000 优先 qmd / ≥ 1000 必须 qmd);新增 NFR-1 qmd 为可选依赖例外 | 设计会话内 |
+| 2026-09-02 | v0.1 | **§4.4 lint --fix** 按问题级别分流:**确定性结构修复**(frontmatter / 3 节骨架 / `## 摘要` 残留)直接 patch 应用 + log.md 追加 `**LintFix**`;**语义级问题**(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,等用户确认 | 设计会话内 |
+| 2026-09-02 | v0.1 | **Q1**:权威顺序 = OKF 规范 > `schema/frontmatter.schema.yaml` > `knowledge/SCHEMA.md` | `afa40fa` |
+| 2026-09-02 | v0.1 | **Q2**:query 不加 `--no-save` 参数 | 设计会话内 |
+| 2026-09-02 | v0.1 | **Q3**:`--fix` 模式按问题级别分流(详见 §4.4) | 设计会话内 |
+| 2026-09-02 | v0.1 | **Q4**:`raw-readme.md` 全量 15 类边界规则 + `inbox-readme.md` 简版提示 | 设计会话内 |
+| 2026-09-02 | v0.1 | **Q5**:inbox → raw 命名飘检查前移到 ingest 提议时(LLM 先比 raw/ 已有子目录,命中相似目录强制改用已有目录) | `316a66b` |
+| 2026-09-02 | v0.1 | **Q6**:`[[wikilink]]` 升为一等公民(Obsidian 原生双链 + Karpathy 老 wiki 兼容);OKF 兼容靠 frontmatter `links:` 字段镜像 | `c726a96` |
+| 2026-09-02 | v0.1 | **§1 背景**:加第三条范式 "Obsidian 作为 LLM-wiki 前端",列 4 条具体约束(链接 / tag / 目录 / 双链图谱) | `8cbfb33` |
+| 2026-09-02 | v0.1 | **目标用户**:改 "汽车电子软件工程师、架构师 + Claude Code + Obsidian"(去掉具体人名) | `136cee1` |
+| 2026-09-02 | v0.1 | **冻结**:本版本 v0.1 已冻结,后续变更追加在 Change History 表,新章节另起 | 本 commit |
 
 ---
 
