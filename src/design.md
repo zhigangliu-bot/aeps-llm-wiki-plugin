@@ -721,7 +721,14 @@ summary: |
 - `description` 仍然是一句话短摘要(OKF §A 推荐字段),`summary` 是长摘要
 - 例外:聚合类页面(`type: comparison` / `type: synthesis`)允许在正文用 `## 对照表` / `## 综合结论` 这类**具体内容**小节,不要用通用名"摘要"
 
-**为什么这样设计**:`description` 太短,LLM 想给概念页写一段完整概述时没地方放;放正文又会让所有页面顶部都有一个"## 摘要"小节,UI 重复且冗余。Frontmatter 字段既能被工具消费,又不在正文里占位。
+**为什么这样设计**(回应"为什么不让正文写 ## 摘要"疑问):
+
+- **`description` 太短**:LLM 想给概念页写一段完整概述时没地方放,长摘要必须有归属 —— 走 frontmatter `summary`(2-5 段 multiline)而非正文 `## 摘要`
+- **避免正文顶部冗余小节**:如果正文允许 `## 摘要`,每页顶部都会有这个通用名小节,UI 重复且无信息密度;**强制**用 `## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话` 这种**有语义角色**的 3 节骨架,读者一进页面就知道"这段是源文摘录 / 这是我的思考 / 这是结论"
+- **OKF v0.2 不规定正文必须有 `## 摘要`**:OKF spec §4-§6 只规定 frontmatter 必填 `type:`,**未**对正文小节命名做强制要求;Karpathy LLM-wiki 风格 wiki 同样鼓励 frontmatter 摘要 + 正文结构化小节。我们的纪律**与 OKF / Karpathy 一致**,并非冲突
+- **frontmatter `summary` 字段是机器 + 人双通道**:OKF 工具读 `summary`(机器)、Obsidian 笔记属性面板显示 `summary`(人);**与正文摘要小节是**双轨而非冗余 —— 一个走 frontmatter / 一个走结构化正文
+- **prd §1.5 + design §0 一致**:prd.md 行 127/157/172/179 与本节同步写"禁止 `## 摘要` 小节",并非 design 单方面强加
+- **若用户**坚持要"人类可读 Markdown 单文件分发"场景(导出 markdown 给无 Obsidian 的读者),应通过 **OKF reader 渲染**生成 `summary-prose.md`(把 frontmatter `summary` 转成 H2 段落),**不**回写原页 — 保持数据源唯一(frontmatter),避免双源漂移
 
 #### §D — bundle 根 `index.md` 专用(OKF §8 / §12)
 
@@ -1921,7 +1928,7 @@ git ls-remote --tags --refs origin \
 
 > **状态**:以下条目**已拍板**(决策已写入对应章节),本表保留仅作历史索引。冻结后将统一移入末尾「变更历史」章节。
 
-- [X] **T2**:`summary` 字段去留(Q1) — 留 `summary`,去掉 source 正文里的 `## 摘要` 小节(summary 走 frontmatter)
+- [X] **T2**:`summary` 字段去留(Q1) — 留 `summary`,去掉 source 正文里的 `## 摘要` 小节(summary 走 frontmatter;动机:frontmatter 字段承担长摘要职责,正文强制 3 节骨架 `## 重点摘录` / `## 我的思考` / `## 总结` 替代通用"## 摘要",避免 UI 冗余;OKF v0.2 不强制正文必须有摘要小节,纪律与 OKF / Karpathy 风格一致;prd §1.5 + design §3.1 §C + SCHEMA.md §3.1 三处同步)
 - [X] **T3**:`--raw-subdir` 适用边界 + 取消 raw/ 入口 — **`--raw-subdir` 仅 inbox 生效**;**取消 raw/ 直接 ingest 入口**,raw/ 是已归档不可变层,调整走 `git mv` 或手工
 - [X] **T4**:`SCHEMA.md` 模板 — `templates/knowledge-SCHEMA.md`(8 节,含占位符 init 替换)
 - [X] **T5**:`templates/inbox-readme.md` 提示语 — 已完成

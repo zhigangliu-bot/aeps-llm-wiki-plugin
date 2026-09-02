@@ -169,7 +169,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
     - **LLM 命名飘**:相似子目录/页面名检测(Levenshtein ≤ 2 / 前缀差异 / 同义拼写),不自动合并,仅 prompt + 用户拍板(详见 design §4.4)
     - **漏链**:某 page 里反复出现但链接缺失的术语
     - **frontmatter 不合规**:必填字段缺失 / 类型错位
-    - **正文骨架不合规**:`sources/*.md` 和 `analyses/*.md` 必含 3 节 H2(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),缺一即 FAIL;**禁止**含 `## 摘要` / `## Summary` H2(详见 design §3.1 §C)
+    - **正文骨架不合规**:`sources/*.md` 和 `analyses/*.md` 必含 3 节 H2(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),缺一即 FAIL;**禁止**含 `## 摘要` / `## Summary` H2(详见 design §3.1 §C;动机:frontmatter `summary` 字段承担长摘要职责,正文 `## 摘要` 会与 3 节骨架产生 UI 冗余;OKF v0.2 不强制正文必须有 `## 摘要`,纪律与 OKF / Karpathy 风格一致)
     - **`comparisons/*.md` 不合规**:`type` 必须是 `comparison` + 必须含 `sources:` 字段(否则 FAIL)
     - **`syntheses/*.md` 不合规**:`type` 必须是 `synthesis` + `sources_count` < 3 警告(避免空综合)
   - 默认只报告;**`--fix` 模式按问题级别分流**(详见 design §4.4):
