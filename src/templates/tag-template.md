@@ -432,7 +432,7 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 | 规则类型                                | 通用判定条件                                                           | 行为 | 提示信息                                          |
 | --------------------------------------- | ---------------------------------------------------------------------- | ---- | ------------------------------------------------- |
 | **必填轴校验 (Required Axes)**  | `docform/` 或 `domain/` 任一缺失                                       | FAIL | "必填轴 [domain / docform] 缺失,请补充"           |
-| **推荐轴校验 (Recommended)**   | `maturity/` 缺失                                                       | WARN | "缺失推荐轴 [maturity],建议补充成熟度"            |
+| **推荐轴校验 (Recommended)**   | `maturity/` 缺失                                                       | WARN | "缺失推荐轴 [maturity],不影响检索底座但建议补"     |
 | **单值/多值校验 (Cardinality)** | `docform/` 或 `maturity/` 出现多个值                                    | FAIL | "单值轴 [docform / maturity] 禁止多选,请保留 1 个" |
 | **Tag 总数量区间 (Tag Volume)** | Tag 总数 `< 5` 或 `> 10`                                              | WARN | "<5 覆盖太薄建议补充;>10 切片失去区分度建议合并"  |
 | **跨域粒度控制 (Threshold)**   | `domain/` 数量 `> 2` 且未打 `domain/cross-domain`                       | WARN | "多领域文档建议使用 domain/cross-domain 进行收敛" |
