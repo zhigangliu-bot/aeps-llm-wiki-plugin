@@ -1,10 +1,10 @@
 # tag-template — aeps-llm-wiki-plugin 全局 tag 字典(6 轴)
 
-> **状态**:v0.6.9 草稿(2026-09-02)
+> **状态**:v1.0 冻结版(2026-09-02)
 > **权威性**:plugin 本体权威字典 —— plugin 维护者直接编辑维护
 > **复制策略**:**复制到用户项目**。init 时复制 `tag-template.md` 到 `<project>/raw/tag-template.md`;**用户再次调用 init skill 时按 append 策略同步**(详见 design.md §4.1.1 "幂等再入"):用户为主,plugin 新版内容 append 到本地副本,**不覆盖用户改过的内容**,lint 提示"plugin 新版有 X 条本地没有"。
 > **使用方**:SKILL.md 显式告知"需要时读 templates/tag-template.md";LLM ingest / lint 时必须查字典
-> **取代关系**:v0.4 起取代旧的 `tag-vocabulary.md`(后者已废弃,见 §9 演进记录)
+> **取代关系**:取代旧的 `tag-vocabulary.md`(后者已废弃)
 
 ---
 
@@ -17,7 +17,7 @@
 ### 1.2 必填校验
 
 - `docform/`(文档用途):**必填**
-- `domain/`(业务领域):**必填**(v0.6.1 起,maturity 不再必填;domain 是文档主题的最基础坐标,缺失会让检索退化为"扫全表")
+- `domain/`(业务领域):**必填**(domain 是文档主题的最基础坐标,缺失会让检索退化为"扫全表")
 - `maturity/`(成熟度):推荐填,不强制
 
 ### 1.3 单值 / 多值
@@ -37,7 +37,7 @@
 - **项目 / 客户名称**(`BE13-VDP`、`FAW-CGW` 等)走 `entities/project/<项目名>.md` 路径,**不进 tag**
 - **OKF type 字段**(`source / concept / standard / ...`)由 frontmatter `type` 字段承担,**不进 tag**
 
-### 1.5 打标误区与收敛纪律(v0.6.9 引入)
+### 1.5 打标误区与收敛纪律
 
 > 当单篇文档 tag 超过 5 个仍不够表达时,通常意味着触发了以下"打标误区"。建议在打签前先自检一次,而不是继续加 tag。
 
@@ -83,15 +83,15 @@
 | `domain/enterprise-it` | 企业数字化与 IT             | 研发协同工具、协同平台                                                 |
 | `domain/geopolitics`   | 地缘经济与供应链            | 产业链重构、技术封锁、合规限制                                         |
 | `domain/process`       | 开发流程与方法论 + 跨层流程 | V 模型、敏捷、ASPICE、CMMI、AI for V-Model                             |
-| `domain/fusa`          | **功能安全主题**(v0.6) | ISO 26262 / SOTIF 主题入口;具体流程走 `phase/`,标准走 `tec/iso26262` 系列 |
-| `domain/cybersecurity` | **信息 / 网络安全主题**(v0.6) | ISO 21434 主题入口;具体流程走 `phase/`,技术走 `tec/secoc` / `tec/hsm` 等 |
+| `domain/fusa`          | **功能安全主题** | ISO 26262 / SOTIF 主题入口;具体流程走 `phase/`,标准走 `tec/iso26262` 系列 |
+| `domain/cybersecurity` | **信息 / 网络安全主题** | ISO 21434 主题入口;具体流程走 `phase/`,技术走 `tec/secoc` / `tec/hsm` 等 |
 
 **说明**:
 
 - `domain` 整体表达"文档主题涉及的业务领域",**与 layer 正交**:同一份资料可以同时打 `domain/chassis + layer/middleware-soa`(底盘 + 中间件)
 - **跨域边界规则**:`domain/cockpit` 与 `domain/adas-ad` 不重叠(都是主类目);舱驾融合这类跨域主题 → 打 `domain/cockpit + domain/adas-ad`(利用 §1.3 单值软上限 ≤ 2)
 - **`domain/fusa` / `domain/cybersecurity` 与其他领域可同时打**(软上限 ≤ 2):一份"网关中央控制器功能安全设计"可以同时 `domain/fusa + domain/body-gateway`(安全主题 + 网关业务)
-- **安全主题回到 domain 入口(v0.6 起,2026-09-02 拍板)**:功能安全 / 网络安全与其他业务领域正交,作为"主题类目"放在 domain/ 表尾
+- **安全主题作为"主题类目"放在 domain/ 表尾**:功能安全 / 网络安全与其他业务领域正交,可与其他业务领域同时打(软上限 ≤ 2,例如 `domain/fusa + domain/body-gateway`)
   - 具体流程阶段走 `phase/`(HARA / TARA / 审计节点)
   - 具体标准 / 技术走 `tec/`(`tec/iso26262-asil-d` / `tec/iso21434` / `tec/secoc` / `tec/hsm` 等)
   - **三重锁定**:`domain/fusa + phase/architecture + tec/iso26262-asil-d`(主题 + 阶段 + 标准)
@@ -140,7 +140,7 @@
 **说明**:
 
 - `phase/architecture` 与 `phase/detail-design` 的边界:概念选型 / 逻辑架构 → `architecture`;接口表 / 类图 / 代码级设计 → `detail-design`
-- **`phase/` 是纯时间 / 研发阶段维度**(v0.6 起,2026-09-02 拍板):不包含安全主题。功能安全 / 网络安全相关流程归入通用阶段(需求 → 架构 → 详细设计 → 集成 → 验证 → 运维);安全**主题**走 `domain/fusa` / `domain/cybersecurity`,安全**标准 / 技术**走 `tec/`
+- **`phase/` 是纯时间 / 研发阶段维度**:不包含安全主题。功能安全 / 网络安全相关流程归入通用阶段(需求 → 架构 → 详细设计 → 集成 → 验证 → 运维);安全**主题**走 `domain/fusa` / `domain/cybersecurity`,安全**标准 / 技术**走 `tec/`
 - **decode 旧 `phase/safety-compliance` / `phase/fusa` / `phase/cybersecurity`**:lint 提示"安全主题不在 phase,主题走 `domain/fusa` / `domain/cybersecurity`,标准走 `tec/`"
 
 ---
@@ -196,7 +196,7 @@
 | `tec/drive-orin`  | NVIDIA Drive Orin  | 自动驾驶        |
 | `tec/jetson-orin` | NVIDIA Jetson Orin | 边缘 AI         |
 
-### 5.4 功能安全与信息安全(FuSa + Cybersecurity,v0.5 双线扩充,v0.6 主题回 domain)
+### 5.4 功能安全与信息安全(FuSa + Cybersecurity)
 
 **功能安全 (FuSa)** 主题在 `domain/fusa`,具体标准 / 技术细节在本节:
 
@@ -251,7 +251,7 @@
 **说明**:
 
 - `tec/` 是字典最大一轴(~40 个词);按 5 个子主题分块,新增词请加到对应子块
-- `tec/` 与 `domain` 正交(v0.6 语义):同一份非安全资料可 `domain/chassis + tec/someip`(底盘 + SOME/IP);安全资料走 `domain/fusa`(或 `domain/cybersecurity`)+ `tec/iso26262-asil-d`(或 `tec/iso21434` 等具体标准)
+- `tec/` 与 `domain` 正交:同一份非安全资料可 `domain/chassis + tec/someip`(底盘 + SOME/IP);安全资料走 `domain/fusa`(或 `domain/cybersecurity`)+ `tec/iso26262-asil-d`(或 `tec/iso21434` 等具体标准)
 - `tec/` 与 `layer/middleware-soa` 在 SOME/IP / DDS 处有交集:协议本体归 `tec/`,协议实现层归 `layer/middleware-soa`
 
 ---
@@ -322,7 +322,7 @@
 | **频次 = 1**                                              | "冷僻,真的需要保留吗?"                            |
 | **字典外 tag 累计 ≥ 5 次**                               | plugin 维护者下次升级字典时考虑加入               |
 
-### 8.1 通用校验范式(v0.6.5 引入,取代 v0.6.4 的硬编码联动规则)
+### 8.1 通用校验范式
 
 > **设计动机**:6 轴体系下若为每个业务场景单独写硬编码联动规则(`ai-agent` ↔ `mcp` / `fusa` ↔ `iso26262` ...),规则库会迅速膨胀且难以维护。下面 4 类**通用范式**(Validation Paradigms)对所有未来新增的领域 / 技术栈一视同仁。
 
@@ -396,67 +396,9 @@
 
 ---
 
-## 9. 演进记录
-
-- **2026-09-02 v0.1**:初版 tag-vocabulary.md,基于 zhigang.liu 4 轴方案,layer 的 `process` 合并到 `domain/process`
-- **2026-09-02 v0.2**:新增第 5 轴 `docform`(12 个文档用途词),参考 AE 产品软件知识库 2026-03 标签数据字典。补强 lint 规则(OKF type / 状态 / 版本号 / 人名 / 过宽 / OWL Disjointness / 跨 axis 重复)。状态与项目语义移出 tag。
-- **2026-09-02 v0.3**:tag-vocabulary.md §8 候选扩展词表(49 个技术词,源自 AE 2026-03 规范 §"技术领域标签")。
-- **2026-09-02 v0.4**:**完全重写为 tag-template.md,6 轴结构**。`tec/` 作为独立第 6 轴从 §8 候选词提升到主字典(~40 个词,按 5 个子主题分块)。采纳 zhigang.liu 的工程化提议:`domain` 扩到 14 个值(`cockpit` `chassis` `powertrain` `body-gateway` `cross-domain` 等);`layer` 拆分为 9 个值(`bsw-os` `platform-hypervisor` `middleware-soa` `ai-agent`);`phase` 扩到 9 个(`architecture` `detail-design` `safety-compliance`);`docform` 扩到 14 个(`poc-case`)。**完全取代 tag-vocabulary.md**,后者删除。
-- **2026-09-02 v0.5**:**双安全阶段拆分 + 安全主题不再走 domain 入口**(已被 v0.6 撤回,演进记录保留):
-  - **删除**:`domain/security`、`phase/safety-compliance`
-  - **新增**:`phase/fusa`、`phase/cybersecurity`、`tec/iso26262-asil-b`、`tec/secoc`、`tec/hsm`
-  - 双重 / 分层落盘纪律:`phase/` 表流程 + `tec/` 表标准
-  - lint:旧 `domain/security` / `phase/safety-compliance` WARN;`phase/fusa + phase/cybersecurity` 同打 WARN
-  - **v0.6 撤回理由**:`phase/` 应保持纯时间维度;`layer/` 应保持纯堆栈维度;安全主题属于"业务领域",应回到 `domain/`
-- **2026-09-02 v0.6**(本版本):**轴边界重新校准,安全主题回到 domain**(zhigang.liu 拍板):
-  - **设计原则**:`domain/` = 业务领域(含安全主题)/ `layer/` = 纯物理逻辑堆栈 / `phase/` = 纯时间研发阶段 / `tec/` = 技术标准。四轴严格正交
-  - **撤回 v0.5**:删除 `phase/fusa` + `phase/cybersecurity`,`phase/` 从 10 缩回 **8 个值**
-  - **新增**:`domain/fusa`(功能安全主题入口)、`domain/cybersecurity`(网络安全主题入口)
-  - **`domain/` 从 13 → 14**,fusa/cybersecurity 放在表尾作为"主题类目",可与其他业务领域同时打(软上限 ≤ 2,例如 `domain/fusa + domain/body-gateway`)
-  - **三重锁定纪律**:`domain/fusa + phase/architecture + tec/iso26262-asil-d`(主题 + 阶段 + 标准)
-  - **lint 更新**:旧 `phase/safety-compliance` / `phase/fusa` / `phase/cybersecurity` → WARN"主题走 `domain/`,标准走 `tec/`"
-  - **§10 三个示例 tag 同步重打**:v0.5 留下的示例去掉 `phase/fusa` / `phase/cybersecurity`,改用 `domain/fusa` / `domain/cybersecurity`;S32G 示例再演示 `domain/fusa + domain/body-gateway` 双打
-- **2026-09-02 v0.6.1**(本版本):§5.4 双线补齐:
-  - **功能安全**:补 QM / ASIL-A / ASIL-C,v0.6 只列了笼统 iso26262 + ASIL-B + ASIL-D,新增 `tec/iso26262-qm` / `tec/iso26262-asil-a` / `tec/iso26262-asil-c`,现 QM + A/B/C/D 五档齐全,与 ISO 26262-1:2018 ASIL 分类完全一致
-  - **信息安全**:补国密,新增 `tec/gmssl`(GM/T 系列,SM2/SM3/SM4 商用密码,车载国密合规场景)
-- **2026-09-02 v0.6.2**(本版本):必填轴重排 — `domain/` 升级必填,`maturity/` 降为推荐:
-  - 理由:`domain/` 是文档主题最基础坐标,缺失会让检索退化为"扫全表";`maturity/` 反映"研发到了哪一阶段",对早期 brainstorming 笔记类文档强约束反而劝退打标
-  - §1.2 必填校验:同步调整(只保留 `docform/` + `domain/` 必填)
-  - §1.3 单值/多值表:`domain/` 升 ✅ 必填、`maturity/` 降 ⚠️ 推荐
-  - §8 lint:`缺失 domain/` 升 FAIL,`缺失 maturity/` 降 WARN
-- **2026-09-02 v0.6.3**(本版本):§5.5 工具链补车载 AI / 大模型开发栈:
-  - v0.6.2 工具链偏传统嵌入式(`cmake` `gdb` `yocto` `git`),端侧 / 服务端 LLM 与 Agent 框架缺位
-  - **新增**:`tec/ollama`(端侧 LLM 推理,本地 / 车内部署)、`tec/vllm`(高吞吐服务端 LLM 推理)、`tec/langchain`(Agent / RAG 编排)、`tec/llamaindex`(RAG / 文档索引)
-  - 与 `domain/ai` / `domain/embodied-ai` / `layer/ai-agent` 配合使用,典型三重锁定:`domain/ai + layer/ai-agent + tec/langchain`
-- **2026-09-02 v0.6.4**(已被 v0.6.5 取代):§8 新增两条硬编码跨轴联动规则(`layer/ai-agent` 联动 + `domain/fusa` 联动),用以加固 LLM ingest 准确率。**撤回理由**:每加一条场景联动都写一份硬编码,规则库会迅速膨胀,改成 §8.1 的通用校验范式更可持续
-- **2026-09-02 v0.6.5**(本版本):§8.1 引入 4 类通用校验范式,取代 v0.6.4 硬编码联动:
-  - **范式 1 — 主题-技术共存**(Theme-to-Tech Co-occurrence):`domain/X` 触发 `tec/` 配套存在性校验,覆盖安全 / 架构 / 跨域协同三类示例族
-  - **范式 2 — 层级-技术对齐**(Layer-to-Tech Alignment):`layer/X` 与 `tec/Y` 抽象层级错配校验,覆盖芯片 / OS-BSW / 中间件 / AI-Agent 四类示例族
-  - **范式 3 — 形态-成熟度约束**(Docform-to-Maturity Constraint):`docform/` ↔ `maturity/` 双向工程合理性约束(下限 + 上限)
-  - **范式 4 — 跨域粒度控制**(Cross-Domain Multi-Tag Threshold):`domain/` 多选软上限 + `cross-domain` 收敛提示
-  - **设计原则**:每条范式都按"通用判定式 + 示例族 + 提示模板"三段式书写,后续新增任何 `domain/` / `layer/` / `tec/` 词时只需挂到对应范式下,无需改 lint engine
-- **2026-09-02 v0.6.6**(已被 v0.6.7 合并 / 修复记录保留):§10 最后一个 YAML 示例 `docform/analysis` 不在字典 14 个合法值中(字典枚举见 §6),lint 会 FAIL。**修正**:`docform/analysis` → `docform/technical-doc`(TARA 威胁分析 + SecOC 方案是技术方案类,不是事故复盘;若是事故复盘类分析应用 `docform/issue-analysis`)
-- **2026-09-02 v0.6.7**(本版本):§8.1 范式 3 补两类特殊判定:
-  - **强绑定**:`docform/standard-spec` 应强绑定 `maturity/standard`。标准 / 法规全文解读本身就是"已成标准"的产物,标 `pilot` / `production` 是语义失真。WARN
-  - **下限豁免**:`docform/poc-case` 的下限放行,允许 `maturity/pilot` 是天然成熟度;只有同时 `maturity/concept` 才视为冲突(POC 验证报告至少是 pilot,概念阶段不能产出 POC)
-  - 修订后 §8.1 范式 3 判定式扩为 4 条(下限 / 上限 / 强绑定 / 下限豁免)
-- **2026-09-02 v0.6.8**(本版本):§5.5 工具链补 E/E 架构与系统工程传统建模栈:
-  - v0.6.3 / v0.6.5 主要扩 AI 工具链,传统系统工程建模缺位
-  - **新增**:`tec/enterprise-architect`(Enterprise Architect,SysML/UML 架构建模)、`tec/simulink`(MATLAB Simulink,MBD 基于模型的设计 + MIL/SIL 仿真)
-  - 与 `phase/modeling` / `phase/verification` / `domain/ee-arch` 强关联;典型组合:`domain/ee-arch + phase/modeling + tec/simulink + tec/enterprise-architect`
-- **§8.1 联动同步**:新词同步挂进 §8.1 范式 1 / 范式 2 的示例族:
-  - 范式 1(主题-技术共存)→ 架构类示例族挂 `tec/enterprise-architect`;新增"建模 / 仿真类"示例族(`phase/modeling` 触发 `tec/simulink` / `tec/qemu` / `tec/enterprise-architect`)
-  - 范式 2(层级-技术对齐)→ 新增"算法层"示例族(`layer/algorithm` 触发 `tec/simulink` / `tec/qemu`)
-- **2026-09-02 v0.6.9**(本版本):§1.5 引入"打标误区与收敛纪律",正面回答"5 个 tag 不够用怎么办":
-  - 误区 1:`tec/` 罗列基础通用工具(Git / CMake / Linux)→ 保留核心技术,通用工具下移到正文
-  - 误区 2:`domain/` 多业务域(座舱 + 智驾 + 底盘)→ 直接打 `domain/cross-domain` 收敛(搭配范式 4 的 WARN 触发)
-  - 误区 3:把"项目名 / 作者 / 版本 / 状态"打成 tag → 走 Frontmatter 字段(`status` `stale_after` 等),见 §1.4 隔离机制
-  - 配套"自检三问"作为打签前的快速 checklist
-  - 原 §1.5 命名约定顺延为 §1.6(无正文引用,无破坏)
-
 ---
 
-## 10. 组合打签实例
+## 9. 组合打签实例
 
 ```yaml
 ---
@@ -478,10 +420,10 @@ tags:
 ---
 title: ISO 26262 ASIL-D 流程下的 AUTOSAR Classic ECU 软件安全机制设计
 tags:
-  - domain/fusa                      # v0.6: 功能安全主题回到 domain 入口
+  - domain/fusa
   - layer/bsw-os
   - layer/application
-  - phase/architecture               # v0.6: 纯阶段,不再含 fusa
+  - phase/architecture
   - tec/autosar-cp
   - tec/iso26262-asil-d              # 具体 ASIL 等级
   - docform/technical-doc
@@ -493,10 +435,10 @@ tags:
 ---
 title: S32G 网关 SoC 安全启动(ATF + OP-TEE + RPMB) 设计文档
 tags:
-  - domain/fusa                      # v0.6: 功能安全主题
-  - domain/body-gateway              # v0.6: 业务领域(可与 fusa 同时打,软上限 ≤ 2)
+  - domain/fusa
+  - domain/body-gateway
   - layer/bsw-os
-  - phase/detail-design              # v0.6: 纯阶段
+  - phase/detail-design
   - tec/s32g                         # 芯片平台
   - tec/atf                          # 安全启动
   - tec/optee                        # TEE 应用
@@ -510,14 +452,14 @@ tags:
 ---
 title: 整车中央网关 TARA 威胁分析与 SecOC 安全通信方案
 tags:
-  - domain/cybersecurity             # v0.6: 网络安全主题
+  - domain/cybersecurity
   - layer/middleware-soa
-  - phase/architecture               # v0.6: 纯阶段
+  - phase/architecture
   - tec/iso21434                     # TARA 威胁建模
   - tec/secoc                        # Secure Onboard Communication
   - tec/hsm                          # 硬件安全模块
   - tec/macsec                       # 链路层加密
-  - docform/technical-doc            # v0.6.5: 原 docform/analysis 不在字典,归 technical-doc(技术方案)
+  - docform/technical-doc
   - maturity/production
 ---
 ```
