@@ -1097,8 +1097,19 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
    - **frontmatter 不合规**:必填字段缺失 / 类型错位 / 未知 type
    - **`[[wikilink]]` 残留**:warning,建议改标准 markdown
    - **raw_category 派生失败**:从 `sources[0].resource` 路径解析失败(无 sources / 非 raw 本地路径 / 分类不在 15 类清单)→ WARN/FAIL(详见 §3.6.1)
-3. 默认只报告;**`--fix` 模式直接 patch 应用**(用户已通过 flag 表示意图,不二次确认;`log.md` 追加 `**LintFix**` 条目记录每处改动)
-4. **不应**:无 `--fix` 时静默修改文件
+3. 默认只报告;**`--fix` 模式按问题级别分流**:
+   - **确定性结构修复** —— `--fix` 直接 patch 应用,`log.md` 追加 `**LintFix**` 条目记录每处改动:
+     - **frontmatter 字段缺失** → 补占位值 + WARN(`type` 缺失用 frontmatter 路径推测的实体/概念子类填充)
+     - **frontmatter 字段类型错位** → 强转(如 `tags: autosar` → `tags: [autosar]`)
+     - **`## 摘要` / `## Summary` H2 残留** → 删小节,把内容合并到 frontmatter `summary` 字段
+     - **sources/analyses 缺 3 节骨架** → 文件末尾追加占位 H2(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`),空内容
+     - **`[[wikilink]]` 残留未替换** → 改标准 markdown 链接(根据链接目标文件是否存在的规则)
+   - **语义级问题** —— `--fix` 模式仍**只输出提案**(不应用,等用户确认):
+     - **矛盾**(LLM 判定两页同一事实不同说法)→ 输出 diff + 候选改写 + 用户拍板
+     - **命名飘合并** → 输出建议 + `git mv` 命令(用户手动执行,不自动改文件)
+     - **漏链** → 输出候选链接列表 + 用户确认
+     - **陈旧页处理** → 输出建议(归档到 `_archived/` / `status: deprecated` / 续期),用户拍板
+4. **不应**:无 `--fix` 时静默修改文件;`--fix` 模式也不静默应用语义级修改
 
 **`--by <axis>` 模式**:除默认全量报告外,支持按指定 axis group by 输出:
 

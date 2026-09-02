@@ -170,7 +170,9 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 1. 跑 /aeps-llm-wiki-lint
 2. LLM 扫所有 knowledge/**/*.md
 3. 报告:孤儿页 / 矛盾 / 陈旧页 / LLM 命名飘 / 漏链 / frontmatter 不合规 / 摘要小节残留
-4. --fix 模式直接 patch 应用(用户已通过 flag 表示意图,不二次确认;log.md 追加 **LintFix** 条目)
+4. --fix 模式按问题级别分流:
+   - 确定性结构修复(frontmatter / 3 节骨架 / `## 摘要` 残留 / wikilink 残留)直接 patch 应用,log.md 追加 **LintFix** 条目
+   - 语义级问题(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,不应用,等用户确认
 ```
 
 ### 5.4 synthesis(综合页)
@@ -185,19 +187,20 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 
 ## 6. lint 规则摘要
 
-| 类别 | 现象 | 行为 |
-|---|---|---|
-| frontmatter | 必填字段缺失 / 类型错位 / 未知 type | FAIL |
-| frontmatter | `summary` 缺失(仅 source/analysis) | FAIL |
-| 正文骨架 | source/analysis 缺 3 节 H2 | FAIL |
-| 正文骨架 | 含 `## 摘要` / `## Summary` H2 | FAIL |
-| 类型映射 | type 与子目录不符(如 `entities/foo/concept.md` 用了 `type: concept`) | FAIL |
-| 陈旧页 | `stale_after` 已超越 / `updated > 180 天` + log 未提 | WARN(可配 FAIL) |
-| LLM 命名飘 | 相似子目录(归一化后 Levenshtein ≤ 2) / 同义拼写 | WARN + 合并建议 |
-| 漏链 | 正文反复出现但未链接的术语 | WARN |
-| 孤儿页 | 无出入链接的页 | WARN(豁免 index/overview/glossary) |
-| `[[wikilink]]` 残留 | 标准 markdown 链接被替换 | WARN |
-| tag | 裸 tag / 字典外 tag / 拼写漂移 / 状态词混 tag | FAIL/WARN 视 lint 细则 |
+| 类别 | 现象 | 行为 | `--fix` 模式 |
+|---|---|---|---|
+| frontmatter | 必填字段缺失 / 类型错位 / 未知 type | FAIL | **自动修复**(补占位 / 强转) |
+| frontmatter | `summary` 缺失(仅 source/analysis) | FAIL | **自动修复**(从正文首段提取) |
+| 正文骨架 | source/analysis 缺 3 节 H2 | FAIL | **自动修复**(末尾追加占位 H2) |
+| 正文骨架 | 含 `## 摘要` / `## Summary` H2 | FAIL | **自动修复**(删小节,内容合并到 frontmatter `summary`) |
+| 类型映射 | type 与子目录不符(如 `entities/foo/concept.md` 用了 `type: concept`) | FAIL | **自动修复**(按子目录推 type) |
+| 陈旧页 | `stale_after` 已超越 / `updated > 180 天` + log 未提 | WARN(可配 FAIL) | **仅出提案**(归档 / `status: deprecated` / 续期,等用户拍板) |
+| LLM 命名飘 | 相似子目录(归一化后 Levenshtein ≤ 2) / 同义拼写 | WARN + 合并建议 | **仅出提案**(`git mv` 命令,用户手动执行) |
+| 漏链 | 正文反复出现但未链接的术语 | WARN | **仅出提案**(候选链接列表,等用户确认) |
+| 矛盾 | 两页同一事实不同说法 | WARN | **仅出提案**(diff + 候选改写,等用户拍板) |
+| 孤儿页 | 无出入链接的页 | WARN(豁免 index/overview/glossary) | **仅出提案**(候选出入链接 / 删除候选,等用户拍板) |
+| `[[wikilink]]` 残留 | 标准 markdown 链接被替换 | WARN | **自动修复**(替换为标准 markdown) |
+| tag | 裸 tag / 字典外 tag / 拼写漂移 / 状态词混 tag | FAIL/WARN 视 lint 细则 | 部分自动(`tags` 拼写归一化),其余仅出提案 |
 
 **LLM 命名飘不自动合并** —— lint 只提示,人工 `git mv` 归档到 `raw/_archived/`。
 **但 ingest 时前移拦截(Q5)**:LLM 提议 raw 子目录名的瞬间,先与 `raw/` 现有子目录做相似度比较(Levenshtein ≤ 2 / 前缀差异 / 同义拼写);命中已有相似目录 → **强制改用已有目录**(LLM 输出归并理由,用户拍板通过后直接 mv,**不**新建飘名子目录)。lint 是事后被动检测,ingest 是事前主动拦截,两道闸门互补。

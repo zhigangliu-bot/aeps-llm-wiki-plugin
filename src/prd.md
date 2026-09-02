@@ -51,7 +51,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 | US-1 | 研究者        | 想在新项目里开 wiki                            | 跑一次 init 就得到可用结构,不用手动建 7 个文件                                            |
 | US-2 | 研究者        | 把刚下载的 OKF spec 放到`inbox/`             | ingest 后`knowledge/concepts/open-knowledge-format.md` 自动出现,`index.md` 自动更新   |
 | US-3 | 学习者        | 读 wiki 时想确认某概念是否被覆盖               | query 给出**带 wiki 引用的**回答,并问要不要落档                                     |
-| US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期;`--fix` 模式直接 patch 应用(无需用户二次确认)               |
+| US-4 | 长期用户      | wiki 长到 50+ 页,担心维护成本                  | lint 报告孤儿页、矛盾、过期;`--fix` 模式**只自动应用确定性结构修复**(frontmatter / 3 节骨架 / `## 摘要` 残留 / wikilink 残留),**语义级问题**(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仍出提案等用户确认 |
 | US-5 | 好奇者        | 在 OKF Knowledge Catalog 里发现一个别人的 wiki | 能直接导入到本地(因为我们输出严格 OKF)                                                    |
 | US-6 | plugin 维护者 | 想加新实体类型"法规"或"标准"                   | 改`schema/frontmatter.schema.yaml` + 一行 skill 配置,不用改 plugin 主代码               |
 | US-7 | 研究者        | 拿到一份资料但还没决定归档到 raw/ 哪个分类     | 丢`inbox/`,ingest 时 LLM 提议子目录(如`raw/okf/`),用户一句"好"或改后确认,文件自动迁移 |
@@ -166,7 +166,18 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
     - **正文骨架不合规**:`sources/*.md` 和 `analyses/*.md` 必含 3 节 H2(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),缺一即 FAIL;**禁止**含 `## 摘要` / `## Summary` H2(详见 design §3.1 §C)
     - **`comparisons/*.md` 不合规**:`type` 必须是 `comparison` + 必须含 `sources:` 字段(否则 FAIL)
     - **`syntheses/*.md` 不合规**:`type` 必须是 `synthesis` + `sources_count` < 3 警告(避免空综合)
-  - 默认只报告;**`--fix` 模式直接 patch 应用**(用户已通过 flag 表示意图,不二次确认;在 `log.md` 追加 `**LintFix**` 条目记录每处改动)
+  - 默认只报告;**`--fix` 模式按问题级别分流**(详见 design §4.4):
+    - **确定性结构修复** —— `--fix` 直接 patch 应用(在 `log.md` 追加 `**LintFix**` 条目):
+      - frontmatter 字段缺失 → 补占位值 + WARN
+      - frontmatter 字段类型错位(如 `tags` 不是 list)→ 强转
+      - `## 摘要` / `## Summary` 小节残留 → 删除并保留内容到 frontmatter `summary`
+      - sources/analyses 缺 3 节骨架 H2 → 文件末尾追加占位 H2
+      - `[[wikilink]]` 残留未替换为标准 markdown 链接 → 替换
+    - **语义级问题** —— `--fix` 模式仍只输出**提案**(不应用,等用户确认):
+      - 矛盾(两个页对同一事实不同说法)
+      - 命名飘合并(子目录/页面名相似)
+      - 漏链(正文反复出现但未链接的术语)
+      - 陈旧页处理(归档 / `status: deprecated`)
 - **不应**:无 `--fix` 时静默修改文件
 
 ### 4.5 Synthesize skill(Karpathy line 31 "synthesis")
@@ -324,7 +335,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 
 - [X] **Q1**:✅ ~~`SKILL.md` / `SCHEMA.md` / `frontmatter.schema.yaml` 哪个作为"权威"~~ —— 已定:**权威顺序**为 OKF 规范 > `schema/frontmatter.schema.yaml` > `knowledge/SCHEMA.md`(`frontmatter.schema.yaml` 机器读字段定义,`SCHEMA.md` 人读入口,SCHEMA.md 不重复列字段而是直接引用 plugin 本体的 `schema/frontmatter.schema.yaml`,详见 [design §3.2 + §5](src/design.md))
 - [X] **Q2**:✅ ~~`/aeps-llm-wiki-query` 是不是要支持**纯文本模式**(用户想用 `--no-save` 跳过落档询问)~~ —— 已定:**不加 `--no-save` 参数**,query 永远问"要不要落档",与 ingest / synthesize 行为一致
-- [X] **Q3**:✅ `--fix` 模式直接 patch 应用(用户已通过 flag 表示意图,不二次确认) —— 已定
+- [X] **Q3**:✅ `--fix` 模式按问题级别分流 —— 已定:**确定性结构修复**(frontmatter / 3 节骨架 / `## 摘要` 残留 / wikilink 残留)直接 patch 应用,`log.md` 追加 `**LintFix**` 条目;**语义级问题**(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅输出提案,等用户确认(详见 §4.4 + design §4.4)
 - [X] **Q4**:✅ ~~`raw/` / `inbox/` 要不要各放一个 `README.md` 告诉用户放什么、不放什么~~ —— 已定:`raw-readme.md` 全量放 15 类边界规则(权威文件:plugin 本体 `templates/raw-readme.md`);`inbox-readme.md` 简版提示
 - [X] **Q5**:✅ ~~`inbox → raw` 迁移时,LLM 提议的子目录名要不要走 `lint` 风格的"相似合并建议"~~ —— 已定:**需要**,命名飘检查**前移到 ingest 提议时**,LLM 必须先比 raw/ 已有子目录,命中相似目录则强制改用已有目录(详见 §4.2 必须 + design §4.4)
 
