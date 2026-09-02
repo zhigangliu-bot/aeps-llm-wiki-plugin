@@ -322,7 +322,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 
 ## 10. 待确认事项(去 design 之前要回答)
 
-- [ ] **Q1**:`SKILL.md` / `SCHEMA.md` / `frontmatter.schema.yaml` 哪个作为"权威"?建议 `frontmatter.schema.yaml` 机器读,`SCHEMA.md` 人读,二者同源(SKILL.md 里写明"以 SCHEMA.md 为准,字段集合见 frontmatter.schema.yaml")
+- [X] **Q1**:✅ ~~`SKILL.md` / `SCHEMA.md` / `frontmatter.schema.yaml` 哪个作为"权威"~~ —— 已定:**权威顺序**为 OKF 规范 > `schema/frontmatter.schema.yaml` > `knowledge/SCHEMA.md`(`frontmatter.schema.yaml` 机器读字段定义,`SCHEMA.md` 人读入口,SCHEMA.md 不重复列字段而是直接引用 plugin 本体的 `schema/frontmatter.schema.yaml`,详见 [design §3.2 + §5](src/design.md))
 - [X] **Q2**:✅ ~~`/aeps-llm-wiki-query` 是不是要支持**纯文本模式**(用户想用 `--no-save` 跳过落档询问)~~ —— 已定:**不加 `--no-save` 参数**,query 永远问"要不要落档",与 ingest / synthesize 行为一致
 - [X] **Q3**:✅ `--fix` 模式直接 patch 应用(用户已通过 flag 表示意图,不二次确认) —— 已定
 - [X] **Q4**:✅ ~~`raw/` / `inbox/` 要不要各放一个 `README.md` 告诉用户放什么、不放什么~~ —— 已定:`raw-readme.md` 全量放 15 类边界规则(权威文件:plugin 本体 `templates/raw-readme.md`);`inbox-readme.md` 简版提示
