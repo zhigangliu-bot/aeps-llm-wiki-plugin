@@ -151,9 +151,17 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
 
 ```
 1. 跑 /aeps-llm-wiki-query "<question>"
-2. LLM 读 index.md → 锚定相关页
-3. 读相关页 + log.md → 答案 + [[wikilink]]
-4. 不编造 wiki 里没有的内容
+2. SKILL.md 先跑 node ./scripts/check-qmd.mjs --project-dir . → 拿到 engine 决策
+   - engine=index(< 500 页):走 4 跳扫描
+   - engine=qmd(≥ 500 页且 qmd 在):qmd query "<question>" --collection knowledge --limit 20,拿 top-20 进跳 2
+   - engine=fail(≥ 1000 页且 qmd 不在):直接退出,提示"必须装 qmd"
+3. (4 跳扫描)跳 1:读 index.md,按 tag 关键词过滤选 top-K(K=10)强候选
+4. (4 跳扫描)跳 2:读候选页(优先级 description/summary → title → 全文)
+5. (4 跳扫描)跳 3:顺候选页 [[wikilink]] 跳邻居(1 跳深度,硬上限 8 页)
+6. (4 跳扫描)跳 4:读 glossary.md(术语消歧)+ log.md 近期 10 条(新 ingest 是否已消化)
+7. 回答,每条断言附 wiki [[wikilink]]
+8. 落档询问 → type: analysis 页放 knowledge/analyses/<时间戳>-<slug>.md
+9. 不编造 wiki 里没有的内容
 ```
 
 ### 5.3 lint(健康检查)

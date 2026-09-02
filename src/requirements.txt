@@ -1,11 +1,10 @@
-# aeps-llm-wiki-plugin 第三方 Python 依赖清单
+# aeps-llm-wiki-plugin 第三方依赖清单
 #
+# 实际依赖文件在: src/scripts/requirements.txt
+# 原因:init 时 scripts/requirements.txt 会随 scripts/ 一起被拷贝到 <project>/scripts/requirements.txt
+# 本文件保留为空占位,以防插件维护者 / 测试脚本误以为依赖列表在这里
+
 # 安装方式:
-#   pip install -r requirements.txt
-#
-# 当前依赖列表:无(scripts/ 暂为空,所有 skill 行为由 prompt + stdlib + Unix 工具承担)
-#
-# 添加新依赖前请确认:
-# 1. 是否能用 Python stdlib 替代(优先原则)
-# 2. 是否能用 bash/Unix 工具替代
-# 3. 添加后在 docs/README.md 更新安装说明
+#   pip install -r scripts/requirements.txt
+
+# 添加新依赖请直接编辑 scripts/requirements.txt

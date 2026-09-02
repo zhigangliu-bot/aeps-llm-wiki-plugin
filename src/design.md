@@ -76,8 +76,9 @@ src/
 | `templates/*`                               | 静态模板,init 时复制到用户项目                                                                                                             | ✅                           |
 | `schema/frontmatter.schema.yaml`            | frontmatter 字段机器可读定义,单一真理源                                                                                                    | ✅(被 skills/templates 引用) |
 | `scripts/*`                                 | skill 调用的辅助脚本(Node 18+ .mjs,init 时拷到 user-project);所有脚本必须**单次运行即退出**,不开 daemon / 不挂监听 / 不暴露服务(与 NFR-1 兼容) | ✅(被 skills 调用)            |
+| `scripts/check-qmd.mjs`                   | query skill 跑前探查 qmd 可用性 + 数 knowledge 页数,按阈值返回 `index` / `qmd` / `fail`(详见 §4.3) | ✅(被 query skill 调用)        |
 | `hooks/hooks.json`                        | Claude Code 事件回调;SessionStart → plugin 仓库更新检查,详见 §8;事件回调同步跑完即退,不开监听 | ✅(被 Claude Code 自动触发)   |
-| `requirements.txt`                          | 第三方 Python 依赖清单(anydoc / paddleocr);init 时随 scripts/ 拷到 `<project>/scripts/requirements.txt`,用户必须 `pip install -r scripts/requirements.txt` 才能用 ingest 的 pptx/docx/xlsx/pdf/图片类 OCR | ✅(被 convert-to-md.mjs 调用,运行时必需) |
+| `requirements.txt`                          | 第三方 Python / Node 依赖清单(anydoc / paddleocr 强依赖;qmd 可选依赖);init 时随 scripts/ 拷到 `<project>/scripts/requirements.txt`,用户必须 `pip install -r scripts/requirements.txt` 才能用 ingest 的 pptx/docx/xlsx/pdf/图片类 OCR;qmd 单独 `npm install -g @tobilu/qmd` | ✅(被 convert-to-md.mjs / check-qmd.mjs 调用) |
 | `docs/*`                                    | 用户文档                                                                                                                                   | ❌                           |
 | `tests/*`                                   | 离线验证 plugin 产物                                                                                                                       | ❌                           |
 | `prd.md` / `design.md` / `implement.md` | 文档三件套                                                                                                                                 | ❌                           |
@@ -88,7 +89,7 @@ src/
 
 - **运行路径** = plugin 装到用户 Claude Code 后会被读 / 调用的部分(skills + templates + schema + scripts)
 - **不进运行路径** = plugin 维护者自己看 + 开发者自测用;**用户装上 plugin 后不需要这些文件也能正常工作**
-- **`requirements.txt` 是运行时依赖**:ingest 调 `scripts/convert-to-md.mjs` 需要 anydoc / paddleocr(均为 Python 包),用户必须先 `pip install -r scripts/requirements.txt`;**未装 SKILL.md 会先校验并提示**,不进入转换流程
+- **`requirements.txt` 是运行时依赖**:ingest 调 `scripts/convert-to-md.mjs` 需要 anydoc / paddleocr(均为 Python 包),用户必须先 `pip install -r scripts/requirements.txt`;**未装 SKILL.md 会先校验并提示**,不进入转换流程。query 在 wiki 规模较大时调 qmd(详见 §4.3),用户需另行 `npm install -g @tobilu/qmd`(可选,未装按阈值降级或 FAIL)
 
 ### 1.4 scripts/ 与 hooks/ 的边界
 
@@ -274,6 +275,19 @@ node ./scripts/convert-to-md.mjs --project-dir . --input inbox/<file> --output <
 - 输入:`inbox/<file>`(任意扩展名)
 - 输出:**临时 markdown 文件路径**(由 SKILL.md 决定,读完即删)
 - 脚本内部按扩展名走"Claude converter → 降级 anydoc / OCR"的三段策略(详见 §4.2 步骤 2 表格)
+
+#### SKILL.md 调用约定(check-qmd.mjs)
+
+query skill 跑前先探查引擎决策:
+
+```bash
+# 探查 qmd 可用性 + 数 knowledge 页数 → 返回 JSON
+node ./scripts/check-qmd.mjs --project-dir .
+```
+
+- 输出:`{pageCount, qmdAvailable, qmdVersion, engine: 'index'|'qmd'|'fail', reason}`
+- SKILL.md 据此决定走 4 跳扫描还是调 `qmd query`,以及是否降级(详见 §4.3)
+- **`fail` 模式退出码非零**(SKILL.md 直接退出,提示用户装 qmd)
 
 #### SKILL.md 写法约束(plugin 维护者 + LLM 写都遵守)
 
@@ -978,16 +992,78 @@ Init re-run 完成。sync 摘要:
 
 ### 4.3 `/aeps-llm-wiki-query`
 
-**Agent 行为**:
+**触发场景**:用户对 wiki 提问(`/aeps-llm-wiki-query <question>`)。
 
-1. 读 `knowledge/index.md` 找候选页
-2. **优先级**(从低到高读):
-   - description / summary(几乎所有候选都先读这个)
-   - title 段
-   - 全文(只在 description 不够时)
+**Agent 行为**(4 跳扫描):
+
+**先决条件** —— 跑前跑 `scripts/check-qmd.mjs`(单次,探查 `qmd --version` 是否可用),并数 `knowledge/**/*.md` 当前页数 N,按阈值决定用 `index.md` 还是 `qmd`:
+
+| 页数 N | 入口 | qmd 缺失行为 |
+|---|---|---|
+| N < 500 | **纯 `index.md` + 4 跳扫描** | 不需要 qmd |
+| 500 ≤ N < 1000 | **优先 qmd**(`qmd query "<question>"`) | 提示用户装 qmd,走纯 `index.md` 降级 |
+| N ≥ 1000 | **必须 qmd** | **报错**(提示"wiki 已超 1000 页,请装 qmd"),不进入回答 |
+
+阈值常量:
+
+```js
+// scripts/check-qmd.mjs 内部(仅示意,实际由该脚本返回)
+QUERY_INDEX_THRESHOLD = 500      // N < 此值纯 index
+QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
+```
+
+**4 跳扫描算法**(当选择纯 `index.md` 或 qmd 缺失降级时):
+
+```
+跳 1:index 过滤
+  - 读 knowledge/index.md 全部条目
+  - 每个条目 frontmatter 的 tags 与 query 关键词做匹配
+  - 选 top-K(K=10,常量,详见 §4.3.1)作为"强候选"
+  - 余下条目作为"弱候选"(兜底用,如果强候选答案不够)
+
+跳 2:读强候选页
+  - 优先级:description / summary → title → 全文
+  - 提取与 query 直接相关的"显式答案"
+  - 同时记录每个候选页出现的 [[wikilink]] 链接,准备跳 3
+
+跳 3:跳邻居(1 跳深度,避免雪崩)
+  - 顺着强候选页里出现的 [[wikilink]] 跳
+  - 目标页类型偏好:concepts/* > entities/* > sources/* > analyses/* > syntheses/* > comparisons/*
+  - 1 跳深度(不从邻居再追邻居),硬上限 8 个邻居页
+
+跳 4:glossary + log 辅助
+  - glossary.md:用 query 关键词消歧(同义词 / 术语官方翻译)
+  - log.md:取最近 10 条,找近期 ingest 是否含相关源(避免新内容没消化)
+```
+
+**qmd 入口**(当 wiki 规模达到阈值且 qmd 已装):
+
+```bash
+qmd query "<question>" --collection <wiki-knowledge-dir> --limit 20
+```
+
+- `--collection`:qmd 的 collection 名(plugin 不预设,init 时让用户配一次或留默认 `knowledge`)
+- `--limit 20`:plugin 预设上限
+- SKILL.md 拿 qmd 返回的 top-20 命中,直接进入"跳 2"逻辑(跳 1 由 qmd 替代)
+
+**回答与落档**:
+
 3. 回答,**每条断言附 wiki 标准 markdown 链接**
 4. 回答结束后**问用户是否落档** → 落档则新建 `type: analysis` 页,放 `knowledge/analyses/<时间戳>-<slug>.md`,追加 log
 5. **不应**:编造 wiki 里没有的内容
+
+#### 4.3.1 top-K 与命中阈值常量
+
+```js
+// scripts/query-rank.mjs(纯算法骨架,实际由 SKILL.md 提示词驱动,不写死)
+QUERY_CANDIDATE_K = 10           // 跳 1 选 top-K
+QUERY_NEIGHBOR_MAX = 8           // 跳 3 邻居硬上限
+QUERY_LOG_RECENT = 10            // 跳 4 log 取最近 N 条
+QUERY_INDEX_THRESHOLD = 500      // N < 此值纯 index
+QUERY_QMD_REQUIRED_THRESHOLD = 1000  // N ≥ 此值必须 qmd
+```
+
+**为何不引入 RAG / 向量索引**:`index.md` + 4 跳在 ~100 个源 / 几百页规模足够(Karpathy `llm-wiki.md` line 47 验证);qmd 作为可选搜索引擎补充更大规模,plugin 不自建 RAG(对齐 NFR-1)。
 
 ### 4.4 `/aeps-llm-wiki-lint`
 

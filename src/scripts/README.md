@@ -11,7 +11,8 @@ skill 调用的辅助脚本。**只放单次运行即退出的 helper**,不开 d
 | 脚本 | 调用方 | 用途 |
 |---|---|---|
 | `convert-to-md.mjs` | ingest skill | 按扩展名分流:`md/txt/...` 直接读;`pptx/docx/xlsx/pdf` 先 Claude converter 失败降级 anydoc;`png/jpg/jpeg/bmp/tiff` 走 paddleocr。详见 design §4.2 / §2.4 |
-| `requirements.txt` | (依赖清单,非可执行) | anydoc / paddleocr Python 依赖;用户必须 `pip install -r scripts/requirements.txt` |
+| `check-qmd.mjs` | query skill | 跑前探查:数 knowledge 页数 + 测 `qmd --version`,按阈值返回 `engine: index / qmd / fail`(详见 design §4.3 / §2.4) |
+| `requirements.txt` | (依赖清单,非可执行) | anydoc / paddleocr 强依赖(未装 FAIL);qmd 可选(未装按阈值降级或 FAIL,详见 design §4.3)。用户必须 `pip install -r scripts/requirements.txt`,qmd 需 `npm install -g @tobilu/qmd` |
 
 ## 未来可能添加的脚本(skill 实现阶段定)
 

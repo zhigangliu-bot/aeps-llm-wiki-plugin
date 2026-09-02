@@ -134,9 +134,18 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 ### 4.3 Query skill
 
 - **触发**:`/aeps-llm-wiki-query <question>`
+- **必须**(4 跳扫描,详见 design §4.3):
+  - **第 1 跳**:`knowledge/index.md` 找候选页;按 `tags` 关键词做第一轮过滤(条目 frontmatter 的 tag 与 query 关键词重合数,top-K 入选)
+  - **第 2 跳**:读候选页(优先级:`description` / `summary` → `title` → 全文)
+  - **第 3 跳**:顺着候选页内的 `[[wikilink]]` / `Related pages` 段跳到相邻 `entities/` `concepts/` `analyses/` `comparisons/` 页(1 跳深度,避免雪崩)
+  - **第 4 跳**:读 `glossary.md`(query 关键词消歧)+ `log.md` 近期 10 条(检查是否近期 ingest 了相关源没消化)
+- **必须**(本地搜索引擎 qmd 分流,详见 design §4.3):
+  - **< 500 页**:纯 `index.md` + 4 跳扫描,**不**调 qmd
+  - **500~1000 页**:**优先 qmd**(`qmd query "<question>"`);未装 → 提示用户装,降级走 `index.md`
+  - **> 1000 页**:**必须 qmd**;未装 → **报错**(提示"wiki 已超 1000 页,请装 qmd 后再 query"),不进入回答
+  - 阈值常量:`QUERY_INDEX_THRESHOLD = 500`、`QUERY_QMD_REQUIRED_THRESHOLD = 1000`(详见 design §4.3)
+  - 探查入口:`scripts/check-qmd.mjs`(单次脚本,跑 `qmd --version` 探查可用性)
 - **必须**:
-  - 读 `knowledge/index.md` 找候选页
-  - 读相关页(优先级规则在 design)
   - 回答,**每条断言附 wiki 标准 markdown 链接**
   - 回答结束后**问用户是否落档** —— 落档则新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,与 `sources/` 同约束;**禁止**含 `## 摘要` 小节,query 原问句必须保留在 frontmatter `summary` 字段首行 `**问题**: ...`;详见 design §3.1 §C + §4.6),追加 log
 - **不应**:编造 wiki 里没有的内容(必须诚实说"我读到的 wiki 里没有覆盖这点")
@@ -271,12 +280,13 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式:
 
 ### 7.2 非功能验收
 
-- [ ] NFR-1:plugin 装上后,**不引入**任何 MCP server / CLI / hooks / RAG 依赖
+- [ ] NFR-1:plugin 装上后,**不引入**任何 MCP server / CLI / hooks / RAG 依赖(**可选**例外:[qmd](https://github.com/tobi/qmd) —— 仅作为 query skill 在 wiki 规模较大时的本地搜索引擎;用户必须自行 `npm install -g @tobilu/qmd`,plugin 不强制装,详见 §4.3)
 - [ ] NFR-2:plugin 本身在 `F:\llm-wiki\aeps-llm-wiki-plugin\src\` 下,代码 / 文档 / 测试 / schema 各居其位(模块化原则)
 - [ ] NFR-3:所有文档 / 用户消息 / skill 输出中文为主,术语保持英文(如 `type: source` 不翻译)
 - [ ] NFR-4:plugin 不带绝对路径(CLAUDE.md 硬约束)
 - [ ] NFR-5:所有临时文件进 `temp/`(CLAUDE.md 硬约束)
 - [ ] NFR-6:LICENSE = Apache 2.0(对齐 OKF)
+- [ ] NFR-7:**Python / Node 外部依赖清单**写进 `scripts/requirements.txt`(anydoc / paddleocr 强依赖;qmd 可选依赖;**SKILL.md 跑前先校验**,按页面数 / 文件类型走降级或 FAIL,详见 §4.2 / §4.3)
 
 ### 7.3 兼容性验收
 

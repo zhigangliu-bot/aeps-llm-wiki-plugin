@@ -1,0 +1,19 @@
+# aeps-llm-wiki-plugin 第三方依赖清单
+# init 时由 plugin 拷贝到 <project>/scripts/requirements.txt
+#
+# 安装方式:
+#   pip install -r scripts/requirements.txt
+#
+# 强依赖(未装 → SKILL.md 跑前校验并 FAIL,见 prd §4.2):
+anydoc>=0.3.0          # .pptx / .docx / .xlsx / .pdf → markdown(Claude converter 失败时降级)
+paddleocr>=2.7         # .png / .jpg / .jpeg / .bmp / .tiff → markdown(OCR)
+
+# 可选依赖(未装 → 按页面数走降级或 FAIL,见 prd §4.3):
+# qmd 不是 Python 包,但统一列在此处提示用户安装命令:
+#   npm install -g @tobilu/qmd    # 本地 markdown 搜索引擎,query skill 在 wiki ≥ 500 页时启用
+#   qmd status                    # 验证安装
+
+# 添加新依赖前请确认:
+# 1. 是否能用 stdlib / Claude 内置 converter 替代(优先原则)
+# 2. 是否能用 bash / Unix 工具替代
+# 3. 添加后在 docs/README.md 更新安装说明

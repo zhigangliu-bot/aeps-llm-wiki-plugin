@@ -99,6 +99,11 @@ plugin 上架资产                          ❌ 待新建
 - 一次性 query:直接答 + `[[wikilink]]`,不建页
 - 多次 query 同主题 / 用户显式说"对比一下" → 提议建 `knowledge/comparisons/<a>-vs-<b>.md`,用户拍板
 - **绝不编造 wiki 里没有的内容**(AC-3 硬验收)
+- **跑前先跑** `node ./scripts/check-qmd.mjs --project-dir .`,根据返回 `engine` 决定入口:
+  - `engine: index` → 4 跳扫描(跳 1 读 index.md + tag 过滤;跳 2 读候选页 description/title/全文;跳 3 顺 `[[wikilink]]` 跳邻居 ≤ 8;跳 4 读 glossary + log 最近 10 条)
+  - `engine: qmd` → `qmd query "<question>" --collection knowledge --limit 20`,拿 top-20 进入跳 2
+  - `engine: fail` → 直接退出,提示用户装 qmd(N ≥ 1000 强约束)
+- top-K 常量:`QUERY_CANDIDATE_K=10` / `QUERY_NEIGHBOR_MAX=8` / `QUERY_LOG_RECENT=10` / `QUERY_INDEX_THRESHOLD=500` / `QUERY_QMD_REQUIRED_THRESHOLD=1000`
 
 #### B4:`/aeps-llm-wiki-lint` SKILL.md
 
@@ -151,6 +156,26 @@ plugin 上架资产                          ❌ 待新建
 - [ ] 准备 fixture:已知 wiki 内容
 - [ ] 跑 query 问已知答案 → 答对 + 链接
 - [ ] 跑 query 问 wiki 里没有的内容 → 显式声明"未找到"而非编造
+
+#### C3.1:query 4 跳扫描(< 500 页)
+- [ ] fixture wiki 50 页,跑 `/aeps-llm-wiki-query "<已知答案>"`,验证走 4 跳:
+  - 跳 1:index.md 命中 N 个候选
+  - 跳 2:候选页 description/summary 给出答案
+  - 跳 3:候选页的 `[[wikilink]]` 跳邻居,邻居页参与回答
+  - 跳 4:glossary.md 提供术语消歧
+- [ ] fixture query 关键词命中 index 条目 frontmatter `tags` 的,验证该条目优先入选(top-K)
+
+#### C3.2:query qmd 分流(500 ≤ N < 1000)
+- [ ] fixture wiki 600 页,qmd 已装,跑 query → 验证 `qmd query` 被调用
+- [ ] fixture wiki 600 页,qmd 未装,跑 query → 验证降级走 index + 4 跳,并提示"推荐装 qmd"
+
+#### C3.3:query qmd 强约束(N ≥ 1000)
+- [ ] fixture wiki 1100 页,qmd 未装,跑 query → 验证直接报错退出,提示"必须装 qmd",**不**进入回答
+- [ ] fixture wiki 1100 页,qmd 已装,跑 query → 正常返回 qmd top-20 命中
+
+#### C3.4:check-qmd.mjs 单测
+- [ ] 单元测 `<500 / 500~1000 / ≥1000` 三种 pageCount 边界
+- [ ] qmd 在 / 不在两种组合 → 共 6 种 case,验证返回 `engine` 字段正确
 
 #### C4:AC-4(lint 全规则)
 - [ ] 准备 fixture:故意造孤儿页 / 矛盾页 / 陈旧页(`stale_after` 早于 today)/ 缺必填 frontmatter / 含 `## 摘要` 小节 / 命名飘(`soc-design` vs `socke-design`)
