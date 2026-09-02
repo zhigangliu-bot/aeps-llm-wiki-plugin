@@ -246,6 +246,15 @@ plugin 上架资产                          ❌ 待新建
   - [ ] 写 `tests/test_links_mirror_types.py`:fixture 含正文 `[text](path.md)` markdown 链接 → 跑 ingest → 验证 frontmatter `links:` 含 `{type: markdown, target: path.md}` 条目
   - [ ] 写 `tests/test_links_mirror_idempotent.py`(**Q7 Round 7 新增**,Set 比对规则):fixture 写一份页 frontmatter `links: [A, B]`(顺序 A→B)+ 正文 wikilink `[[B]]` + `[[A]]`(顺序 B→A)→ 跑 lint → **不告警**(Set 相等)、`--fix` **不重写**文件(content hash 不变 + mtime 不变);正反两次跑结果完全相同(幂等)
   - [ ] 写 `tests/test_links_mirror_preserves_updated_and_mtime.py`(**Q7 Round 7 新增**,死循环防护):fixture 造一份页 frontmatter `updated: 2026-01-01T00:00:00Z` + 故意把 `links:` 加 ghost → 跑 lint --fix → 断言 (a) `updated` 字段值不变;(b) 文件 mtime 在 fix 前后保持相等(`os.stat().st_mtime` 一致);(c) log.md 追加 `**LintFix**: links-mirror-sync ...` 不含 `updated` 字段字样(暗示业务时间未受影响)
+  - [ ] **C4.3 Link Normalizer 解析规则**(详见 design §3.6.2,v0.3.2 新增):
+    - [ ] 写 `tests/test_links_normalizer_alias.py`:fixture 正文 `[[NoteName|Alias]]` + frontmatter `links: [{type: wikilink, target: NoteName}]` → 跑 lint → **不告警**(别名已剥离,不进比对)
+    - [ ] 写 `tests/test_links_normalizer_anchor.py`:fixture 正文 `[[NoteName#section]]` + `links: [{type: wikilink, target: NoteName}]` → 跑 lint → **不告警**(锚点剥离且不进 links:);fixture 含 2 处不同锚点同 Note → 跑 lint → **不告警**(去重后 Set 相等)
+    - [ ] 写 `tests/test_links_normalizer_path_prefix.py`:fixture 正文 `[[entities/person/foo]]` + `links: [{type: wikilink, target: entities/person/foo}]` 与 `[[foo]]` + `links: [{type: wikilink, target: foo}]` 两份页混合 → 跑 lint 全局图扫描 → Set 比对后应**指向同一节点**(basename 等价);写入 frontmatter 时**保留原始路径**(OKF 兼容需要)
+    - [ ] **反例测试**:fixture 正文 `[[NoteName|Alias]]` 与 frontmatter `links: [{type: wikilink, target: NoteName|Alias}]`(实现错误地把别名当 target)→ 跑 lint → 断言 **FAIL** + 报告"`Alias` 是显示文本,不应进比对 key"
+  - [ ] **C4.4 Lint --fix 安全锁**(详见 design §5.4,v0.3.2 新增):
+    - [ ] 写 `tests/test_lint_fix_dry_run.py`:fixture 含 3 个待修复文件 → 跑 `lint.py --fix`(无 `--apply`)→ 断言 (a) 3 个文件**未被修改**(mtime + content hash 双双不变);(b) 报告输出每文件的 diff 提案;跑 `--fix --apply` → 断言 3 个文件**被修改**
+    - [ ] 写 `tests/test_lint_fix_transactional.py`:fixture 含 5 个待修复文件,故意在第 3 个文件注入 frontmatter schema 校验失败 → 跑 `lint.py --fix --apply` → 断言 (a) 0 个文件被修改(全部回滚);(b) 报告指出"图结构预检失败 / 校验失败" + 失败文件名 + 行号
+    - [ ] 写 `tests/test_lint_fix_git_dirty_guard.py`:fixture 在 git 仓库 + 工作区脏状态(故意改 1 个文件不 commit)→ 跑 `lint.py --fix --apply` → 断言 (a) 退出非 0;(b) 报告"工作区有未提交改动,请先 commit 或 stash";跑同命令加 `--allow-dirty` → 断言 (a) 退出 0;(b) 报告注明"已忽略脏状态检查";fixture 在 git 仓库 + 工作区干净 → 跑 `--fix --apply` → 断言 (a) 写入成功;(b) 写入前自动 `git stash push` 创建快照(可在 stash list 找到 `lint-fix-pre-snapshot`)
 
 #### C5:AC-5(frontmatter 自动校验)
 
@@ -529,3 +538,42 @@ git tag -l "v*" | sort -V | tail -5
 - **决议**:NFR-1 加**唯一阈值升级条款** —— `knowledge/` 页数 $N \ge 1000$ 时 qmd 临时升级为强依赖(query skill 报错退出);其余规模下 qmd 仍为可选降级。**不改** prd §4.3 / implement §B3 / §C3.3 现有 FAIL 行为,design §1.2 / §4.3「降级或 FAIL」表述与之兼容。
 - **影响面**:仅 prd.md NFR-1 一句话措辞加严;无测试新增(C3.3 fixture 1100 页 qmd 未装 FAIL 已覆盖);design.md / implement.md 行为面无变化。
 - **版本号**:v0.3.1 PATCH 不 bump(行为面无变化,合并入同次提交)。
+
+---
+
+### v0.3.2(2026-09-02) — Round 8 Link Normalizer + Lint --fix 安全锁
+
+**背景**:Round 7 Q7 死循环防护只覆盖"单个文件写入无副作用",未覆盖"wikilink 解析归一化"与"批量写入整体一致性"。两处都是真实设计空缺:
+
+- **空缺 1 Normalizer**:正文 `[[NoteName|Alias]]` / `[[NoteName#章节]]` / `[[dir/NoteName]]` 与 frontmatter `links:` 字符串字面比对,会导致 Obsidian 别名 / 锚点 / 路径前缀差异被误判为 drift → 反复"纠错"
+- **空缺 2 安全锁**:`--fix` 是批量写文件,任一中断会留下 frontmatter 已更新 / 正文未更新 / 索引未同步 的不一致状态;且无 git 兜底 → 变更不可回滚
+
+**改动**:
+
+- **design §3.6.2 新增 "Link Normalizer" 子段**(Q7 之前,作为输入约束),5 条解析规则:
+  - 别名剥离(`[[NoteName|Alias]]` → `NoteName`)
+  - 锚点剥离与归档(`[[NoteName#章节]]` → `(NoteName, anchor="章节")`,锚点不进 links: 但写入 log.md)
+  - 路径前缀归一化(比对走 basename,写入保留完整字符串对齐 OKF §9)
+  - 类型区分(wikilink / markdown / url 三类,与现有 frozenset 元素结构对齐)
+  - 反例警戒 3 条(避免实现走偏)
+- **design §5.4 新增 "Lint --fix 安全锁" 子段**,3 条硬约束:
+  - **默认 dry-run**:`--fix` ≠ `--apply`,必须双开关才触发磁盘写入
+  - **事务原子写入**:全部改写先生成 in-memory 模型 → 图结构预检(孤立/循环/反向链接) → 通过后 `os.replace` 一次性原子写入
+  - **Git 脏状态前置检查**:`git status --porcelain` 检脏 → 阻断;`--allow-dirty` 显式放行;干净时自动 `git stash push` 创快照
+- **implement §C4.3 Link Normalizer 解析规则 fixture**(4 项):
+  - 别名剥离不告警 / 锚点剥离不告警且去重 / 路径前缀 basename 等价但写入保留原字符串 / 反例 FAIL(`Alias` 当 target)
+- **implement §C4.4 Lint --fix 安全锁 fixture**(3 项):
+  - dry-run 不写盘 / 事务校验失败全部回滚 / git 脏状态阻断 + `--allow-dirty` 放行 + 干净时自动 stash
+
+**与已有规则的关系**:
+- **Q7 死循环防护**(`§3.6.2`):管"单文件写入无副作用"—— 不动 `updated`、保留 mtime、Set 比对
+- **Normalizer**(`§3.6.2`):管"统一解析 → 标准键"—— 避免 drift 假阳性
+- **安全锁**(`§5.4`):管"批量写入不破坏整体一致性"—— dry-run + 事务 + git 兜底
+- 三者**层层独立**,缺任一都会留下不一致隐患
+
+**不动**:
+- Q6 wikilink 一等公民 / Q10 plan JSON / Q11 subagent 写权矩阵:已冻结
+- design §4.4 / §C4.1 lint 行为边界(确定性 vs 语义分流):已冻结
+- scripts/ 严禁交互硬契约(NFR-1 加严,本轮 stdin 全禁):v0.3.1 PATCH 已冻结
+
+**兼容性**:**v0.3.2 PATCH bump**。本次是**新增设计契约**(Normalizer + 安全锁两条全新约束),不是已有规则的加严;OKF v0.2 schema 无 breaking change;既有 v0.3.1 wiki 升级到 v0.3.2 plugin **无需**重跑 init,但需要新 fixture 测试通过验证。lint `--fix` 命令行行为有用户可见变化(从单开关 → 双开关),需要在 plugin manifest / README 注明迁移提示。

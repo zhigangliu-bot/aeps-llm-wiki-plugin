@@ -180,6 +180,8 @@ agent: producer/aeps-llm-wiki-plugin/0.4.0
    - 语义级问题(矛盾 / 命名飘合并 / 漏链 / 陈旧处理)仅出提案,不应用,等用户确认
    - `[[wikilink]]` 是一等公民(Q6):Obsidian 原生双链 / Karpathy 老 wiki 兼容;**OKF 兼容靠 frontmatter `links:` 镜像字段自动同步**(详见 design §3.6.2):正文 wikilink 增减时 lint 告警,`--fix` 自动重生成 `links:`
      - **死循环防护(Q7)**:`--fix` 重写 `links:` 时**绝对不动 `updated` 字段 + 文件 mtime**(详见 design §3.6.2 "`links:` 自动重写的硬约束");陈旧检测回退判定(§6 表格)继续走业务时间,不因镜像修复被错误重置
+     - **Link Normalizer(v0.3.2)**:`[[NoteName|Alias]]` / `[[NoteName#章节]]` / `[[dir/NoteName]]` 走统一 Normalizer 管道(详见 design §3.6.2 "Link Normalizer" 子段);别名 / 锚点不参与比对,路径前缀归一化但写入保留原字符串对齐 OKF §9
+     - **Lint --fix 安全锁(v0.3.2)**:`--fix` 默认 dry-run;真正写盘必须 `--fix --apply` 双开关;批量写入走事务原子(in-memory 模型 + 图结构预检 + `os.replace` 一次性写入);git 仓库脏状态阻断,`--allow-dirty` 显式放行,干净时自动 `git stash` 创快照(详见 design §5.4 "Lint --fix 安全锁")
 ```
 
 ### 5.4 synthesis(综合页)

@@ -1060,6 +1060,24 @@ links:
 - 与 frontmatter `links:` 对比,差异(Wikilink 漏登记 / `links:` 多余)→ WARN
 - `--fix` 模式:自动重生成 `links:` 字段(全量覆盖,user 拍板写入)
 
+**Link Normalizer(wikilink 解析与归一化,v0.3.2 新增)**:
+
+正文扫描与 frontmatter `links:` 比对前,wikilink 必须经过**统一 Normalizer 管道**洗一遍,避免 Obsidian 别名 / 锚点 / 路径前缀等差异被误判为 drift → 反复"纠错":
+
+1. **别名剥离**:`[[NoteName|Alias]]` → 提取为 `NoteName`(Obsidian 显示文本不进比对 key)
+2. **锚点剥离与归档**:`[[NoteName#章节]]` / `[[NoteName|Alias#章节]]` → 拆为 `(NoteName, anchor="章节")` 二元组;锚点不进 `links:`(只对语义连接有意义,OKF reader 不消费锚点),但写入 log.md 时记录锚点供人类审计
+3. **路径前缀归一化**:`[[dir/NoteName]]` / `[[NoteName]]` 在 **比对阶段** 等价 —— 比对走 `basename`(`NoteName`);但 **写入 frontmatter `links:`** 时保留**完整原始字符串**(`dir/NoteName`),对齐 OKF v0.2 §9 的"链接语义完整"要求
+4. **类型区分**(与 [§3.6.2 行 1067 frozenset 元素结构](aeps-llm-wiki-plugin/src/design.md#L1067)对齐):
+   - `[[NoteName]]` → `{type: wikilink, target: NoteName}`
+   - `[text](url)` → `{type: markdown, target: url}`
+   - `<url>`(裸 URL)→ `{type: url, target: url}`
+5. **反例警戒**(避免实现走偏):
+   - **不允许**把 `[[NoteName|Alias]]` 当作独立链接与 `[[NoteName]]` 共存(`Alias` 是显示文本,不进比对)
+   - **不允许**把 `[[dir/NoteName]]` 强制改写为 `[[NoteName]]`(OKF reader 依赖路径语义)
+   - **不允许**忽略 `[text](url)`(OKF v0.2 §9 同时消费 markdown 链接,不只 wikilink)
+
+**Normalizer 与 Q7 死循环防护的边界**:Normalizer 只负责"统一解析 → 标准键",Q7 三条规则(`frozenset` 比对 + 不改 `updated` + 保留 mtime)负责"写回时无副作用"。Normalizer 错则 drift 假阳性,Q7 缺则写回副作用。
+
 **`links:` 自动重写的硬约束(Q7 死循环防护,Round 7 新增)**:
 
 为避免与 §5.4 陈旧检测 + §3.4 "重新生成 ≠ 更新" 不变量产生循环,`links:` 自动重写必须遵循以下 3 条确定性规则 —— **不允许 plugin 写作者自行取舍**:
@@ -1920,6 +1938,45 @@ python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.json
 | 同一文件已被 ingest 过(sources/ 已有名)   | 警告 + 问用户是覆盖还是新版本              |
 | LLM 抽取生成 0 个概念页                   | 不报错,只生成 source 页 + 警告"没抽到概念" |
 | frontmatter schema 校验失败               | 不写盘,要求 LLM 重写 frontmatter           |
+
+#### Lint --fix 安全锁(v0.3.2 新增)
+
+`--fix` 是**批量写文件**的操作,任一中断都会导致 frontmatter 已更新 / 正文未更新 / 索引未同步 的不一致状态。安全锁定义 3 条硬约束 —— **不允许 plugin 写作者自行取舍**:
+
+1. **默认 dry-run(`--fix` ≠ `--apply`)**
+   - `python3 ./scripts/lint.py --fix` 默认**只输出修复提案 + diff**,**不写盘**
+   - 真正写盘必须显式 `python3 ./scripts/lint.py --fix --apply`(双开关,**任何单开关都不触发磁盘写入**)
+   - 提案报告包含每个文件的预期改动(diff 形式)+ 整体图结构校验摘要
+
+2. **事务原子写入**
+   - 全部 frontmatter 改写**先在内存中**预先生成(N 个文件的 in-memory 模型),**禁止**边扫边写
+   - 内存模型生成完后,跑整体图结构预检 —— 孤立节点(无任何出链/入链)、循环引用(`A → B → A`)、links 反向链接不一致;任一校验失败 → **全部回滚**,不写盘
+   - 校验通过后,**一次性原子写入**(用临时文件 `mv` / `os.replace` 替换,确保写盘要么全部成功、要么全部失败;**禁止** `for f in files: f.write_text()` 逐文件写)
+
+3. **Git 脏状态前置检查**
+   - 批量写入前,跑 `git rev-parse --is-inside-work-tree` 确认在 git 仓库;再跑 `git status --porcelain` 检脏状态
+   - **不在 git 仓库** → 不阻断(用户可能用 Obsidian Sync / 自管版本控制,不强求 git),仅在报告中注明"未检测到 git,无法回滚兜底"
+   - **在 git 仓库且有脏状态**(未提交改动 / 未跟踪文件)→ **直接退出**,提示"工作区有未提交改动,请先 commit 或 stash 后再跑 --apply";**仅**显式传 `--allow-dirty` 才放行(并在报告中记录"已忽略脏状态检查,变更不可回滚")
+   - **在 git 仓库且干净** → 写入前自动 `git stash push -u -m "lint-fix-pre-snapshot"` 创快照,写入后提示用户"已创建 stash,可手动 `git stash pop` 回滚"
+
+**安全锁与 Q7 / Normalizer 的关系**:
+- Q7(`§3.6.2` 死循环防护)管"单个文件写入无副作用":不动 `updated`、保留 mtime、Set 比对
+- Normalizer(`§3.6.2`)管"统一解析 → 标准键",避免 drift 假阳性
+- **安全锁管"批量写入不破坏整体一致性"**:dry-run + 事务 + git 兜底
+- 三者**层层独立**,缺任一都会留下不一致隐患
+
+**SKILL.md 调用示例**(强制双开关):
+
+```bash
+# 仅看修复提案(默认)
+python3 ./scripts/lint.py --fix
+
+# 真正写盘
+python3 ./scripts/lint.py --fix --apply
+
+# 强制写盘(脏状态下)
+python3 ./scripts/lint.py --fix --apply --allow-dirty
+```
 
 ---
 
