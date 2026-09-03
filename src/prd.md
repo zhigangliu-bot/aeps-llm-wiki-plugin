@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.5.0 已冻结(2026-09-03);**v0.5.3 PATCH 已就位**(2026-09-03)— Round 13 修复 PRD 缺陷 5(Q7 mtime + atime 双还原)
+> **状态**:v0.5.0 已冻结(2026-09-03);**v0.5.4 PATCH 已就位**(2026-09-03)— Round 14 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级为单线程重解析,不阻断 ingest 管道)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -497,6 +497,21 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **只升级** Q7 第 3 条规则的**实现细节**(atime/mtime 双还原 + 4 步流程),**不**改 Q7 业务意图(`updated` 不改 + Set 比对 + 文件无副作用)
 
 **升级路径**:既有 v0.5.2 wiki 升级到 v0.5.3 plugin **无需**重跑 init,**无需**跑迁移脚本;`okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数行为升级即可(下次跑 `--fix` 自动按 4 步流程写盘)。
+
+### v0.5.4(2026-09-03) — Round 14 PATCH 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级单线程重解析)
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 18 | **§4.2.1 proposal JSON schema 强校验 + 损坏降级**(修复缺陷 3):阶段 2 subagent 写出的 `temp/<id>-proposal.json` 必须经过严格 schema 校验(`jsonschema.validate(proposal, proposal_schema)`,必填字段 8 项 + enum 白名单 + `additionalProperties: false`)+ 字符集清洗(strip NUL/单元分隔符等控制字符,BOM 保留,`</script>` → `<\/script>`)+ 截断检测(`concepts` 数组 `maxItems: 200`);**任何校验失败不直接 raise,而是按文件粒度降级为单线程主 agent 重跑**(走 §4.2 单文件分支),**不**阻断其他正常 proposal 的合并;**retry 限额 1 次**(防止反复失败耗 token);重试仍失败 → 标记跳过 + `knowledge/log.md` 追加 `**IngestFailure**` 段(NEW,不在原 9 步串行清单里,含 proposal_path + exception_type + exception_message)+ 损坏 proposal 备份到 `temp/<id>-proposal.json.corrupt.bak` 供人工排查 + inbox 原文件**保留**(后续用户手动重 ingest);**5 条降级硬约束** —— 不阻断整批 / 不放弃 inbox 原文件 / 可观测(`**IngestFailure**` log) / retry 限额 1 / 重试用主 agent 单线程**不**再派 subagent | 用户提"缺陷 3:Subagent 并发 Phase 2 隔离机制中的 JSON 序列化死锁 —— 超长复杂文本或特殊不可见字符导致 JSON 解析失败,使阶段 3 主 agent 崩溃;建议:proposal JSON 必须严格 schema 校验,损坏时降级单线程重解析,不阻断 ingest";Q11 subagent 写权矩阵派生 | design §4.2.1 新增整段 "Proposal JSON Schema 强校验 + 损坏降级"(5 步处理流程 + schema 草案 + 降级伪代码 + 5 条硬约束 + 为什么不派 subagent 重试 + 与 Q7 lint 边界);implement §C2.4 新增 7 个 fixture:`test_proposal_schema_valid` / `test_proposal_schema_invalid_missing_field` / `test_proposal_schema_invalid_enum` / `test_proposal_json_decode_error`(关键集成测试)/ `test_proposal_control_chars_strip` / `test_proposal_truncation_detect` / `test_proposal_failure_log_only`(关键集成测试,不阻断整批)/ `test_proposal_retry_main_agent_single`(关键集成测试,降级路径)|
+
+**兼容性**:**v0.5.4 PATCH bump**(MINOR bump 内小补丁)。本次改动:
+- **不引入**新 frontmatter 字段
+- **不引入**新正文骨架
+- **不引入**新 scripts 入口(只是 SKILL.md 阶段 3 收尾前增加 proposal 校验流程 + 损坏降级,**不**新增脚本)
+- **不修改**OKF v0.2 schema,不动 G10 / G11 / Q6 / Q7 / Q11 写权矩阵 / v0.5.1 / v0.5.2 / v0.5.3
+- **只新增** `src/schema/proposal.schema.yaml`(JSON schema 草案,详见 design §4.2.1)作为 **可选** 落地(scripts 实现阶段由 LLM 根据 schema 草案生成);若 schema 文件暂未落地,SKILL.md 阶段 3 校验逻辑可走"必填字段最小校验 + JSON 解析"两件套兜底
+
+**升级路径**:既有 v0.5.3 wiki 升级到 v0.5.4 plugin **无需**重跑 init,**无需**跑迁移脚本;SKILL.md 阶段 3 收尾前自动启用校验 + 降级流程即可,下游 `**IngestFailure**` log 段是 NEW,既有 log.md 兼容。
 
 ### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
 

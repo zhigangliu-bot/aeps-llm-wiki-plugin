@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.3 + src/prd.md v0.5.3 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.4 + src/prd.md v0.5.4 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -201,6 +201,15 @@ plugin 上架资产                          ❌ 待新建
   - [ ] fixture 同上,跑完整 ingest 走阶段 3;验证 `knowledge/index.md` / `glossary.md` / `log.md` / `overview.md` 在所有 source/entity/concept 页写完后**才**统一修改一次(快照对比 — 阶段 3 收尾后这些文件 mtime 接近)
   - [ ] fixture 同名 entity 跨 subagent 重复抽取(如 subagent A 抽 "ISO 26262",subagent B 抽 "ISO26262");验证阶段 3 合并到 1 页 + aliases 累加,不重复建页
   - [ ] **subagent prompt 硬约束扫描**:fixture 提供一个故意违反的 SKILL.md 子代理 prompt(如包含 "请直接修改 knowledge/index.md");验证 SKILL.md 的 M3 review 流程拒绝该 prompt(subagent 必须只允许写 temp/<id></id>-proposal.json)
+- [ ] **v0.5.4 PATCH Proposal JSON Schema 强校验 + 损坏降级**(详见 design §4.2.1 阶段 3 收尾前):
+  - [ ] 写 `tests/test_proposal_schema_valid.py`:fixture 写一份合规 proposal JSON(含 file / suggested_subdir / raw_category / format / converter / native_text / converted_path / concepts 8 必填字段 + _meta 元数据)→ 跑 ingest → 断言 (a) `jsonschema.validate()` 通过;(b) 字符集清洗后写入 `temp/<id>-proposal.json.sanitized`;(c) 进入阶段 3 正常合并流程
+  - [ ] 写 `tests/test_proposal_schema_invalid_missing_field.py`:fixture proposal 缺 `suggested_subdir` 字段 → 跑 ingest → 断言 (a) `jsonschema.ValidationError` 抛出(必填缺失);(c) **触发降级**——主 agent 单线程重跑该文件;(d) 重跑结果若合规 → 进入合并,否则标记 ingest 失败
+  - [ ] 写 `tests/test_proposal_schema_invalid_enum.py`:fixture `format: "exe"`(不在 enum 白名单)→ 跑 ingest → 断言 (a) `ValidationError` 触发;(b) 走降级路径
+  - [ ] 写 `tests/test_proposal_json_decode_error.py`(关键集成测试):fixture 故意把 proposal JSON 末尾 `}` 删除(模拟 LLM 输出截断)→ 跑 ingest → 断言 (a) `json.JSONDecodeError` 抛出;(b) **不**阻断整批 ingest —— 其他正常 proposal 继续合并;(c) 损坏文件 inbox 原文件**保留**(后续用户手动重 ingest);(d) 主 agent 退出 0
+  - [ ] 写 `tests/test_proposal_control_chars_strip.py`:fixture proposal.concepts[0].name 含 `\x00` NUL + `\x1f` 单元分隔符 + BOM + `</script>` 注入字面量 → 跑 ingest → 断言 (a) `jsonschema.validate` 通过(字符本身在 string 范围内);(b) 字符集清洗函数 strip 控制字符(BOM 保留,其他 strip);(c) `</script>` 替换为 `<\/script>`(避免下游 web 渲染);(d) 清洗后 JSON 写入安全版本
+  - [ ] 写 `tests/test_proposal_truncation_detect.py`:fixture proposal.concepts 数组 250 条(`maxItems: 200` 超限)→ 跑 ingest → 断言 (a) `ValidationError`(maxItems 超限)触发;(b) 走降级路径
+  - [ ] 写 `tests/test_proposal_failure_log_only.py`(**关键集成测试,不阻断整批**):fixture inbox 放 3 份文件 + 故意让其中 1 份(`temp/notes.md-proposal.json`)损坏(JSONDecodeError)+ 其他 2 份正常 → 跑完整 ingest → 断言 (i) 其他 2 份正常进入 `knowledge/sources/` + 对应 entities/concepts + `log.md` 追加 `**Migration**` 行;(ii) 损坏那份 inbox 原文件 `inbox/notes.md` 保留(未 mv 到 raw/);(iii) `knowledge/log.md` 末尾追加 `**IngestFailure**` 段(NEW 段,不在原 9 步串行清单里)含 `proposal_path: temp/notes.md-proposal.json` + `exception_type: JSONDecodeError` + `exception_message: ...`;(iv) 主 agent 退出 0(整批不阻断);(v) `temp/notes.md-proposal.json.corrupt.bak` 备份存在(供用户人工排查)
+  - [ ] 写 `tests/test_proposal_retry_main_agent_single.py`(**关键集成测试,降级路径**):fixture proposal 损坏 → 跑 ingest → 断言 (a) **不**再派 subagent 重试(避免同样的 JSON 损坏模式);(b) 主 agent **单线程**重跑该文件 LLM 抽取(走 §4.2 单文件分支);(c) 重跑结果合规 → 进入合并;(d) 若重跑仍失败 → 标记跳过 + `**IngestFailure**` 段;(e) retry 限额 1 次(防止 token 耗尽)
 
 #### C3:AC-3(query 不编造)
 
@@ -825,6 +834,39 @@ git tag -l "v*" | sort -V | tail -5
 - 原 `test_links_mirror_preserves_updated_and_mtime.py`(v0.3.2 Round 7):**已冻结**,v0.5.3 PATCH 不重写,**只新增** atime + 流程性两个 fixture
 
 **兼容性**:**v0.5.3 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;**只升级** `okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数的**实现细节**(atime/mtime 双还原 + 4 步流程),**不**改 Q7 业务意图。OKF v0.2 schema 无 breaking change;既有 v0.5.2 wiki 升级到 v0.5.3 plugin **无需**重跑 init,无需跑迁移脚本,`okf-lint.py` / `lint.py` 内部函数行为升级即可(下次跑 `--fix` 自动按 4 步流程写盘)。
+
+### v0.5.4(2026-09-03) — Round 14 PATCH 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级单线程重解析)
+
+**§C2.4 新增 8 个 fixture**(v0.5.4 PATCH,修复缺陷 3):
+
+- **单元级 schema 校验(3 个)**:
+  - `tests/test_proposal_schema_valid.py`:合规 proposal(8 必填字段 + _meta 元数据)→ `jsonschema.validate()` 通过 + 字符清洗写入 `temp/<id>-proposal.json.sanitized` + 进入阶段 3 合并
+  - `tests/test_proposal_schema_invalid_missing_field.py`:缺 `suggested_subdir` → `ValidationError` 必填缺失 + 触发降级(主 agent 单线程重跑)
+  - `tests/test_proposal_schema_invalid_enum.py`:`format: "exe"`(不在 enum 白名单)→ `ValidationError` + 走降级路径
+
+- **关键集成测试(2 个,不阻断整批)**:
+  - `tests/test_proposal_json_decode_error.py`:故意删除 proposal JSON 末尾 `}`(模拟 LLM 输出截断)→ `json.JSONDecodeError` 抛出 + **不**阻断整批 ingest(其他正常 proposal 继续合并) + 损坏文件 inbox 原文件**保留** + 主 agent 退出 0
+  - `tests/test_proposal_failure_log_only.py`:inbox 3 份 + 故意让 1 份(`temp/notes.md-proposal.json`)损坏 + 其他 2 份正常 → 跑完整 ingest → 断言 (i) 其他 2 份正常进入 `knowledge/sources/` + 对应 entities/concepts + `log.md` 追加 `**Migration**` 行;(ii) 损坏那份 `inbox/notes.md` 保留;(iii) `knowledge/log.md` 末尾追加 `**IngestFailure**` 段(NEW 段,不在原 9 步串行清单里)含 `proposal_path` + `exception_type` + `exception_message`;(iv) 主 agent 退出 0(整批不阻断);(v) `temp/notes.md-proposal.json.corrupt.bak` 备份存在
+
+- **字符清洗 + 截断检测(2 个)**:
+  - `tests/test_proposal_control_chars_strip.py`:concept.name 含 `\x00` NUL + `\x1f` 单元分隔符 + BOM + `</script>` 注入 → `jsonschema.validate` 通过(字符本身在 string 范围内) + 字符集清洗函数 strip 控制字符(BOM 保留,其他 strip) + `</script>` 替换为 `<\/script>`(避免下游 web 渲染) + 清洗后写入安全版本
+  - `tests/test_proposal_truncation_detect.py`:concepts 数组 250 条(`maxItems: 200` 超限)→ `ValidationError`(maxItems 超限) + 走降级路径
+
+- **关键集成测试,降级路径(1 个)**:
+  - `tests/test_proposal_retry_main_agent_single.py`:proposal 损坏 → 跑 ingest → 断言 (a) **不**再派 subagent 重试(避免同样的 JSON 损坏模式);(b) 主 agent **单线程**重跑该文件 LLM 抽取(走 §4.2 单文件分支);(c) 重跑结果合规 → 进入合并;(d) 若重跑仍失败 → 标记跳过 + `**IngestFailure**` 段;(e) retry 限额 1 次(防止 token 耗尽)
+
+**不动**:
+
+- Q6 wikilink 一等公民 / Q7 死循环防护业务意图 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- v0.3.2 Normalizer(v0.5.4 PATCH 不动 Normalizer 解析规则)
+- G10 转换副本入 raw + 源页 link 指副本:已冻结
+- G11 分析专属骨架 + sources_used 必填 + gating:已冻结
+- v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+- v0.5.2 Intent ambiguous fallback + G10 atomic overwrite:已冻结
+- v0.5.3 Q7 mtime + atime 双还原:已冻结
+- 原 §C2.4 全部 fixture(batch OCR / 并发上限 / 写权隔离 / 命名飘仲裁 / concept 去重 / log.md 不冲突 / Bash timeout / 冷启动时间断言):**已冻结**,v0.5.4 PATCH 不重写,**只新增** 8 个 proposal JSON 校验 + 降级 fixture
+
+**兼容性**:**v0.5.4 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;**只新增** `src/schema/proposal.schema.yaml`(JSON schema 草案,**可选**落地,scripts 实现阶段由 LLM 根据草案生成);若 schema 文件暂未落地,SKILL.md 阶段 3 校验逻辑可走"必填字段最小校验 + JSON 解析"两件套兜底。OKF v0.2 schema 无 breaking change;既有 v0.5.3 wiki 升级到 v0.5.4 plugin **无需**重跑 init,无需跑迁移脚本;**新增** `**IngestFailure**` log 段是 NEW,既有 log.md 兼容(只在末尾追加,**不**重写历史条目)。
 
 ### v0.4.0(2026-09-03) — Round 9 G10 外部转换副本入 raw + 源页 link 指副本
 

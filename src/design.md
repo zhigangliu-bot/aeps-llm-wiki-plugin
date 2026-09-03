@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.5.3 已冻结(2026-09-03) — Round 13 PATCH 修复 PRD 缺陷 5(Q7 `links:` 自动重写时 mtime + atime 双还原)
+> **状态**:v0.5.4 已冻结(2026-09-03) — Round 14 PATCH 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级为单线程重解析,不阻断 ingest 管道)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -1568,6 +1568,113 @@ Init re-run 完成。sync 摘要:
 - **写文件只在阶段 3**(主 agent 串行);阶段 2 subagent 只产出 JSON proposal,不直接写 knowledge/
 - **不阻塞单文件场景**:inbox 仅 1 份文件时,跳过阶段 2 subagent 派发,主 agent 自己跑完整流程(避免派发开销)
 
+#### Proposal JSON Schema 强校验 + 损坏降级(v0.5.4 PATCH 修复缺陷 3,Q11 派生)
+
+**问题根源**:阶段 2 subagent LLM 抽取 concept / entity 时,可能产生以下 JSON 解析失败场景:
+
+- **超长复杂文本**:concept.description / entity.name 包含大段引用 / 代码块 / 转义字符 → JSON 字符串边界错误
+- **特殊不可见字符**:` ` (NUL) / `` (单元分隔符) / BOM / 零宽字符 / `</script>` 注入 → Python `json.loads()` 直接 raise `json.JSONDecodeError` 或 `ValueError`
+- **LLM 截断**:proposal 输出超过模型 token 上限 → JSON 末尾 `}` 缺失 → 解析失败
+- **编码混用**:UTF-8 BOM 开头 + 部分 GBK 字节 → decode 异常
+- **字段漂移**:LLM 自作主张加新字段或漏必填字段(如 `suggested_subdir` 缺失) → 阶段 3 合并时报 KeyError
+
+**硬约束(proposal JSON schema 校验,Q11 派生)**:
+
+每个 subagent 写完 `temp/<id>-proposal.json` 后,**主 agent 阶段 3 收尾前**必须按以下顺序处理:
+
+1. **JSON 语法解析**:`json.loads(path.read_text(encoding='utf-8'))` —— 任何 `json.JSONDecodeError` / `ValueError` / `UnicodeDecodeError` → **触发降级**(见下),**不**直接 raise
+2. **schema 校验**:`jsonschema.validate(proposal, proposal_schema)` —— 字段缺失 / 类型不符 / 枚举值不在白名单 → **触发降级**
+3. **字符集清洗**:递归扫 proposal 所有 string 字段,替换/移除 ` ` - `` 控制字符(BOM 保留,其他控制字符 strip),以及 `</script>` 字面量 → 避免下游 Obsidian / web 渲染炸
+4. **截断检测**:若 proposal.concepts 数组长度异常(单文件 > 200 条) → 触发降级(疑似 LLM 幻觉/截断)
+5. **重写清洗后 JSON**:`json.dump(proposal, path.open('w', encoding='utf-8'), ensure_ascii=False, indent=2)` —— **保留** `updated_at` / subagent_id 等元字段,**清掉**未在白名单的脏字段
+
+**proposal JSON schema 草案**(v0.5.4 PATCH 新增,src `src/schema/proposal.schema.yaml` 落地后强制):
+
+```json
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "title": "ingest proposal",
+  "type": "object",
+  "required": ["file", "suggested_subdir", "raw_category", "format", "converter", "native_text", "converted_path", "concepts"],
+  "properties": {
+    "file":               {"type": "string", "pattern": "^[^/]+\\.[a-z]+$"},
+    "suggested_subdir":   {"type": "string", "enum": ["01_标准与法规", "02_芯片", ... 15 类白名单]},
+    "raw_category":       {"type": "string"},
+    "format":             {"type": "string", "enum": ["pdf", "pptx", "docx", "xlsx", "png", "jpg", "jpeg", "bmp", "tiff", "md", "txt"]},
+    "converter":          {"type": ["string", "null"], "enum": ["anydoc", "paddleocr", "claude-native", null]},
+    "native_text":        {"type": "boolean"},
+    "converted_path":     {"type": ["string", "null"]},
+    "concepts":           {"type": "array", "maxItems": 200, "items": {...}},
+    "entities":           {"type": "array", "maxItems": 100, "items": {...}},
+    "_meta":              {"type": "object", "properties": {"subagent_id": {"type": "string"}, "produced_at": {"type": "string"}}}
+  },
+  "additionalProperties": false
+}
+```
+
+**损坏降级为单线程重解析(关键设计点,v0.5.4 PATCH 新增)**:
+
+proposal JSON 校验失败的降级策略**不**是简单丢弃 / 重跑整个 ingest,而是按文件粒度**局部降级**:
+
+```
+主 agent 阶段 3:
+  for proposal_path in temp/<id>-proposal.json:
+    try:
+      proposal = json.loads(proposal_path.read_text())
+      jsonschema.validate(proposal, proposal_schema)
+      proposal = sanitize_strings(proposal)  # 控制字符清洗
+      # OK → 进入正常合并流程
+    except (JSONDecodeError, ValidationError, UnicodeDecodeError) as e:
+      log.warn(f"proposal {proposal_path} 损坏: {e}")
+      # 降级 1: 单线程主 agent 重跑 LLM 抽取该文件
+      retry_proposal = main_agent_extract(proposal_path.with_suffix('').with_suffix('.md'))
+      # 校验 retry_proposal 是否仍损坏;若仍损坏 → 降级 2
+      try:
+        jsonschema.validate(retry_proposal, proposal_schema)
+        proposal = retry_proposal  # 用重跑结果替换
+      except ValidationError:
+        # 降级 2: 该文件标记为"ingest 失败",**不**阻断其他文件
+        failed_files.append(proposal_path)
+        log.error(f"proposal {proposal_path} 重试仍失败,本次 ingest 跳过;inbox 原文件保留,人工处理")
+        continue
+  # 即使 N 个文件全失败,阶段 3 仍继续推进剩余流程(index/log 等元数据更新),只 missing 部分文件
+```
+
+**降级原则**(5 条硬约束):
+
+1. **不阻断整批 ingest**:单个 proposal 损坏**不**导致主 agent 阶段 3 整体退出,其他正常 proposal 继续合并;**不**让用户重跑整个 inbox
+2. **不放弃 inbox 原文件**:损坏文件对应的 inbox 文件**保留**,用户后续可手动重 ingest(单文件流程,走 §4.2 单文件分支)
+3. **可观测**:损坏文件必须记录到 `knowledge/log.md` 末尾 `**IngestFailure**` 段(NEW,不在原始 9 步串行清单里),含原始 proposal_path + 异常类型 + 异常 message
+4. **retry 限额**:单 proposal 重试最多 1 次(避免 LLM 反复失败耗 token);仍失败 → 标记跳过
+5. **降级路径不破坏并发**:重跑该文件用**主 agent 单线程**抽取,**不**再派 subagent(单文件流程降级,避免再次触发同样的 JSON 损坏模式)
+
+**为什么不让 subagent 重试**:
+
+- 重跑 subagent 仍可能产出同样的损坏 JSON(LLM 上下文无变化,token 截断 / 控制字符等系统性失败会复现)
+- 主 agent 上下文更全(可参考其他正常 proposal 里的字段格式),重跑成功率更高
+- 主 agent 单线程重试 = 单文件流程(§4.2 单文件分支),逻辑已成熟
+
+**与 lint --fix 干跑(dry-run)的区别**:
+
+- lint `--fix` 的 dry-run 是"应用前预览 diff",**不**涉及 proposal JSON 校验
+- ingest 阶段 3 的 proposal 校验是"合并前必做",**不**允许跳过
+
+**与 §5.4 Q7 死循环防护的边界**:
+
+- §5.4 / Q7 管"单文件写入无副作用"(`updated` 不改 / a/mtime 不变);本节 proposal JSON 校验管"多文件并发合并不崩"
+- 二者作用域独立,无交叉
+
+**新增 fixture 矩阵**(详见 implement §C2.4):
+
+- `test_proposal_schema_valid.py`:fixture 写一份合规 proposal → 校验通过 → 进入合并
+- `test_proposal_schema_invalid_missing_field.py`:fixture 缺 `suggested_subdir` → 校验 FAIL → 触发降级
+- `test_proposal_schema_invalid_enum.py`:fixture `format: "exe"`(不在白名单)→ 校验 FAIL → 触发降级
+- `test_proposal_json_decode_error.py`:fixture proposal JSON 末尾 `}` 缺失 → `json.JSONDecodeError` → 触发降级
+- `test_proposal_control_chars_strip.py`:fixture concept.name 含 ` ` → 校验通过 + 字符清洗 → 写入安全版本
+- `test_proposal_truncation_detect.py`:fixture concepts 数组 250 条(超 maxItems=200)→ 校验 FAIL → 触发降级
+- `test_proposal_failure_log_only.py`(关键集成测试):fixture inbox 放 3 份文件 + 故意让其中 1 份 proposal 损坏 → 跑 ingest → 断言 (i) 其他 2 份正常进入 sources/ + entities/ + log.md;(ii) 损坏那份 inbox 原文件保留;(iii) `knowledge/log.md` 追加 `**IngestFailure**` 段含 proposal_path + 异常 type;(iv) 主 agent 退出 0(整批不阻断)
+- `test_proposal_retry_main_agent_single.py`(关键集成测试):fixture proposal 损坏 → 主 agent 单线程重跑 → 重跑结果合规 → 进入合并;**不**再派 subagent(避免再次失败)
+
 #### 写权矩阵(并发安全硬约束,Q11)
 
 **问题根源**:多个 subagent 并发处理 inbox 多份文档,LLM 抽取的 entity / concept 经常有重叠(如"ISO 26262"和"功能安全"两个 subagent 都可能抽到)。若允许 subagent 直接写 `knowledge/`,会触发竞争条件:
@@ -2495,6 +2602,55 @@ def fix_links_mirror(path, new_content):
 - v0.5.2 Intent ambiguous fallback + G10 atomic overwrite:已冻结
 
 **兼容性**:**v0.5.3 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;**只升级** Q7 第 3 条规则的**实现细节**(atime/mtime 双还原 + 4 步流程),**不**改 Q7 业务意图(`updated` 不改 + Set 比对 + 文件无副作用)。OKF v0.2 schema 无 breaking change;既有 v0.5.2 wiki 升级到 v0.5.3 plugin **无需**重跑 init,无需跑迁移脚本,`okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数行为升级即可。
+
+### v0.5.4(2026-09-03) — Round 14 PATCH 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级单线程重解析)
+
+**§4.2.1 新增整段 "Proposal JSON Schema 强校验 + 损坏降级"**(修复缺陷 3):阶段 2 subagent 写出的 `temp/<id>-proposal.json` 必须经过严格 schema 校验 + 字符集清洗 + 截断检测;**任何校验失败不直接 raise,而是按文件粒度降级为单线程主 agent 重跑**,**不**阻断其他正常 proposal 的合并。
+
+- **5 步校验流程**(v0.5.4 PATCH 新增):(1) `json.loads()` 语法解析 → (2) `jsonschema.validate()` schema 校验(必填 8 字段 + enum 白名单 + `additionalProperties: false`)→ (3) 字符集清洗(strip NUL / 单元分隔符等控制字符,BOM 保留,`</script>` → `<\/script>`)→ (4) 截断检测(`concepts` 数组 `maxItems: 200` + `entities` `maxItems: 100`)→ (5) 重写清洗后 JSON 到 `temp/<id>-proposal.json.sanitized`
+- **JSON schema 草案**(`src/schema/proposal.schema.yaml` 可选落地):8 必填字段(`file` / `suggested_subdir` / `raw_category` / `format` / `converter` / `native_text` / `converted_path` / `concepts`)+ enum 白名单(`format` ∈ pdf/pptx/docx/.../`converter` ∈ anydoc/paddleocr/claude-native/null/`suggested_subdir` ∈ 15 类 raw 子目录)+ `_meta` 元字段
+- **降级伪代码**(关键设计点):循环遍历 `temp/<id>-proposal.json` → try-except 包裹 JSON 解析 + schema 校验 → 失败时**主 agent 单线程重跑**(走 §4.2 单文件分支,**不**再派 subagent 避免同样的 JSON 损坏模式复现)→ 重试限额 1 次 → 重试仍失败 → 标记跳过 + `**IngestFailure**` log 段 + 备份损坏 proposal 到 `.corrupt.bak`
+
+**降级 5 条硬约束**:
+
+1. **不阻断整批 ingest**:单个 proposal 损坏**不**导致主 agent 阶段 3 整体退出,其他正常 proposal 继续合并;**不**让用户重跑整个 inbox
+2. **不放弃 inbox 原文件**:损坏文件对应的 inbox 文件**保留**,用户后续可手动重 ingest(单文件流程,走 §4.2 单文件分支)
+3. **可观测**:损坏文件必须记录到 `knowledge/log.md` 末尾 `**IngestFailure**` 段(NEW,不在原 9 步串行清单里),含原始 `proposal_path` + `exception_type` + `exception_message`
+4. **retry 限额**:单 proposal 重试最多 1 次(避免 LLM 反复失败耗 token);仍失败 → 标记跳过
+5. **降级路径不破坏并发**:重跑该文件用**主 agent 单线程**抽取,**不**再派 subagent(单文件流程降级,避免再次触发同样的 JSON 损坏模式)
+
+**为什么不让 subagent 重试**:
+
+- 重跑 subagent 仍可能产出同样的损坏 JSON(LLM 上下文无变化,token 截断 / 控制字符等系统性失败会复现)
+- 主 agent 上下文更全(可参考其他正常 proposal 里的字段格式),重跑成功率更高
+- 主 agent 单线程重试 = 单文件流程(§4.2 单文件分支),逻辑已成熟
+
+**新增 fixture 矩阵**(详见 implement §C2.4):8 个 fixture,含 2 个关键集成测试:
+
+- `test_proposal_schema_valid` / `test_proposal_schema_invalid_missing_field` / `test_proposal_schema_invalid_enum` —— 单元级 schema 校验
+- `test_proposal_json_decode_error` —— 关键集成测试,JSONDecodeError 不阻断整批
+- `test_proposal_control_chars_strip` / `test_proposal_truncation_detect` —— 字符清洗 + 截断检测
+- `test_proposal_failure_log_only` —— 关键集成测试,不阻断整批 + `**IngestFailure**` 段 + inbox 保留
+- `test_proposal_retry_main_agent_single` —— 关键集成测试,降级路径主 agent 单线程重跑不派 subagent
+
+**与其他节的交叉引用同步**:
+
+- §4.2 单文件分支:降级时主 agent 单线程走单文件流程(逻辑复用,**不**重新设计)
+- §5.4 log.md 段:`**IngestFailure**` 是 NEW 段,既有 9 步串行清单不动,只在末尾追加
+- Q11 subagent 写权矩阵:阶段 2 subagent 仍只允许写 `temp/<id>-proposal.json`(**不**允许重试时再写);降级路径下重跑由主 agent 直接 LLM 抽取产出,**不**走 subagent 派发
+- v0.5.3 Q7 死循环防护:**不**交叉(作用域独立:Q7 管 lint `--fix` 写盘无副作用;本节管 ingest 阶段 3 proposal 合并不崩)
+
+**不动**:
+
+- Q6 wikilink 一等公民 / Q7 死循环防护业务意图 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- v0.3.2 Normalizer:已冻结
+- G10 转换副本入 raw + 源页 link 指副本:已冻结
+- G11 分析专属骨架 + sources_used 必填 + gating:已冻结
+- v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+- v0.5.2 Intent ambiguous fallback + G10 atomic overwrite:已冻结
+- v0.5.3 Q7 mtime + atime 双还原:已冻结
+
+**兼容性**:**v0.5.4 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;**只新增** `src/schema/proposal.schema.yaml`(JSON schema 草案,**可选**落地,scripts 实现阶段由 LLM 根据草案生成);若 schema 文件暂未落地,SKILL.md 阶段 3 校验逻辑可走"必填字段最小校验 + JSON 解析"两件套兜底。OKF v0.2 schema 无 breaking change;既有 v0.5.3 wiki 升级到 v0.5.4 plugin **无需**重跑 init,无需跑迁移脚本;**新增** `**IngestFailure**` log 段是 NEW,既有 log.md 兼容(只在末尾追加,**不**重写历史条目)。
 
 **不动**:
 
