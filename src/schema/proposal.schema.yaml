@@ -1,0 +1,136 @@
+# proposal.schema.yaml — ingest 阶段 subagent 输出的 JSON 校验规约
+#
+# 权威性:plugin 本体单一权威(SSOT,DESIGN.md §2.1)
+# 引用方:scripts/validate-proposal.py(本轮)+ SKILL.md(后续)
+# 来源:ingest SKILL.md §阶段 2 + design §3.2 + v0.5.4 PATCH
+
+---
+$schema: "http://json-schema.org/draft-07/schema#"
+
+# 8 必填顶级字段
+required:
+  - file
+  - suggested_subdir
+  - raw_category
+  - format
+  - converter
+  - native_text
+  - converted_path
+  - concepts
+  - _meta
+
+# 整体不允许额外顶层字段(可选:unevaluatedProperties 兜底)
+additionalProperties: false
+
+properties:
+  file:
+    type: string
+    description: "inbox/<basename>.<ext> 相对路径"
+
+  suggested_subdir:
+    type: string
+    description: "raw/<15 类字典之一>"
+
+  raw_category:
+    type: string
+    description: "<01_EE架构|02_芯片|...|15_算法>"
+    enum:
+      - "01_EE架构"
+      - "02_芯片"
+      - "03_通信与网络"
+      - "04_操作系统与中间件"
+      - "05_软件工程"
+      - "06_功能安全"
+      - "07_信息安全"
+      - "08_AI与AI工程"
+      - "09_域控制器"
+      - "10_会议与活动"
+      - "11_开发工具"
+      - "12_法规_标准_政策"
+      - "13_流程体系"
+      - "14_测试与验证"
+      - "15_算法"
+
+  format:
+    type: string
+    description: "原文件扩展名小写(enum 见 DESIGN.md §2.1)"
+    enum:
+      - md
+      - txt
+      - csv
+      - json
+      - yaml
+      - xml
+      - html
+      - htm
+      - rst
+      - pptx
+      - docx
+      - xlsx
+      - pdf
+      - png
+      - jpg
+      - jpeg
+      - bmp
+      - tiff
+
+  converter:
+    description: "4 选 1 enum;纯文本 = null"
+    enum:
+      - anydoc
+      - claude-native
+      - paddleocr
+      - null
+
+  native_text:
+    type: boolean
+    description: "true ⇔ converter=null ⇔ converted_path=null"
+
+  converted_path:
+    type: ["string", "null"]
+    description: "raw/<subdir>/<file>.converted.md 或 null"
+
+  concepts:
+    type: array
+    description: "LLM 抽取的概念列表;maxItems=200 防截断(validate-proposal 单独检测)"
+    items:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: ["entity", "concept"]
+        subtype:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - type
+        - subtype
+        - aliases
+
+  _meta:
+    type: object
+    description: "proposal 元数据(Q11 写权矩阵:subagent 唯一允许写的东西)"
+    properties:
+      doc_id:
+        type: string
+        description: "<basename>-<sha256 前 8 位>"
+      schema_version:
+        type: ["string", "null"]
+        description: "固定 1.0"
+      extracted_at:
+        type: string
+        description: "ISO 8601"
+      extracted_by:
+        type: string
+        description: "agent: producer/aeps-llm-wiki-plugin/0.5.5"
+    required:
+      - doc_id
+      - schema_version
+      - extracted_at
+      - extracted_by

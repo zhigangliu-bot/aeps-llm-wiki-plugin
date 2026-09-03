@@ -9,3 +9,7 @@ temp/
 *.tmp
 *.swp
 .DS_Store
+
+# Python 字节码缓存(本地运行 pytest 产物,不进版本控制)
+__pycache__/
+*.pyc
