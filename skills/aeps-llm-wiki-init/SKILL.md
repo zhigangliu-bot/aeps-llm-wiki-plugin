@@ -6,8 +6,9 @@ description: 在用户项目里搭建 / 同步 aeps-llm-wiki 知识库目录结�
 # aeps-llm-wiki-init
 
 > **触发**:`/aeps-llm-wiki-init [项目路径]`
-> **权威设计**:`src/prd.md §4.1` + `src/design.md §4.1` + `§4.1.1 幂等再入`
-> **对应实现阶段**:plugin v0.5.5 阶段 B
+> **权威设计**:`src/prd.md §4.1` + `src/design.md §4.1` + `§4.1.1 幂等再入` + `src/scripts/DESIGN.md §1.1 init-vault`
+> **对应实现阶段**:plugin v0.5.5 阶段 B(SKILL.md)+ 阶段 C(init-vault.py 已落地)
+> **核心原则**:LLM 只做思考 + 调度;具体 IO 全部交 `init-vault.py`(详见 `scripts/DESIGN.md §0.1`)
 
 ## 必读文件
 
@@ -31,106 +32,112 @@ description: 在用户项目里搭建 / 同步 aeps-llm-wiki 知识库目录结�
 
 1. 取用户传入的 `<project>/`(默认 cwd)。
 2. 检查 `<project>/knowledge/SCHEMA.md` 是否存在:
-   - **存在** → 走 **§阶段 4 幂等再入**。
-   - **不存在** → 走 **§阶段 1-3 首次启用**。
+   - **存在** → 走 **§阶段 4 re-run** 流程(Llm 调用 `init-vault.py --re-run`)。
+   - **不存在** → 走 **§阶段 1-3 首次启用**(Llm 调用 `init-vault.py --project-dir .`)。
 
-### 阶段 1:首次启用 - 创建 6 个顶层目录
+LLM **不**直接创建任何顶层目录 / 拷贝任何模板;所有 IO 委托脚本。
 
-每个目录都建 `.gitkeep`(保证 git 跟踪)。
+### 阶段 1:首次启用 - 调用 init-vault.py
 
-```
-<project>/
-├── inbox/         + README.md(从 templates/inbox-readme.md)+ .gitkeep
-├── raw/           + README.md(从 templates/raw-readme.md,占位符替换)+ 15 子目录 + .gitkeep
-├── scripts/       + README.md + requirements.txt + 所有 .py(阶段 C 落地;此阶段为空,留 .gitkeep)
-├── templates/     + source-page.md + analysis-page.md + concept-entities-readme.md + tag-template.md
-├── temp/          + .gitkeep + .gitignore(内容:* / !.gitkeep / !proposal-*.json / !decision-*.json / !plan-*.json)
-└── knowledge/     + SCHEMA.md(从 templates/knowledge-SCHEMA.md,占位符替换)+ index.md + overview.md + glossary.md + log.md + 18 个叶子存储目录
+```bash
+python3 ./scripts/init-vault.py --project-dir .
+# Bash timeout: 120000(60s 足够,首启最坏情况 = 拷贝 templates + scripts)
 ```
 
-**18 个叶子存储目录清单**(1 + 7 + 7 + 1 + 1 + 1 = 18):
+**脚本职责**(LLM 不再做):
 
-- `sources/`
-- `entities/{person, organization, project, product, event, place, other}/`(7 子类)
-- `concepts/{theory, method, field, phenomenon, standard, term, other}/`(7 子类)
-- `analyses/`
-- `comparisons/`
-- `syntheses/`
+- 建 6 顶层目录(inbox / raw / scripts / templates / temp / knowledge)+ 每个目录 `.gitkeep`
+- 建 `raw/` 下 15 子目录 + 各 `.gitkeep`
+- 建 `knowledge/` 下 18 叶子存储目录(sources / entities/7 子类 / concepts/7 子类 / analyses / comparisons / syntheses)+ 各 `.gitkeep`
+- 拷贝 `templates/source-page.md` / `templates/analysis-page.md` / `templates/concept-entities-readme.md` / `templates/tag-template.md` 到 `<project>/templates/`
+- 拷贝 `scripts/README.md` / `scripts/requirements.txt` + 所有 .py 到 `<project>/scripts/`
+- 写 `<project>/raw/.aeps-plugin-version: 0.5.5`
+- 写 `<project>/scripts/_meta.json`
+- 写 4 个种子文件:`knowledge/SCHEMA.md`(占位符替换)/ `raw/README.md` / `inbox/README.md` / `knowledge/index.md`
+- 写 `temp/.gitignore`(5 行规范:`*` / `!.gitkeep` / `!proposal-*.json` / `!decision-*.json` / `!plan-*.json`)
+- 写空 `overview.md` / `glossary.md` / `log.md`
 
-**15 个 raw 子目录**(详见 templates/raw-readme.md):
+**返回 JSON 形态**:
 
-`01_EE架构` / `02_芯片` / `03_通信与网络` / `04_操作系统与中间件` / `05_软件工程` / `06_功能安全` / `07_信息安全` / `08_AI与AI工程` / `09_域控制器` / `10_会议与活动` / `11_开发工具` / `12_法规_标准_政策` / `13_流程体系` / `14_测试与验证` / `15_算法`
+```json
+{
+  "ok": true,
+  "created": ["inbox/", "raw/", "knowledge/sources/", ...],
+  "copied": ["templates/source-page.md", "scripts/init-vault.py", ...],
+  "synced_at": "<ISO 8601>",
+  "plugin_version": "0.5.5"
+}
+```
 
-### 阶段 2:首次启用 - 复制 templates
+### 阶段 2:首次启用 - 校验脚本返回
 
-按以下规则把 plugin `src/templates/` 拷到 `<project>/`:
+LLM 读返回 JSON,做以下判断:
 
-| plugin 源 | user-project 落点 | 策略 |
-|---|---|---|
-| `knowledge-SCHEMA.md` | `knowledge/SCHEMA.md` | **实化**:占位符 `{{plugin_version}}` / `{{init_at}}` / actor 字符串替换 |
-| `raw-readme.md` | `raw/README.md` | **覆盖**(权威字典) |
-| `inbox-readme.md` | `inbox/README.md` | **覆盖** |
-| `source-page.md` | `templates/source-page.md` | **覆盖** |
-| `analysis-page.md` | `templates/analysis-page.md` | **覆盖** |
-| `concept-entities-readme.md` | `templates/concept-entities-readme.md` | **append 策略**(见 §阶段 4) |
-| `tag-template.md` | `templates/tag-template.md` | **append 策略**(见 §阶段 4) |
+- `ok == true` → 进入 §阶段 3 展示摘要
+- `ok == false` → 读取 stderr 中的中文错误,展示给用户;**不**继续后续步骤
 
-### 阶段 3:首次启用 - 写版本戳与空索引
+### 阶段 3:首次启用 - 展示 sync 摘要
 
-- 写 `<project>/raw/.aeps-plugin-version: 0.5.5`(一行版本号,plugin 升级检查用)
-- 写空 `index.md`(只有 frontmatter `okf_version: "0.2"` + 空 body)
-- 写空 `overview.md` / `glossary.md`(LLM 后续维护)
-- 写 `log.md` 顶部一行:`## <ISO 8601 today>`(当日 heading,空内容)
-
-### 阶段 4:幂等再入 - sync 策略
-
-**触发条件**:`<project>/knowledge/SCHEMA.md` 已存在。
-
-按以下顺序处理(每项独立报告):
-
-1. **顶层目录补缺**:6 个顶层目录任一缺失 → 补建 + `.gitkeep`;**plugin 新版新增的子类目录一律不预建**,留给 ingest 拍板门。
-2. **18 个叶子存储目录补缺**:缺失 → 补建 + `.gitkeep`。
-3. **15 个 raw 子目录补缺**:缺失 → 补建 + `.gitkeep`。
-4. **字典 sync(三份全栈字典走 append,plugin 主)**:
-   - `templates/concept-entities-readme.md`:plugin 版新章节 **append** 到用户文件末尾(不删不改用户已有内容)
-   - `templates/tag-template.md`:plugin 版新词条 **append** 到用户文件末尾
-   - **不** 整文件覆盖,避免破坏用户本地新增的子类 / 词条
-5. **文件 sync(分类处理)**:
-   - `knowledge/SCHEMA.md` / `inbox/README.md` / `raw/README.md`:**覆盖**(plugin 主,版本对齐)
-   - `templates/source-page.md` / `templates/analysis-page.md`:**覆盖**
-   - `log.md`:**append** 一行 `**Update**: re-run init at <ISO 8601> by agent: producer/aeps-llm-wiki-plugin/0.5.5`
-   - `index.md` / `overview.md` / `glossary.md`:**不动**(LLM 累积维护,plugin 升级不覆盖)
-6. **scripts/ 与 requirements.txt 同步**:plugin 本体 → `<project>/scripts/` 拷最新版本。scripts/ 内部 .py 文件阶段 C 落地时由 plugin 维护者统一同步。
-
-### 阶段 5:输出 sync 摘要
-
-向用户报告本次 init / re-run 的 sync 摘要(参考格式):
+向用户报告(基于 `created` / `copied` / `synced_at` 字段):
 
 ```
-Init re-run 完成。sync 摘要:
+Init 完成。详细 sync 摘要:
 - 顶层目录: 新建 N / 跳过 K
+- 15 raw 子目录: 新建 N / 跳过 K
+- 18 叶子存储目录: 新建 N / 跳过 K
+- templates/: 拷贝 4 份页生成模板 + 2 份字典
+- scripts/: 拷贝 N 个 .py + README + requirements.txt
+- 种子文件: SCHEMA.md / raw/README.md / inbox/README.md / index.md 已写入
+- 同步 plugin 版本: <plugin_version>
+- 下一步: 把资料丢进 inbox/ 跑 /aeps-llm-wiki-ingest
+```
+
+### 阶段 4:re-run - 调用 init-vault.py --re-run
+
+```bash
+python3 ./scripts/init-vault.py --project-dir . --re-run
+# Bash timeout: 120000
+```
+
+**脚本职责**(LLM 不再做):
+
+- 顶层目录 + 15 raw 子目录 + 18 叶子目录**补缺**(已有则跳过)
+- 字典 sync(`templates/concept-entities-readme.md` / `templates/tag-template.md` 走 append,plugin 新章节 / 词条加到用户文件末尾,**不删不改**用户已有内容)
+- 文件 sync:`knowledge/SCHEMA.md` / `inbox/README.md` / `raw/README.md` / `templates/source-page.md` / `templates/analysis-page.md` **覆盖**(plugin 主,版本对齐);`scripts/` 内 .py + README + requirements.txt **覆盖**
+- **不动**:`index.md` / `overview.md` / `glossary.md`(LLM 累积维护,plugin 升级不覆盖)
+- `log.md` 追加一行 `**Update**: re-run init at <ISO 8601> by agent: producer/aeps-llm-wiki-plugin/0.5.5`
+
+**返回 JSON 形态**:同首次启用,但 `created` 列表只含本次**新建**的项;已存在的不重复出现。
+
+### 阶段 5:re-run - 展示 sync 摘要
+
+向用户报告:
+
+```
+Init re-run 完成。详细 sync 摘要:
+- 顶层目录: 新建 N / 跳过 K(已存在)
 - 15 raw 子目录: 新建 N / 跳过 K
 - 18 叶子存储目录: 新建 N / 跳过 K
 - 字典 templates/concept-entities-readme.md: append M 章节 / 跳过 K
 - 字典 templates/tag-template.md: append M 词条 / 跳过 K
-- 字典 templates/source-page.md: 覆盖 / 跳过
-- 字典 templates/analysis-page.md: 覆盖 / 跳过
+- 字典 templates/source-page.md / analysis-page.md: 覆盖
 - knowledge/SCHEMA.md / raw/README.md / inbox/README.md: 覆盖
 - log.md: append 1 行 re-run 记录
+- scripts/: 同步 N 个 .py(覆盖式)
 - 你的本地修改一律保留(index.md / overview.md / glossary.md + 用户新增字典条目不动)
 ```
 
 ## 不应做
 
 1. **不接受任何目录名参数**(`--raw-dir custom-raw` / `--knowledge-dir my-kb` 等全部拒绝;6 个顶层目录名硬编码)。
-2. **不覆盖已有 knowledge/ 的非 sync 清单文件**:`index.md` / `overview.md` / `glossary.md` 一律不动。
-3. **不整文件覆盖三份全栈字典**(concept-entities-readme / tag-template / raw-readme 走 append,避免破坏用户本地新增)。
-4. **不预建 plugin 新版新增的子类目录**(留给 ingest 拍板门)。
-5. **不跳过 `.gitkeep`**:每个初始空目录都必须建 `.gitkeep`。
-6. **不调 `${CLAUDE_PLUGIN_ROOT}` / 绝对路径 / `~/.claude/`**:所有路径统一 `<project>/<dir>/` 占位。
-7. **不在 user-project 任何文件里写 plugin 本体路径**(plugin.json 引用除外,但 SKILL.md 不直接写)。
-8. **不创建 `temp/<files>` 内容**(只建目录 + `.gitkeep` + `.gitignore`;proposal/decision 文件由 ingest 运行时生成)。
-9. **不为非 bundle 根的 `index.md` 加 frontmatter `okf_version`**:只有 `knowledge/index.md` 允许。
+2. **LLM 不直接创建任何目录**(顶层 / raw 子目录 / knowledge 叶子目录一律 `init-vault.py` 建)。
+3. **LLM 不直接拷贝 templates / scripts 文件**(一律 `init-vault.py` 拷)。
+4. **LLM 不直接写任何种子文件**(SCHEMA.md / index.md / log.md 等一律 `init-vault.py` 写)。
+5. **LLM 不直接写 frontmatter / 文件内容**(scripts 层职责,SKILL.md 只调度)。
+6. **LLM 不调用除 `init-vault.py` 之外的写盘脚本**(init 阶段不涉及 `safe-mv.py` / `generate-source-page.py` / `append-log.py` 等)。
+7. **不跳过 `.gitkeep`**:每个初始空目录都必须建 `.gitkeep**(由 `init-vault.py` 强制)。
+8. **不调 `${CLAUDE_PLUGIN_ROOT}` / 绝对路径 / `~/.claude/`**:所有路径统一 `<project>/<dir>/` 占位,脚本接收 `--project-dir .` 相对路径参数。
+9. **不在 user-project 任何文件里写 plugin 本体路径**(plugin.json 引用除外,但 SKILL.md 不直接写)。
 10. **不问用户"是否覆盖"**(init 是幂等的,sync 策略已固定;若有冲突,日志 + 摘要里提示用户)。
 
 ## 输出格式
@@ -139,7 +146,7 @@ Init re-run 完成。sync 摘要:
 
 ```
 <init|re-run> 完成。详细见上方 sync 摘要。
-- 本次同步的 plugin 版本: 0.5.5
+- 本次同步的 plugin 版本: <plugin_version from JSON>
 - <project>/ 顶层目录: 已就绪(6 个)
 - knowledge/ 叶子存储目录: 已就绪(18 个)
 - raw/ 子目录: 已就绪(15 类)
@@ -147,26 +154,20 @@ Init re-run 完成。sync 摘要:
 - 下一步: 把资料丢进 inbox/ 跑 /aeps-llm-wiki-ingest
 ```
 
-### log.md 追加模板
-
-首次启用 + re-run **都**追加一条:
-
-```markdown
-## <YYYY-MM-DD>(init 时)或留空(re-run 时)
-* **Update**: re-run init at <YYYY-MM-DDTHH:MM:SSZ> by agent: producer/aeps-llm-wiki-plugin/0.5.5
-```
-
-> 注:`re-run` 走 `**Update**` 前缀(5 种前缀之一:`**Creation**` / `**Update**` / `**Deprecation**` / `**Migration**` / `**LintFix**`)。
-
 ### actor 字符串规范
 
 - 生成方:`agent: producer/aeps-llm-wiki-plugin/0.5.5`
 - 验证方:`human:<id>`(如 `human:zhigang.liu`)
 - 处理链:`process:<skill-name>`(如 `process:aeps-llm-wiki-init`)
 
-## 脚本调用
+## 脚本调用汇总
 
-本 skill **不直接调任何 scripts**(纯 LLM 拷文件 + 写 log)。
+| 阶段 | 脚本 | timeout | 备注 |
+|---|---|---|---|
+| 阶段 1(首次启用) | `init-vault.py --project-dir .` | 120000 | 顶层 / raw / knowledge + 拷贝 templates/scripts + 写种子 |
+| 阶段 4(re-run) | `init-vault.py --project-dir . --re-run` | 120000 | 补缺 + 字典 append + 文件覆盖(保留 index/overview/glossary) |
+
+**LLM 不直接调任何其他脚本**;init 阶段是单脚本全包,无需 `safe-mv.py` / `append-log.py` / `validate-frontmatter.py` 等。
 
 阶段 C 落地后,init 末尾可建议用户跑:
 

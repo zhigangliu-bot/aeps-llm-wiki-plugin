@@ -6,9 +6,10 @@ description: 把 inbox/ 里的资料转 md、抽 entity / concept / source,经�
 # aeps-llm-wiki-ingest
 
 > **触发**:`/aeps-llm-wiki-ingest [--raw-subdir=<已存在 15 类>] [--project-dir <path>]`
-> **权威设计**:`src/prd.md §4.2` + `src/design.md §4.2` + `§4.2.1 三阶段并发` + `§5.1` + `§5.4`
-> **对应实现阶段**:plugin v0.5.5 阶段 B(本文档) + 阶段 C(scripts 落地)
+> **权威设计**:`src/prd.md §4.2` + `src/design.md §4.2` + `§4.2.1 三阶段并发` + `§5.1` + `§5.4` + `src/scripts/DESIGN.md §1.1 ingest/`
+> **对应实现阶段**:plugin v0.5.5 阶段 B(本文档) + 阶段 C(scripts 全部落地)
 > **关键 PATCH**:G10 派生文件副本 / Q5 命名飘前移 / Q11 subagent 写权矩阵 / Q7 死循环防护 / v0.5.2 atomic overwrite / v0.5.4 proposal JSON 强校验 + 损坏降级
+> **核心原则**:LLM 只做思考 + 调度 + subagent 派发;具体 IO 全部交脚本(详见 `scripts/DESIGN.md §0.1`)
 
 ## 必读文件
 
@@ -27,23 +28,37 @@ description: 把 inbox/ 里的资料转 md、抽 entity / concept / source,经�
 
 ## 工作流(4 阶段)
 
-### 阶段 0:依赖预检(必跑)
+### 阶段 0:依赖预检(LLM 调 check-deps.py)
 
 ```bash
-python3 -c "import anydoc, paddleocr, jsonschema, yaml" 2>&1
+python3 ./scripts/check-deps.py --project-dir .
+# Bash timeout: 30000
 ```
 
-- 全部 import 成功 → 进入阶段 1
-- 任一 ImportError → **提示并退出**:
+**脚本职责**:探测 `anydoc` / `paddleocr` / `jsonschema` / `yaml` 的 import 状态。
+
+**返回 JSON**:
+
+```json
+{
+  "ok": true,
+  "missing": []                      // 或 ["paddleocr"]
+}
+```
+
+- `ok == true` → 进入阶段 1
+- `ok == false` → 读取 `missing` 列表,**提示并退出**:
   ```
-  ❌ 依赖未装: <pkg>
+  ❌ 依赖未装: paddleocr
   请先跑: pip install -r scripts/requirements.txt
   ```
-- **不进入任何后续阶段**
+  LLM **不进入任何后续阶段**。
+
+LLM **不**直接跑 `python3 -c "import ..."` 内联探测;统一调 `check-deps.py`。
 
 ### 阶段 1:扫描 + 入口决策(主 agent)
 
-1. **递归**遍历 `<project>/inbox/`(含子目录),统计 N。
+1. LLM 用 Read 工具**递归**遍历 `<project>/inbox/`(含子目录),统计 N。
 2. inbox 为空 → 输出提示语,退出码 0:
    ```
    inbox/ 为空,先把资料丢进 inbox 再跑。
@@ -62,12 +77,14 @@ python3 ./scripts/convert-to-md.py \
 # Bash timeout: 60000(单文件 60s 足够)
 ```
 
-文件分派规则(本 agent 内联判定):
+**脚本职责**:扩展名分流(native / claude-native / anydoc / paddleocr 四路由),写 `temp/<basename>.md`。
 
-- `.md` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` / `.rst` → **直接读**(native_text: true),不调 convert-to-md.py
-- `.pptx` / `.docx` / `.xlsx` / `.pdf` → 调 convert-to-md.py;Claude converter 失败则降级 anydoc
-- `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` → convert-to-md.py(paddleocr)
-- 其他 / 失败 → **FAIL**:无法转换 `<file>`,请手动预处理。
+文件分派规则(脚本内部判定):
+
+- `.md` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` / `.rst` → 直接读(`native_text: true`,**不**调脚本,LLM 直接 Read 文件即可)
+- `.pptx` / `.docx` / `.xlsx` / `.pdf` → 调 `convert-to-md.py`(anydoc 降级路由)
+- `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` → `convert-to-md.py`(paddleocr)
+- 其他 / 失败 → **FAIL**:脚本退出非 0,LLM 提示用户手动预处理。
 
 #### 阶段 1B:批量入口(N ≥ 2,**显式 Bash timeout 600000ms**)
 
@@ -92,6 +109,7 @@ python3 ./scripts/convert-to-md.py \
 
 - 主 agent 切 ≤ 5 批(每批 N/5 份文件,**不**超过 5 个 subagent)
 - 用 Claude Code Task 工具派 subagent,**每个独立 LLM 上下文**
+- subagent **唯一**产物:写 `temp/proposal-<doc-id>.json`(`doc_id = <basename>-<sha256 前 8 位>`)
 
 #### subagent prompt 硬约束(Q11 写权矩阵)
 
@@ -106,7 +124,7 @@ scripts/_meta.json    # plugin 元数据
 subagent **严禁**调用:
 
 - `convert-to-md.py`(零 paddleocr 调用,冷启动已在阶段 1 batch 进程内完成)
-- `safe-mv.py` / `ensure-dirs.py` / `append-log.py` / `validate-frontmatter.py` / `validate-proposal.py`(任何写操作脚本)
+- `safe-mv.py` / `ensure-dirs.py` / `append-log.py` / `validate-frontmatter.py` / `validate-proposal.py` / `generate-source-page.py` / `generate-entity-page.py` / `generate-concept-page.py`(任何写操作脚本)
 
 subagent **可**读取:
 
@@ -147,16 +165,18 @@ subagent 还要写 **`_meta`** 元数据:
 
 #### step 1:命名飘仲裁(Q5 前移自 lint)
 
-对每个 `proposal.suggested_subdir` 与 `<project>/raw/` 已有子目录做相似度比较:
+LLM 对每个 `proposal.suggested_subdir` 与 `<project>/raw/` 已有子目录做相似度比较:
 
 - **Levenshtein 距离 ≤ 2** 或 **全小写 + `-` 归一后相同** → **强制改用已有目录**(LLM 命名飘检测)
 - 命中已有目录 → 直接用,无需拍板
 - 未命中 + 与 raw-readme 15 类中某类匹配 → 拍板门(已存在目录免拍板)
 - 未命中 + 不在 15 类 → **必须拍板**,新目录创建需用户同意
 
-#### step 2:拍板门汇总
+LLM 自行判定,**不**调用 `detect_name_drift` 脚本(此函数在 `lint.py` 内部,Q5 PATCH 阶段 C-1.4 已落地)。
 
-把所有需要拍板的决策合成一次对话提问(LLM 在对话层发起,**不**让脚本读 stdin):
+#### step 2:拍板门汇总 + 写 decision JSON(LLM 直接写)
+
+LLM 把所有需要拍板的决策合成一次对话提问(**不**让脚本读 stdin):
 
 ```
 ❓ 建议把 [file.pdf](inbox/file.pdf) 迁到 [raw/06_功能安全/](raw/06_功能安全/),
@@ -171,9 +191,9 @@ subagent 还要写 **`_meta`** 元数据:
 - `[n]` / `[N]` → 跳过该文件,**继续**其他文件
 - `[d]` → 仅删旧副本,不写入新内容(v0.5.2 PATCH 重 ingest)
 
-汇总后写 `temp/decision-<hash>.json`,**用户拍板后**才调 `safe-mv.py --apply`。
+汇总后 LLM **直接写** `temp/decision-<hash>.json`(`hash` 建议 sha256 前 8-12 位),**用户拍板后**才调 `safe-mv.py --apply`。
 
-**decision JSON 模板**:
+**decision JSON 模板**(LLM 写,只列字段名,不写 IO):
 
 ```json
 {
@@ -194,45 +214,65 @@ subagent 还要写 **`_meta`** 元数据:
 
 `op` 枚举仅 4 种:`mv` / `overwrite` / `skip` / `delete-only`。
 
-#### step 3:concept 去重(跨 proposal 按 aliases 合并)
+#### step 3:concept 去重(LLM 自行合并,不调脚本)
 
 聚合所有 proposal.concepts:
 
 - 同 `name`(aliases 累加)+ 不重复建页
 - 跨 subagent 抽到同名 entity / concept(如 subagent A 抽 "ISO 26262" + subagent B 抽 "ISO26262")→ **合并到 1 页**,aliases 累加
 
-#### step 4:entity 去重(按 name + aliases 合并)
+LLM 自行做去重判断,**不**调用 `dedupe_concepts.py`(此为 DESIGN.md §4 占位候选,阶段 C-1.6 待落地)。
 
-同 step 3,聚合所有 entity 抽取。
+#### step 4:entity 去重(LLM 自行合并)
 
-#### step 5:proposal JSON 5 步校验 + 字符清洗 + 截断检测(v0.5.4 PATCH)
+同 step 3,聚合所有 entity 抽取。LLM 自行做去重判断。
 
-对每个 proposal 跑 5 步:
+#### step 5:proposal JSON 5 步校验(LLM 调 validate-proposal.py)
 
-1. **JSON 解析**:`json.load()` 失败 → `JSONDecodeError` 抛出
-2. **schema 校验**:`jsonschema.validate()` 失败 → `ValidationError` 抛出
+```bash
+python3 ./scripts/validate-proposal.py --input temp/<doc-id>-proposal.json
+# Bash timeout: 30000
+```
+
+**脚本职责**(v0.5.4 PATCH 5 步):
+
+1. **JSON 解析**:`json.load()` 失败 → 退出非 0
+2. **schema 校验**:`jsonschema.validate()` 失败 → 退出非 0
 3. **字符集清洗**:BOM 保留;`\x00` NUL / `\x1f` 单元分隔符 → strip;`</script>` 注入字面量 → 替换为 `<\/script>`
-4. **截断检测**:`concepts` 数组 ≤ 200 条(超过视为 LLM 输出截断)
-5. **重写清洗后 JSON**:写入 `temp/<doc-id>-proposal.json.sanitized`
+4. **截断检测**:`concepts` 数组 ≤ 200 条(超过视为 LLM 输出截断)→ 退出非 0
+5. **重写清洗后 JSON**:写 `temp/<doc-id>-proposal.json.sanitized`
 
-**失败降级路径**:
+**失败降级路径**(LLM 处理脚本退出非 0):
 
-- **JSONDecodeError / ValidationError / maxItems 超限** → **不派 subagent 重试**(避免同样模式),**主 agent 单线程**重跑该文件(走 §阶段 1A 单文件分支)
-- **重试限额 1 次**(防 token 耗尽)
-- **重跑仍失败** → 标记跳过 + 写 **`**IngestFailure**`** log 段(在原 9 步串行清单之外)
-- **其他正常 proposal 继续合并**——**不阻断整批 ingest**
+- JSONDecodeError / ValidationError / maxItems 超限 → **不派 subagent 重试**(避免同样模式),**LLM 主线程**重跑该文件(走 §阶段 1A 单文件分支)
+- 重试限额 1 次(防 token 耗尽)
+- 重跑仍失败 → 标记跳过 + 调 `append-log.py --action IngestFailure` 写 `**IngestFailure**` 段(详见 step 9)
+- 其他正常 proposal 继续合并——**不阻断整批 ingest**
 - 损坏文件 inbox 原文件**保留**(后续用户手动重 ingest)
-- 损坏 proposal 备份到 `temp/<doc-id>-proposal.json.corrupt.bak`(供用户人工排查)
+- 损坏 proposal 备份到 `temp/<doc-id>-proposal.json.corrupt.bak`(脚本自动,供用户人工排查)
 
-#### step 6:safe-mv.py --apply(G10 双文件迁移 + atomic overwrite)
+#### step 6:safe-mv.py --apply(LLM 调脚本执行)
 
 ```bash
 python3 ./scripts/safe-mv.py \
   --project-dir . \
   --apply temp/decision-<hash>.json
+# Bash timeout: 60000
 ```
 
-**G10 双文件迁移**(适用 `native_text: false` 的 pptx/docx/xlsx/pdf):
+**返回 JSON**:
+
+```json
+{
+  "ok": true,
+  "moved": ["inbox/<file> → raw/<subdir>/<file>", ...],
+  "backed_up": ["temp/raw_backup_<hash>/<file>", ...],
+  "atomic": true,
+  "errors": []
+}
+```
+
+**G10 双文件迁移**(脚本内部,适用 `native_text: false`):
 
 - 同时迁移原文件 + `.converted.md` 副本到 `raw/<subdir>/`
 - inbox 原文件 + temp 副本**同步删除**
@@ -243,117 +283,132 @@ python3 ./scripts/safe-mv.py \
 - `os.replace()` **atomic 替换**两文件
 - 中途任何一步失败 → 两文件均保持旧值
 - 同 subdir 内无关文件 mtime / 内容不变
+- 不动 frontmatter `updated` + 文件 mtime(Q7 死循环防护)
 
 **拍板 `[d]`(仅删旧副本)**:
 
 - 仅删除 `raw/<subdir>/<basename>.<ext>` + `<basename>.<ext>.converted.md`
 - inbox 原文件保留(等用户手动处理)
 
-#### step 7:写 source 页(每个 inbox 文件 1 页)
+LLM **不**直接 mv / atomic replace;全部由 `safe-mv.py` 内部完成。
 
-路径:`<project>/knowledge/sources/<basename>.md`
+#### step 7:写 source 页(LLM 调 generate-source-page.py)
 
-frontmatter 必填 8+1 字段:
+LLM 把 frontmatter 8+1 字段、3 H2 骨架正文写盘:
 
-```yaml
-type: source
-title: <文档标题>
-description: <一句话描述>
-source_file: raw/<subdir>/<basename>.<ext>           # Obsidian UI 可点
-sources:
-  - id: <basename>
-    resource: raw/<subdir>/<basename>.<ext>            # OKF §5.1 机器读
-    title: <文档标题>
-    author: <author>
-    last_modified: <ISO 8601 或 null>
-format: <md|txt|...|tiff>
-converter: <anydoc|claude-native|paddleocr|null>
-native_text: <bool>
-converted_path: <raw/<subdir>/<basename>.<ext>.converted.md 或 null>
-generated:
-  by: agent: producer/aeps-llm-wiki-plugin/0.5.5
-  at: <ISO 8601>
-verified:
-  - { by: human:<id>, at: <ISO 8601> }
-status: stable
-tags:
-  - <6 轴 tag,至少含 maturity + docform>
-updated: <ISO 8601>
-summary: |
-  <1-3 句话摘要>
-links:
-  - type: wikilink
-    target: <basename>.<ext>.converted 或 basenme>     # 纯文本不带 .converted 后缀
+```bash
+python3 ./scripts/generate-source-page.py \
+  --project-dir . \
+  --basename <basename> \
+  --meta-json /tmp/source-meta.json \
+  --body-file /tmp/source-body.md
+# Bash timeout: 30000
 ```
 
-**Q9 双字段同源断言**:`source_file` 与 `sources[0].resource` 值必须相等(Q9 硬验收,C5.1 lint FAIL)。
+**LLM 需提前准备**:
 
-**G10 links 镜像**:正文末尾加一行 `> 原始来源:[[<basename>.<ext>.converted]]` 或 `[[<basename>]]`(纯文本);frontmatter `links:` 与该 wikilink 走 Set 比对(Q7 死循环防护)。
+- `/tmp/source-meta.json`:8+1 字段 frontmatter(type / title / description / source_file / sources[] / format / converter / native_text / converted_path / updated / tags / summary / generated / status)
+- `/tmp/source-body.md`:3 H2 骨架正文(`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`)+ 末尾 `> 原始来源:[[<basename>.<ext>.converted]]` 或 `[[<basename>]]`(纯文本)
 
-**正文 3 节 H2 骨架硬约束**(lint C15.1 + 旧版 sources 规则):
+**脚本职责**:
 
-```markdown
-## 重点摘录
+- 路径:`<project>/knowledge/sources/<basename>.md`
+- frontmatter `links:` 字段自动生成(读 body-file 末尾 `> 原始来源:` 行 → `[[wikilink]]` 镜像,Q7 死循环防护)
+- Q9 双字段同源断言(`source_file` = `sources[0].resource`,脚本校验,失败 exit 1)
+- G10 三元组强绑定(`native_text ↔ converter ↔ converted_path`,脚本校验)
 
-<文档核心内容摘录>
+#### step 8:写 entity / concept 子页(LLM 调 generate-*)
 
-## 我的思考
+LLM 按 step 3-4 去重后的清单,逐个写:
 
-<阅读时的思考与关联>
+```bash
+# entity
+python3 ./scripts/generate-entity-page.py \
+  --project-dir . \
+  --subtype <person|organization|project|product|event|place|other> \
+  --slug <slug> \
+  --meta-json /tmp/entity-meta.json \
+  --body-file /tmp/entity-body.md
 
-## 总结:最有收获的一句话
-
-<一句话概括>
+# concept
+python3 ./scripts/generate-concept-page.py \
+  --project-dir . \
+  --subtype <theory|method|field|phenomenon|standard|term|other> \
+  --slug <slug> \
+  --meta-json /tmp/concept-meta.json \
+  --body-file /tmp/concept-body.md
+# Bash timeout: 30000
 ```
 
-**禁止** H2:
+**LLM 需提前准备**:
 
-- `## 摘要` / `## Summary`(违规 FAIL)
-- `## 方案推演 / 架构分析` / `## 关联溯源`(这是 analyses/ 专属,G11)
+- `--meta-json`:`type` / `title` / `description` / `aliases` / `summary` / `updated` / `tags` / `generated`
+- `--body-file`:正文(自由发挥,只 sources / analyses 锁骨架)
 
-#### step 8:写 entity / concept 子页
+**脚本职责**:
 
-按 step 3-4 去重后的清单,逐个写:
+- 路径:`<project>/knowledge/entities/<subtype>/<slug>.md` 或 `<project>/knowledge/concepts/<subtype>/<slug>.md`
+- 子目录自动创建(`ensure-dirs.py` 语义内置)
+- 子类 ↔ 目录 1:1 绑死校验(argparse choices 拦截非法 subtype)
+- frontmatter `links: []` 初始化
 
-- entity → `<project>/knowledge/entities/<子类>/<slug>.md`(子类 ∈ {person, organization, project, product, event, place, other})
-- concept → `<project>/knowledge/concepts/<子类>/<slug>.md`(子类 ∈ {theory, method, field, phenomenon, standard, term, other})
-
-frontmatter:
-
-```yaml
-type: entity|concept
-title: <名称>
-description: <一句话>
-aliases: [<别名 1>, <别名 2>]
-summary: |
-  <简介>
-tags:
-  - <6 轴 tag>
-updated: <ISO 8601>
-links: []
-generated:
-  by: agent: producer/aeps-llm-wiki-plugin/0.5.5
-```
-
-**子类 ↔ 目录 1:1 绑死**(concept-entities-readme 字典权威),**不可跨目录**。
-
-正文**自由发挥**(只 sources / analyses 锁骨架)。
-
-#### step 9:更新全局索引(收尾一次性)
+#### step 9:更新全局索引 + log.md(LLM 调 append-log.py)
 
 **只在此阶段做一次**,**严禁**在 step 7 / 8 边写边更新(并发写冲突)。
 
-- `<project>/knowledge/log.md`:append 段 `## <YYYY-MM-DD>` + N 条 `**Migration**` / `**Converted**`(G10 适用)
-- `<project>/knowledge/glossary.md`:append 新增的 entity / concept 名
-- `<project>/knowledge/index.md`:整体重写(列出所有新增 source / entity / concept 路径)
-- `<project>/knowledge/overview.md`:按需更新(LLM 决定是否新增主题脉络)
+```bash
+# 写 log.md 一条 Migration / Creation 记录
+python3 ./scripts/append-log.py \
+  --project-dir . \
+  --action Migration \
+  --source inbox/<file> \
+  --dest raw/<subdir>/<file> \
+  --actor "agent: producer/aeps-llm-wiki-plugin/0.5.5"
+# Bash timeout: 30000
+```
 
-### 阶段 4:收尾
+**LLM 一次性写**:
 
-- 删 `temp/<basename>.md` / `temp/<basename>.<ext>.converted.md` / `temp/<doc-id>-proposal.json`(默认 `--cleanup`)
-- 保留 `temp/<doc-id>-proposal.json.sanitized`(供用户复查)
-- 损坏备份 `temp/<doc-id>-proposal.json.corrupt.bak` 保留
-- G10 备份 `temp/raw_backup_<hash>/` 保留(用户可手动回滚)
+- `log.md`:append N 条 `**Migration**` / `**Converted**`(G10 适用) / `**Creation**`(entity / concept 各一条)— 每条调一次 `append-log.py`
+- `glossary.md`:append 新增的 entity / concept 名(LLM 直接 Read + Edit 文件,**不**走脚本)
+- `index.md`:整体重写(列出所有新增 source / entity / concept 路径,LLM 直接 Read + Write 文件,**不**走脚本)
+- `overview.md`:按需更新(LLM 决定是否新增主题脉络,直接 Read + Edit)
+
+**损坏降级时**(step 5 重跑仍失败)额外调:
+
+```bash
+python3 ./scripts/append-log.py \
+  --project-dir . \
+  --action IngestFailure \
+  --source temp/<doc-id>-proposal.json \
+  --actor "agent: producer/aeps-llm-wiki-plugin/0.5.5"
+```
+
+### 阶段 4:收尾(LLM 调 ingest/cleanup.py)
+
+```bash
+python3 ./scripts/ingest/cleanup.py --project-dir .
+# Bash timeout: 30000
+```
+
+**脚本职责**(默认策略):
+
+- 删 `temp/<basename>.md` / `temp/<basename>.<ext>.converted.md` / `temp/proposal-*.json`(OCR 中间产物)
+- **保留** `temp/proposal-*.json.sanitized`(供用户复查)
+- **保留** `temp/proposal-*.json.corrupt.bak`(损坏备份)
+- **保留** `temp/raw_backup_<hash>/`(用户可手动回滚)
+- **保留** `temp/decision-*.json` / `temp/plan-*.json` / `temp/.gitkeep` / `temp/.gitignore`
+
+**返回 JSON**:
+
+```json
+{
+  "ok": true,
+  "deleted": ["temp/<basename>.md", ...],
+  "kept": ["temp/proposal-<doc-id>.json.sanitized", ...],
+  "errors": []
+}
+```
 
 ## 不应做
 
@@ -364,14 +419,16 @@ generated:
 5. **不新增"重转 skill"**(v0.5.2 PATCH 拍板)。
 6. **不在 raw/ 下生成 `_converted/` 子目录**(保持 raw 子目录语义单一)。
 7. **不让 subagent 写 knowledge/ 下任何文件**(Q11 写权矩阵)。
-8. **不让 subagent 调 safe-mv.py / ensure-dirs.py / append-log.py 等写操作脚本**。
+8. **不让 subagent 调任何写操作脚本**(safe-mv / ensure-dirs / append-log / validate-* / generate-*)。
 9. **不让 subagent 调 convert-to-md.py**(零 paddleocr 调用,冷启动已在阶段 1 batch 进程内完成)。
-10. **不在 SKILL.md 里出现"裸目录名参数"`--raw-dir custom-raw` 等**(6 顶层目录名硬编码)。
-11. **不为 source 页生成包含 `## 摘要` / `## Summary` H2 的正文**(lint FAIL)。
-12. **不在 source 页 frontmatter `updated` 字段上动 safe-mv.py 重写**(Q7 死循环防护)。
-13. **不用 `Path.write_text` 默认行为**(必须 stat → write → utime 4 步流程,v0.5.3 PATCH)。但 SKILL.md 不直接写盘,此约束在 scripts 实现层强制。
-14. **不让 proposal JSON 损坏文件整体 raise 中断整批**(v0.5.4 PATCH:按文件粒度降级,主 agent 单线程重跑 ≤ 1 次)。
-15. **不为 `comparisons/*.md` 缺 `sources:` 字段放过 lint**(C4 FAIL)。
+10. **LLM 不直接 mv 文件 / 直接 atomic overwrite**(统一 `safe-mv.py --apply`)。
+11. **LLM 不直接写 frontmatter**(统一 `generate-source-page.py` / `generate-entity-page.py` / `generate-concept-page.py`)。
+12. **LLM 不直接 atomic write knowledge/ 下任何文件**(Q7 死循环防护由 scripts 实现层 stat → write → utime 4 步流程强制)。
+13. **不在 SKILL.md 里出现"裸目录名参数"`--raw-dir custom-raw` 等**(6 顶层目录名硬编码)。
+14. **不为 source 页生成包含 `## 摘要` / `## Summary` H2 的正文**(lint FAIL)。
+15. **不在 source 页 frontmatter `updated` 字段上动 safe-mv.py 重写**(Q7 死循环防护)。
+16. **不让 proposal JSON 损坏文件整体 raise 中断整批**(v0.5.4 PATCH:按文件粒度降级,LLM 主线程重跑 ≤ 1 次)。
+17. **不为 `comparisons/*.md` 缺 `sources:` 字段放过 lint**(C4 FAIL)。
 
 ## 输出格式
 
@@ -429,17 +486,17 @@ generated:
 
 | 阶段 | 脚本 | timeout | 备注 |
 |---|---|---|---|
-| 阶段 0 | (内置 `python3 -c "import ..."`) | 30000 | 依赖预检 |
-| 阶段 1A | `convert-to-md.py --input ... --output ...` | 60000 | 单文件 |
+| 阶段 0 | `check-deps.py --project-dir .` | 30000 | 依赖预检 |
+| 阶段 1A | `convert-to-md.py --input ... --output ...` | 60000 | 单文件转换 |
 | 阶段 1B | `convert-to-md.py --batch ... --output-dir temp/ --emit-to temp/` | **600000** | N ≥ 2 批量,**必须**显式 timeout |
-| 阶段 3 step 6 | `safe-mv.py --apply temp/decision-<hash>.json` | 60000 | 拍板应用 |
-
-辅助脚本(可选,阶段 C 落地后启用):
-
-- `ensure-dirs.py --project-dir . --path "raw/<subdir>"`(拍板创建子目录)
-- `append-log.py --project-dir . --action Migration --source inbox/<f> --dest raw/<sub>/<f>`
-- `validate-frontmatter.py --project-dir . --file knowledge/sources/<basename>.md`
-- `validate-proposal.py --input temp/<doc-id>-proposal.json`(v0.5.4 PATCH schema 强校验)
+| 阶段 3 step 5 | `validate-proposal.py --input temp/<doc-id>-proposal.json` | 30000 | v0.5.4 PATCH 5 步校验 |
+| 阶段 3 step 6 | `safe-mv.py --apply temp/decision-<hash>.json` | 60000 | 拍板应用 + G10 双文件 + atomic overwrite |
+| 阶段 3 step 7 | `generate-source-page.py --basename ... --meta-json ... --body-file ...` | 30000 | 写 source 页 |
+| 阶段 3 step 8 | `generate-entity-page.py --subtype ... --slug ... --meta-json ... --body-file ...` | 30000 | 写 entity 子页 |
+| 阶段 3 step 8 | `generate-concept-page.py --subtype ... --slug ... --meta-json ... --body-file ...` | 30000 | 写 concept 子页 |
+| 阶段 3 step 9 | `append-log.py --action Migration --source ... --dest ...` | 30000 | log.md Migration/Creation 记录 |
+| 阶段 3 step 9(降级) | `append-log.py --action IngestFailure --source temp/<doc-id>-proposal.json` | 30000 | 损坏降级记录 |
+| 阶段 4 | `ingest/cleanup.py --project-dir .` | 30000 | temp/ 留删策略 |
 
 ## 子命令
 

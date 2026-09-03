@@ -551,6 +551,43 @@ DESIGN.md 内部一致性自检:
 
 ## 9. Change History
 
+### v0.5.5(2026-09-03)— 阶段 C-3 SKILL.md ↔ scripts/ 重构落地
+
+- **重写 5 份 SKILL.md**(commit 待定),把"纯 LLM 直接做 IO"形态改为"LLM 思考 + 调度 + 调 .py"混合形态,**与 §6 重构契约表完全对齐**
+- **改写要点(每份)**:
+  - **`skills/aeps-llm-wiki-init/SKILL.md`**:LLM 不再直接创建 6 顶层目录 / 拷 templates/scripts / 写种子文件,统一调 `python3 ./scripts/init-vault.py --project-dir . [--re-run]`;读返回 JSON `{ok, created, copied, synced_at, plugin_version}`,展示给用户。**保留**触发命令 + 必读文件表 + 不应做 + 输出格式 + actor 规范
+  - **`skills/aeps-llm-wiki-ingest/SKILL.md`**:阶段 0 改调 `check-deps.py`(不再 inline `python3 -c "import ..."`);阶段 1 调 `convert-to-md.py`(单文件 / 批量双入口);阶段 3 step 6 调 `safe-mv.py --apply temp/decision-<hash>.json`(LLM 不直接 mv);step 7 调 `generate-source-page.py --meta-json ... --body-file ...`(LLM 不直接写 source 页 frontmatter);step 8 调 `generate-entity-page.py` / `generate-concept-page.py`(LLM 不直接写 entity/concept 页);step 9 调 `append-log.py`(LLM 不直接 Edit log.md);阶段 4 调 `ingest/cleanup.py`(temp/ 留删策略脚本化)。**保留** Q11 subagent 写权矩阵 + 拍板门语义 + decision JSON 模板 + 5 步校验语义 + G10 双文件迁移语义
+  - **`skills/aeps-llm-wiki-query/SKILL.md`**:阶段 0 调 `check-qmd.py`;阶段 2A 跳 1 调 `query/index-filter.py`;跳 3 调 `query/collect-neighbors.py`;跳 4 调 `query/path-b-detect.py`;阶段 3 调 `query/gating.py`(LLM 不直接伪代码判定);阶段 5 调 `generate-analysis-page.py --timestamp ... --slug ... --meta-json ... --body-file ...`;阶段 8 调 `lint-query-output.py` 校验末尾 `❓` / `💡` 标记(C15.3 FAIL 防护)。**保留** intent 推断语义(Llm 自做)+ 4 跳扫描优先级 + G11 3 H2 骨架 + 路径 B 触发语义 + gating 优先级
+  - **`skills/aeps-llm-wiki-query/SKILL.md`** qmd 模式:LLM 直接调 `qmd query ...`(系统命令,不是 scripts/);其余 query IO 全部脚本化
+  - **`skills/aeps-llm-wiki-lint/SKILL.md`**:阶段 1 调 `lint.py [--fix] [--apply] [--allow-dirty] [--by <axis>]`,读返回 JSON `{ok, issues, written, atomic, report_only, fix_proposed}`;阶段 2 语义级增强附加调 `lint-orphans.py` / `okf-lint.py` 拿结构化结果(LLM 不直接 grep);阶段 4 写盘调 `lint.py --fix --apply`(双开关 + git 脏检查 + 事务原子 + Q7 4 步 atime+mtime 双还原全部由脚本内部强制);阶段 5 log.md 追加由 `lint.py` 内部自动调 `append-log.py`(LLM 不重复写 log)。**保留** 11 类检查清单 + `--fix` ≠ `--apply` 双开关契约 + 语义级问题只报告不应用 + 陈旧判定优先级 + 4 步 atomic write 约束
+  - **`skills/aeps-llm-wiki-synthesize/SKILL.md`**:阶段 2 调 `synthesize/make-slug.py --topic "<topic>"`;阶段 3 调 `synthesize/detect-existing.py --project-dir . --slug <slug>`;阶段 4(UPDATE)调 `synthesize/build-page.py --slug <slug> --meta-json ... --body-file ... --update`;阶段 5(CREATE)调 `synthesize/build-page.py`(无 `--update`);阶段 6 调 `synthesize/append-index.py`;log.md 追加由 `build-page.py` 内部自动调 `append-log.py`(LLM 不直接 Edit log.md / index.md)。**保留** CREATE vs UPDATE 流程区分 + Q7 `updated` 不变 / `last_updated` 更新 + slug 派生规则 + sources_count < 3 拍板门
+- **改写不变量**:
+  - **保留** frontmatter 必填(name / description),**不改**
+  - **保留** 触发命令(/aeps-llm-wiki-init 等 5 个),**不改**
+  - **保留** 必读文件表,**不改**
+  - **保留** "不应做"段契约,**不改**
+  - **保留** "输出格式"段(用户视角的展示不变),**不改**
+  - **不**写入日志、历史、版本号、测试用例、change history 到 SKILL.md 内(全局 CLAUDE.md 硬约束:skill 是纯规范文件)
+  - **不**改 DESIGN.md §6 重构契约表(它是 SSOT,新 PATCH 在 §9 追加,§6 表保留)
+- **DESIGN.md 落地注脚**:
+  - **init-vault.py 改写**:原 SKILL.md L42-L122 描述的"6 顶层 + .gitkeep + 拷 templates/scripts + 写种子文件 + 字典 append + log"全部下沉到脚本;LLM 只做"路径判定(看 SCHEMA.md 是否存在)+ 调脚本 + 展示 JSON 返回";re-run 流程由脚本内部自动判别(用户加 `--re-run` 参数)
+  - **ingest 阶段拆分语义保留**:原"阶段 0 依赖预检 / 阶段 1 扫描+入口 / 阶段 2 subagent 并行 / 阶段 3 主 agent 9 步 / 阶段 4 收尾"骨架不变,每阶段内"LLM 直接做"步骤改为"调脚本 + 读 JSON 返回"
+  - **ingest step 9 LLM 仍可直写 glossary.md / index.md / overview.md**:这 3 个文件的 append/edit 不在 scripts/ 22 个 .py 范围内(append-log.py 仅管 log.md),LLM 自行 Read + Edit/Write 文件。**注意**:这不违反 §0.1 边界(scripts/ 只覆盖机械执行 IO + schema 校验 + atomic write + 安全锁;LLM 累积维护索引/概览/术语表属于语义层)
+  - **query 阶段拆分语义保留**:原"阶段 0 引擎决策 / 阶段 1 intent 路由 / 阶段 2 候选检索 / 阶段 3 gating / 阶段 4 落档"骨架不变;intent 路由仍由 LLM 推断(语义判断不可脚本化),其余 IO 全部脚本化
+  - **query qmd 命令归类**:qmd 是 Node 工具,不是 scripts/ 的 .py;LLM 直接调 `qmd query ...` 是合理 IO 边界(系统命令层);其他 IO 全部走 scripts/
+  - **lint 11 类检查保留**:原"1.1 孤儿 / 1.2 矛盾 / 1.3 陈旧 / 1.4 命名飘 / 1.5 漏链 / 1.6 frontmatter / 1.7 links 漂移 / 1.8 raw_category / 1.9 骨架 / 1.10 comparisons / 1.11 syntheses"11 项全部下沉到 `lint.py:scan`;LLM 不再自己逐项判;`--fix` / `--apply` 双开关由脚本内部强制;语义级问题(矛盾 / 命名飘 / 漏链)LLM 调 `lint-orphans.py` / `okf-lint.py` 拿结构化结果做增强判断
+  - **lint 阶段 5 log.md 不直接调**:lint.py 写盘成功后内部自动调 append-log.py 写 **LintFix** 段(参考 stage C-1.4 落地注脚 + lint SKILL.md §阶段 5 描述);LLM 不重复调 append-log.py
+  - **synthesize CREATE vs UPDATE 区分保留**:原"create 流程不动 `updated`(首次创建无 mtime 保留价值)/ update 流程不动 `updated`(Q7 死循环防护)"语义不变;脚本内部 `_build_frontmatter(is_update=...)` 区分两条路径
+  - **synthesize 拍板门保留**:sources_count < 3 时仍由 LLM 在对话层发起拍板(`[y/n]`),不阻断脚本调用;这是 §0.1 "LLM 仍保留的判断/决策"清单中的"sources_count 不足时的用户拍板"
+- **不变量自检**:
+  - 5 份 SKILL.md 全部更新(init / ingest / query / lint / synthesize)
+  - 每份 SKILL.md 仍含 frontmatter(name / description)+ 触发命令 + 必读文件表 + 工作流 + 不应做 + 输出格式
+  - 每份 SKILL.md 工作流阶段中**至少 50% 步骤**引用 `.py` 脚本(init 100% / ingest ~90% / query ~85% / lint 100% / synthesize 100%)
+  - DESIGN.md §9 8 段 PATCH 完整(初版 + C-1.1/C-1.2.1 + C-1.2.2 + C-1.3 + C-1.4 + C-1.5 + C-2 + **C-3**)
+  - §6 重构契约表保留不变(是 SSOT,与新 PATCH 内容一致)
+- **不 bump 版本号**:仍是 v0.5.5 MINOR 修订
+- **commit**:不 bump v0.5.5,MINOR 修订;commit 前询问用户是否更新版本号
+
 ### v0.5.5(2026-09-03)— 阶段 C-2 高风险路径测试用例落地
 
 - **新增 tests/test_c2_high_risk.py**(576 行)— **26 个测试用例**,按 A-G 七组覆盖真实存在风险的关键路径:
@@ -655,6 +692,28 @@ DESIGN.md 内部一致性自检:
 - **影响**:仅 init 首次启用行为(re-run 幂等不影响已建目录);9/9 pytest 复跑全绿
 - **同步**:DESIGN.md §1.1 表 + §4.1 raw 字典表全部对齐 raw-readme.md(若引用了具体目录名)
 - **commit**:不 bump v0.5.5,MINOR 修订;commit 前询问用户是否更新版本号
+
+### v0.5.5(2026-09-03)— 阶段 C-1.2.2 ingest 增量落地补丁
+
+- **新增 scripts/ 3 个 .py 顶层**(ingest 生成器):
+  - `generate-source-page.py`(377 行)— sources/`<basename>`.md + G10 5 字段(format / converter / native_text / converted_path / links 镜像)+ 3 H2 骨架(`## 重点摘录` / `## 我的思考` / `## 总结`);`source_file` ↔ `sources[0].resource` 双字段同源(Q9);atomic write 4 步保留 mtime
+  - `generate-entity-page.py`(284 行)— entities/`<subtype>`/`<slug>`.md,7 subtype(person / organization / project / product / event / place / other);frontmatter 含 aliases / summary / 6 轴 tag;非法 subtype 拒绝
+  - `generate-concept-page.py`(270 行)— concepts/`<subtype>`/`<slug>`.md,7 subtype(theory / method / field / phenomenon / standard / term / other);同上 entity
+- **新增 scripts/ingest/ 4 个 .py**:
+  - `dedupe_concepts.py`(248 行)— proposal 间 concept 去重(aliases 并集)
+  - `dedupe_entities.py`(250 行)— 同上 entity
+  - `pre_classify.py`(181 行)— raw 子目录预校验(15 类字典 + prefix hint)
+  - `cleanup.py`(237 行)— temp/ 清理策略(留 `.sanitized` / `.corrupt.bak` / `.gitignore` / `raw_backup_*`,删 OCR 中间)
+- **新增 tests/test_ingest_increments.py**(735 行)— 覆盖 22 个测试用例
+- **pytest 结果**:64 = 42 旧 + 22 新 = **64 passed**(0 failed)
+- **DESIGN.md 落地注脚**:
+  - `generate-source-page.py` 时间戳格式与 G10 三元组对齐 — sources[0].resource 路径直接派生 raw_category;Q9 双字段(source_file ↔ sources[0].resource)在 validate-frontmatter.py 校验
+  - `generate-{entity,concept}-page.py` 复用 generate-source-page.py 的 frontmatter 序列化逻辑,但锁 7 subtype 字典;非法 subtype 由 argparse choices 拦截
+  - `ingest/dedupe_{concepts,entities}.py` 按 alias 并集 + slug 全小写归一去重;命中后保留早创建的页,晚的合并进 frontmatter aliases
+  - `ingest/pre_classify.py` 用 prefix hint(raw 子目录名前 2 位数字)判定 raw_category,失败时落 WARN,不阻断
+  - `ingest/cleanup.py` KEEP_PATTERNS_DEFAULT 留 5 类(`.sanitized` / `.corrupt.bak` / `.gitignore` / `raw_backup_*` / `plan-*.json` 占位),删 OCR 中间(`.tmp` / `.tmp.*`)
+- **追溯说明**:本段在 C-1.5 synthesize commit 时由 subagent 误并入 C-1.1/C-1.2.1 合并段,C-3 PATCH 追加前补回独立段(trellis-check Issue #1)
+- **不 bump 版本号**:仍是 v0.5.5 MINOR 修订
 
 ### v0.5.5(2026-09-03)— 阶段 C-1.1 / C-1.2.1 落地补丁
 

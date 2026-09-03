@@ -6,9 +6,10 @@ description: 扫 knowledge/**/*.md,11 类检查(孤儿 / 矛盾 / 陈旧 / 命�
 # aeps-llm-wiki-lint
 
 > **触发**:`/aeps-llm-wiki-lint [--fix] [--apply] [--allow-dirty] [--by <axis>] [--project-dir <path>]`
-> **权威设计**:`src/prd.md §4.4` + `src/design.md §4.4` + `§5.4 安全锁`
-> **对应实现阶段**:plugin v0.5.5 阶段 B(本文档) + 阶段 C(scripts 落地)
+> **权威设计**:`src/prd.md §4.4` + `src/design.md §4.4` + `§5.4 安全锁` + `src/scripts/DESIGN.md §1.1 lint/`
+> **对应实现阶段**:plugin v0.5.5 阶段 B(本文档) + 阶段 C(lint.py / lint-orphans.py / okf-lint.py 全部落地)
 > **关键 PATCH**:Q7 死循环防护 v0.5.3(4 步流程) + Q6 wikilink 一等公民 + v0.3.2 安全锁(双开关 + 事务 + git 兜底) + G11 lint C15.1-C15.4
+> **核心原则**:LLM 只做思考 + 调度;11 类检查 / 提案 / 双开关写盘全部交 `lint.py`(详见 `scripts/DESIGN.md §0.1`)
 
 ## 必读文件
 
@@ -27,193 +28,208 @@ description: 扫 knowledge/**/*.md,11 类检查(孤儿 / 矛盾 / 陈旧 / 命�
 
 ## 工作流
 
-### 阶段 0:模式判定
+### 阶段 0:模式判定(LLM 根据参数分支)
 
 | 参数组合 | 行为 |
 |---|---|
-| (无参数) | 扫 `knowledge/**/*.md` → 只**报告** |
-| `--fix` | 扫 → 输出**确定性结构修复提案**(默认 dry-run,不写盘) |
-| `--fix --apply` | 扫 → **写盘**(必须双开关) |
-| `--fix --apply --allow-dirty` | git 脏状态下强制写盘 |
-| `--by raw_category` / `--by type` / `--by maturity` / `--by docform` | group by 报告模式 |
+| (无参数) | 调 `lint.py --project-dir .` → 只**报告** |
+| `--fix` | 调 `lint.py --project-dir . --fix` → 输出**确定性结构修复提案**(默认 dry-run,不写盘) |
+| `--fix --apply` | 调 `lint.py --project-dir . --fix --apply` → **写盘**(必须双开关) |
+| `--fix --apply --allow-dirty` | 调 `lint.py --project-dir . --fix --apply --allow-dirty` → git 脏状态下强制写盘 |
+| `--by raw_category` / `--by type` / `--by maturity` / `--by docform` | 调 `lint.py --project-dir . --by <axis>` → group by 报告模式 |
 
-`--fix` ≠ `--apply`:**单开关 `--fix` 不写盘**,仅输出提案(diff)。
+`--fix` ≠ `--apply`:**单开关 `--fix` 不写盘**,仅输出提案(diff)。LLM **不**自行判定写盘开关;参数透传给 `lint.py`。
 
-### 阶段 1:扫 `knowledge/**/*.md` —— 11 类检查
+### 阶段 1:扫 `knowledge/**/*.md` —— 11 类检查(LLM 调 lint.py)
 
-#### 1.1 孤儿页
+```bash
+# 默认只报告
+python3 ./scripts/lint.py --project-dir .
+# Bash timeout: 60000
 
-- 无任何入链接(`[[wikilink]]` / frontmatter `sources[]`)
-- **豁免**:`knowledge/index.md` / `knowledge/overview.md` / `knowledge/glossary.md`
+# 提案(dry-run)
+python3 ./scripts/lint.py --project-dir . --fix
+# Bash timeout: 60000
 
-#### 1.2 矛盾(LLM 判断)
+# 双开关写盘
+python3 ./scripts/lint.py --project-dir . --fix --apply
+# Bash timeout: 300000
 
-- 两页对同一事实不同说法
-- 仅**报告**,`--fix` **不自动应用**(语义级)
+# 脏状态下强制
+python3 ./scripts/lint.py --project-dir . --fix --apply --allow-dirty
+# Bash timeout: 300000
 
-#### 1.3 陈旧页
-
-判定顺序:
-
-1. **优先**:`stale_after` 存在且 `now >= stale_after` → 陈旧
-2. **回退**:`stale_after` 缺失 + `updated > 180 天` + `log.md` 无提及 → 陈旧
-3. **豁免**:`status: deprecated`
-4. **不豁免**:`status: draft`
-
-阈值常量:`STALE_THRESHOLD_DAYS = 180`。
-
-#### 1.4 LLM 命名飘(仅**报告**,**不**自动合并)
-
-- Levenshtein ≤ 2 + 全小写 + `-` 归一
-- 前缀 / 后缀差异
-- 同义命名漂移(同目录下 `soc_design.md` + `soc-design.md`)
-- `--fix` 输出**提案 + 用户拍板命令**(如 `git mv raw/03_芯片_v2/* raw/02_芯片/`)
-
-#### 1.5 漏链
-
-- 某页正文反复出现术语(LLM 判断),但未链接到对应 entity / concept / source 页
-
-#### 1.6 frontmatter 不合规
-
-- 必填字段缺失(`type` / `title` / `description` / `tags` / `updated`)
-- 类型错位(如 `tags` 是 string 而不是 list)
-- 未知 `type`(OKF §11 要求消费者容忍,只给建议)
-- **裸 tag** 无 `<axis>/` 前缀(FAIL,六轴必须)
-
-#### 1.7 frontmatter `links:` 漂移(design §3.6.2)
-
-- 与正文 `[[wikilink]]` 走 **Set 比对**(Q7 死循环防护,alias / anchor / path prefix 已 Normalizer)
-- `links:` 多 ghost(target 不在正文)→ WARN
-- 正文 wikilink 多 target(`links:` 漏)→ WARN
-
-**`--fix --apply` 自动重生成 `links:`**(满足 Set 相等即可):
-
-- stat → write_text → utime(atime + mtime 双还原,4 步流程)
-- **不动** frontmatter `updated` 字段
-- **保留** 文件 atime + mtime(`os.stat().st_atime` 与 fix 前浮点精度 1e-6 相等;`os.stat().st_mtime` 同)
-- 跑两遍结果完全相同(幂等)
-
-#### 1.8 raw_category 派生失败
-
-从 `sources[0].resource` 路径派生:
-
-- `sources` 字段缺失
-- 路径不在 `<project>/raw/` 下
-- 分类不在 15 类字典内
-
-→ FAIL。
-
-#### 1.9 正文骨架不合规
-
-**`sources/*.md`** 必含 3 H2:
-
-```markdown
-## 重点摘录
-## 我的思考
-## 总结:最有收获的一句话
+# group by
+python3 ./scripts/lint.py --project-dir . --by raw_category
+# Bash timeout: 60000
 ```
 
-**`analyses/*.md`**(G11)必含 3 H2:
+**返回 JSON 形态**:
 
-```markdown
-## 方案推演 / 架构分析
-## 关联溯源              (末尾必须有 > 引用: 行)
-## 总结:最有收获的一句话
+```json
+{
+  "ok": true,
+  "issues": [
+    {"file": "knowledge/sources/a.md", "rule": "frontmatter-tags", "severity": "FAIL", "detail": "tags string → list"},
+    {"file": "knowledge/sources/b.md", "rule": "links-mirror-sync", "severity": "WARN", "detail": "3 added, 2 removed, 1 reordered"},
+    {"file": "knowledge/analyses/c.md", "rule": "lint-C15.1", "severity": "FAIL", "detail": "missing ## 方案推演"}
+  ],
+  "written": ["knowledge/sources/a.md", "knowledge/sources/b.md"],
+  "atomic": true,
+  "report_only": false,
+  "fix_proposed": true
+}
 ```
 
-**全部禁止 H2**(lint FAIL):
+**11 类检查**(脚本内部):
 
-- `## 摘要` / `## Summary`
-- `## 重点摘录` / `## 我的思考`(在 analyses/ 内,这是 sources 风格)
+| 编号 | 检查项 | 严重度 | 行为 |
+|---|---|---|---|
+| 1.1 | 孤儿页(无入链接) | FAIL | 报告 |
+| 1.2 | 矛盾 | WARN | 仅报告,`--fix` 不应用 |
+| 1.3 | 陈旧页(stale_after / updated > 180d / deprecated 豁免) | WARN | 报告 |
+| 1.4 | LLM 命名飘(Levenshtein ≤ 2) | WARN | `--fix` 输出提案,LLM 拍板 git mv |
+| 1.5 | 漏链(LLM 语义) | WARN | 仅报告 |
+| 1.6 | frontmatter 不合规(必填 / 类型 / 裸 tag) | FAIL | `--fix --apply` 自动补 |
+| 1.7 | frontmatter `links:` 漂移(Set 比对 + Normalizer) | WARN | `--fix --apply` 自动同步 |
+| 1.8 | raw_category 派生失败(sources[0].resource 不在 raw/) | FAIL | 报告 |
+| 1.9 | 正文骨架不合规(sources / analyses 缺 3 H2) | FAIL | `--fix --apply` 追加占位 H2 |
+| 1.10 | `comparisons/*.md` 缺 `sources:` 字段(≥2 wikilink) | FAIL | 报告 |
+| 1.11 | `syntheses/*.md` 缺 `sources_count` 或 <3 | WARN | 报告 |
 
-**`--fix --apply`**:缺 H2 → 文件末尾追加**空占位** H2(用户手动填内容);log.md 追加 `**LintFix**: lint-C15.1 on analyses/<file>.md — added placeholder H2`。
+### 阶段 2:语义级增强(LLM 视需求附加调 lint-orphans.py / okf-lint.py)
 
-**`--fix` 不自动重命名** `## 重点摘录` → `## 方案推演`(语义级,需 LLM 重写或跑迁移脚本)。
+若用户要"补漏链 / 矛盾分析 / 命名飘合并"等语义级判断,LLM 附加调:
 
-#### 1.10 `comparisons/*.md`
+```bash
+# 找孤儿页(豁免 index/overview/glossary/log/SCHEMA)
+python3 ./scripts/lint-orphans.py --project-dir .
+# Bash timeout: 30000
+```
 
-- `type: comparison`
-- frontmatter `sources:` 字段 ≥ 2 条 wikilink(FAIL 若缺)
+**返回 JSON**:
 
-#### 1.11 `syntheses/*.md`
+```json
+{
+  "orphans": [
+    {"path": "knowledge/concepts/theory/foo.md", "has_no_inbound_link": true, "exempt": false, "reason": "no inbound references"}
+  ],
+  "total": 1,
+  "scanned": 123
+}
+```
 
-- `type: synthesis`
-- frontmatter `sources_count` 字段缺失或 < 3 → WARN(空综合)
+```bash
+# OKF v0.2 合规 + frontmatter `links:` 漂移(详细 diff)
+python3 ./scripts/okf-lint.py --file knowledge/<path>
+# Bash timeout: 30000
 
-### 阶段 2:`--fix` 分流
+# 同步 links: 字段(默认 dry-run)
+python3 ./scripts/okf-lint.py --file knowledge/<path> --apply
+# Bash timeout: 30000
+```
 
-**确定性结构修复**(`--fix --apply` 写盘):
+**返回 JSON**:
 
-| 修复项 | 行为 | log.md 条目 |
-|---|---|---|
-| frontmatter 必填字段缺失 | 补占位值 + WARN | `**LintFix**: frontmatter-fill on [file.md] — added <field>` |
-| frontmatter 类型错位 | 强转 | `**LintFix**: frontmatter-typecast on [file.md] — tags string → list` |
-| `## 摘要` / `## Summary` 残留 | 删小节,内容合并到 frontmatter `summary` | `**LintFix**: summary-extract on [file.md] — extracted N chars to summary` |
-| sources/analyses 缺 3 节骨架 | 文件末尾追加占位 H2(空内容) | `**LintFix**: lint-C15.1 on analyses/<file>.md — added placeholder H2` |
-| `links:` ↔ wikilink 漂移 | 同步 `links:` 字段(Set 比对;4 步流程) | `**LintFix**: links-mirror-sync on [file.md] — N added, M removed, K reordered` |
-| `sources_used` 缺(analyses) | 从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段引用路径派生 | `**LintFix**: lint-C15.2 on analyses/<file>.md — sources_used auto-filled (n=K paths)` |
+```json
+{
+  "ok": true,
+  "drift": true,
+  "scanned": 5,
+  "current": 3,
+  "added": 2,
+  "removed": 0,
+  "reordered": 1
+}
+```
 
-**Q7 死循环防护**:所有确定性写盘**必须**走 4 步流程(stat → write_text → utime(atime + mtime 双还原)),**不动** frontmatter `updated` 字段。
+LLM 拿这些**结构化结果**做语义增强判断(命名飘 / 漏链 / 矛盾候选);**不**自行 grep / 解析 frontmatter。
 
-**语义级问题**(`--fix` **仅输出提案**,**不应用**):
+### 阶段 3:提案 + 用户拍板(LLM 在对话层)
 
-- 矛盾页 → 输出冲突 diff + 建议改写
-- 命名飘合并 → 输出 `git mv` 命令
-- 漏链 → 输出候选链接列表
-- 陈旧页 → 输出处理建议(deprecate / rewrite / archive)
+LLM 读 §阶段 1 返回的 `issues` 列表,**只**展示:
 
-### 阶段 3:Lint --fix 安全锁(design §5.4,v0.3.2 新增)
+- **确定性结构修复**(safe,`--fix --apply` 可自动应用):
+  - frontmatter 必填字段缺失补占位
+  - frontmatter 类型错位(string → list)
+  - `## 摘要` / `## Summary` 残留合并到 `summary`
+  - sources/analyses 缺 3 H2 追加占位
+  - `links:` ↔ wikilink 漂移同步
+  - `sources_used` 缺自动填
+- **语义级建议**(unsafe,LLM 仅报告,**不**自动应用):
+  - 矛盾页 → 输出冲突 diff + 建议改写
+  - 命名飘合并 → 输出 `git mv` 命令
+  - 漏链 → 输出候选链接列表
+  - 陈旧页 → 输出处理建议(deprecate / rewrite / archive)
 
-**1. 默认 dry-run**
+用户在 Claude 对话层拍板,**不**让脚本读 stdin。
 
-- `--fix` ≠ `--apply`:**单开关** `--fix` **不写盘**
-- 必须 `--fix --apply` 双开关才触发磁盘写入
-- `--fix` 输出每文件的 diff 提案(用户可见)
+### 阶段 4:写盘(LLM 调 lint.py --fix --apply)
 
-**2. 事务原子写入**
+用户拍板后,LLM 调:
 
-- 全 in-memory 预生成所有改写 → **图结构预检**(孤立节点 / 循环引用 / links 反向链接) → `os.replace()` 一次性原子写入
-- 校验失败 → **全部回滚**(0 文件被修改),报告"图结构预检失败 / 校验失败" + 失败文件名 + 行号
+```bash
+python3 ./scripts/lint.py --project-dir . --fix --apply
+# Bash timeout: 300000
+```
 
-**3. Git 脏状态前置检查**
+**双开关安全锁**(脚本内部):
 
-| 工作区状态 | `--fix --apply` 行为 | `--fix --apply --allow-dirty` 行为 |
-|---|---|---|
-| 不在 git 仓库 | 注记后继续 | 同左 |
-| 在 git + 脏状态 | **退出非 0** + 提示"工作区有未提交改动,请先 commit 或 stash" | 退出 0 + 报告注明"已忽略脏状态检查" |
-| 在 git + 干净 | 写入前自动 `git stash push` 创建快照(stash 名 `lint-fix-pre-snapshot`) | 同左 |
+- **`--fix --apply` 才写盘**:单 `--fix` 走 dry-run,`written=[]` + `report_only=true` + `fix_proposed=true`
+- **事务原子写盘**:全 in-memory 预生成所有改写 → 图结构预检(孤立节点 / 循环引用 / links 反向链接)→ `os.replace()` 一次性原子写入;校验失败 → 全部回滚(0 文件被修改)
+- **Q7 死循环防护**(v0.5.3 PATCH):所有确定性写盘走 `_common.atomic_write_preserving_mtime`(stat → write → utime atime + mtime 双还原 4 步流程),**不动** frontmatter `updated` 字段
+- **Git 脏状态前置检查**:
+  - 不在 git 仓库 → 注记后继续
+  - 在 git + 脏状态 → 默认退出非 0;`--allow-dirty` 放行
+  - 在 git + 干净 → 写入前自动 `git stash push` 创建快照(stash 名 `lint-fix-pre-snapshot`)
 
-### 阶段 4:log.md 追加
+**失败兜底**:
 
-写盘后追加 `**LintFix**` 条目(5 种前缀之一,plugin 强制):
+- 脚本退出非 0 → LLM 读取 stderr 中的中文错误,展示给用户
+- 脏状态退出非 0 → LLM 建议用户先 commit / stash,或重跑带 `--allow-dirty`
+- 事务校验失败 → 0 文件被修改,LLM 展示报告里的失败文件名 + 行号
+
+LLM **不**自行 atomic write / git stash / git dirty check;全部由 `lint.py` 内部完成。
+
+### 阶段 5:log.md 追加(由 lint.py 内部自动调 append-log.py)
+
+**LLM 不直接调** `append-log.py`;`lint.py` 写盘成功后**内部**自动调 `append-log.py --action LintFix`。
+
+log.md 追加模板:
 
 ```markdown
 * **LintFix**: <rule-name> on [file.md](<path>) — <one-line summary>
+* **LintFix**: links-mirror-sync on [file.md](sources/foo.md) — 3 added, 2 removed, 1 reordered
+* **LintFix**: lint-C15.1 on analyses/<file>.md — added placeholder H2
+* **LintFix**: lint-C15.2 on analyses/<file>.md — sources_used auto-filled (n=3 paths)
 ```
 
-最新在前。
+最新在前(由 `append-log.py` 内部保证)。
 
 ## 不应做
 
-1. **无 `--fix` 时不静默改文件**(默认只报告)。
-2. **`--fix` 不静默应用语义级修改**(矛盾 / 命名飘合并 / 漏链 / 陈旧页只输出提案)。
-3. **`--fix` 改 `links:` / `sources_used` 时不动 `updated` + 文件 mtime / atime**(Q7 死循环防护 v0.5.3 PATCH atime + mtime 双还原)。
-4. **`--fix` 不把 `## 重点摘录` 自动重命名为 `## 方案推演 / 架构分析`**(语义级 → 必须 LLM 重写或跑 `migrate-analysis-skeleton.py`)。
-5. **单开关触发磁盘写入**(`--fix` ≠ `--apply`,**强制**双开关)。
-6. **`--fix --apply` 在 git 脏状态下不阻断**(必须 commit / stash,或显式 `--allow-dirty` 放行)。
-7. **逐文件写**(必须事务原子:全 in-memory 预生成 → 图结构预检 → `os.replace` 一次性)。
-8. **把"裸 tag"(`ai` 无 `<axis>/` 前缀)放过**(FAIL)。
-9. **放过 `comparisons/*.md` 缺 `sources:` 字段**(FAIL)。
-10. **放过 `syntheses/*.md` 缺 `sources_count` 字段**(WARN,<3 警告空综合)。
-11. **放过 type 已知但目录错位**(FAIL;`type: other` 在 entities 和 concepts 都合法,靠目录路径区分)。
-12. **把 wikilink 当残留处理**(Q6 一等公民,**不当残留**)。
-13. **对未知 type 报错**(OKF §11 要求消费者容忍),只给建议。
-14. **放过 `## 摘要` / `## Summary` 残留**(FAIL;合并到 frontmatter `summary`)。
-15. **放过 sources/analyses 缺 3 节骨架**(FAIL;追加占位 H2,留用户填)。
+1. **无 `--fix` 时不静默改文件**(默认只报告;LLM 不绕过脚本直接 Edit 文件)。
+2. **`--fix` 不静默应用语义级修改**(矛盾 / 命名飘合并 / 漏链 / 陈旧页只输出提案;LLM 不自行 git mv 或 Edit)。
+3. **LLM 不直接 atomic write knowledge/ 下任何文件**(统一调 `lint.py --fix --apply`;Q7 死循环防护由脚本内部强制)。
+4. **`--fix` 改 `links:` / `sources_used` 时不动 `updated` + 文件 mtime / atime**(Q7 死循环防护 v0.5.3 PATCH atime + mtime 双还原;脚本内部强制)。
+5. **`--fix` 不把 `## 重点摘录` 自动重命名为 `## 方案推演 / 架构分析`**(语义级 → 必须 LLM 重写或跑 `migrate-analysis-skeleton.py`;LLM 不直接调用)。
+6. **单开关触发磁盘写入**(`--fix` ≠ `--apply`,**强制**双开关;LLM 不绕过)。
+7. **`--fix --apply` 在 git 脏状态下不阻断**(必须 commit / stash,或显式 `--allow-dirty` 放行;LLM 不绕过)。
+8. **逐文件写**(必须事务原子:全 in-memory 预生成 → 图结构预检 → `os.replace` 一次性;LLM 不绕过)。
+9. **把"裸 tag"(`ai` 无 `<axis>/` 前缀)放过**(FAIL)。
+10. **放过 `comparisons/*.md` 缺 `sources:` 字段**(FAIL)。
+11. **放过 `syntheses/*.md` 缺 `sources_count` 字段**(WARN,<3 警告空综合)。
+12. **放过 type 已知但目录错位**(FAIL;`type: other` 在 entities 和 concepts 都合法,靠目录路径区分)。
+13. **把 wikilink 当残留处理**(Q6 一等公民,**不当残留**)。
+14. **对未知 type 报错**(OKF §11 要求消费者容忍),只给建议。
+15. **放过 `## 摘要` / `## Summary` 残留**(FAIL;合并到 frontmatter `summary`)。
+16. **放过 sources/analyses 缺 3 节骨架**(FAIL;追加占位 H2,留用户填)。
+17. **LLM 不直接调 `append-log.py --action LintFix`**(由 `lint.py` 内部自动调;LLM 不重复写 log)。
+18. **LLM 不直接调 `git mv` / `git stash`**(统一走 `lint.py` 安全锁)。
 
 ## 输出格式
 
-### 默认报告格式
+### 默认报告格式(LLM 读 issues 列表展示)
 
 ```
 [孤儿页] knowledge/concepts/theory/foo.md - 无出入链接
@@ -266,10 +282,8 @@ description: 扫 knowledge/**/*.md,11 类检查(孤儿 / 矛盾 / 陈旧 / 命�
 | `python3 ./scripts/lint.py --fix` | 60000 | 提案(dry-run) |
 | `python3 ./scripts/lint.py --fix --apply` | 300000 | 双开关写盘 |
 | `python3 ./scripts/lint.py --fix --apply --allow-dirty` | 300000 | 脏状态下强制 |
-| `python3 ./scripts/lint.py --by raw_category` | 60000 | group by |
-| `python3 ./scripts/lint-query-output.py --input <last-response>.md` | 30000 | C15.3 末尾标记校验 |
-| `python3 ./scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0` | 300000 | G11 旧骨架迁移 |
-
-辅助脚本(阶段 C 落地后):
-
-- `lint-orphans.py` / `lint-frontmatter.py` / `okf-lint.py` / `validate-frontmatter.py`
+| `python3 ./scripts/lint.py --by <axis>` | 60000 | group by(raw_category/type/maturity/docform) |
+| `python3 ./scripts/lint-orphans.py --project-dir .` | 30000 | 孤儿页结构化结果(语义级增强) |
+| `python3 ./scripts/okf-lint.py --file <path>` | 30000 | OKF v0.2 合规 + links 漂移详细 diff |
+| `python3 ./scripts/okf-lint.py --file <path> --apply` | 30000 | links: 同步(Set 比对 + 4 步 atomic) |
+| `python3 ./scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0` | 300000 | G11 旧骨架迁移(LLM 不直接调,建议用户跑) |
