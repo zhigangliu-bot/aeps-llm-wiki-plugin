@@ -268,11 +268,21 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 ### 4.6 Comparison 自然触发规则(Karpathy line 31 "comparisons")
 
-不增加 skill,**由 query skill 内置两条触发路径**:
+不增加 skill,**由 query skill 内置三条触发路径**(v0.5.1 PATCH 显式化 + 新增路径 C):
 
-- **路径 A — 同类 entity 触发**:ingest 完成后,LLM 在 source 页落档询问时,如果发现 `entities/<子类>/` 下已有同类 entity(同一 type)≥ 2 个且都是这次新 ingest 的相关对象,**提议**:"要不要建一个常驻 comparison 页把它们对照一下?"
-- **路径 B — 高频检索触发**:query 累计发现用户 ≥ 3 次问"X vs Y"型问题(grep `log.md` 检测模式 `**Creation**: ... query "X.*Y"`,query 落档 log 走 §3.4 五种前缀里的 **`Creation`** —— 因为 query 落档是新建 analysis 页,不是修改既有页;同时 description 含 query 原问句标记 `query "<原问句>"`,便于正则匹配),**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
-- **命名**:`knowledge/comparisons/<a>-vs-<b>.md`(**不带时间戳**,常驻)
+- **路径 A — 同类 entity 触发**(ingest 阶段):ingest 完成后,LLM 在 source 页落档询问时,如果发现 `entities/<子类>/` 下已有同类 entity(同一 type)≥ 2 个且都是这次新 ingest 的相关对象,**提议**:"要不要建一个常驻 comparison 页把它们对照一下?"
+- **路径 B — 累积检索触发**(query 阶段,跳 4 探测):query 累计发现用户 ≥ 3 次问"X vs Y"型问题(grep `log.md` 检测模式 `**Creation**: ... query "X.*Y"`,query 落档 log 走 §3.4 五种前缀里的 **`Creation`** —— 因为 query 落档是新建 analysis 页,不是修改既有页;同时 description 含 query 原问句标记 `query "<原问句>"`,便于正则匹配),**下次落档询问时只提一次**:"X vs Y 这个对比提过几次了,要不要建一个常驻 comparison 页?"
+  - **v0.5.1 PATCH 显式化**:计数阈值 **≥ 3 次,全局累计,不加 7 天时间窗**(D4 决策);SKILL.md 跳 4 探测时按主题近似匹配(首实体名 / slug),**不**要求精确 X/Y 完全相同(避免"X vs Y" 和 "X vs Z" 被算两次的边缘情况)
+- **路径 C — 单次词命中触发**(query 阶段,v0.5.1 PATCH 新增,D3 决策):query 中含以下触发词任一 → LLM 在阶段3判定 `intent = comparison`,本次回答直接走 gating 触发 analysis 落档(对照 G11 M3,详见 prd §4.3 + design §4.3.2 + lint C15.3)
+  - **触发词清单**:`vs` / `对比` / `区别` / `异同` / `优缺点` / `X vs Y` 型对象对
+  - **D1 决策**:**不引入 Python 本地 intent router**,intent 仍由 LLM 在阶段3推断(详见 design §4.3.2 `should_prompt_save()` 伪代码假设);触发词清单是**SKILL.md 提示词里的辅助倾向词**,不是硬规则 —— LLM 可根据语义判断"虽然含'vs' 但用户其实在解释用法而非比较"等边界
+- **三路径职责不重叠**:
+  - **路径 A** → 触发**常驻 comparison 页**(建到 `knowledge/comparisons/`)
+  - **路径 B** → 触发**常驻 comparison 页**(同上)
+  - **路径 C** → 触发**本次分析页 analysis 落档**(建到 `knowledge/analyses/<时间戳>-<slug>.md`,与 comparison 常驻页**职责分开**:analysis 是 LLM 综合推演的一次性快照,comparison 是用户长期查阅的对照表)
+- **命名**:
+  - 常驻页:`knowledge/comparisons/<a>-vs-<b>.md`(**不带时间戳**,常驻)
+  - 一次性落档:`knowledge/analyses/<时间戳>-<slug>.md`(带时间戳,G11 v0.5.0 沿用)
 - **frontmatter**:`type: comparison` + `sources:` 字段链接到对比的 entity/concept 页
 - **不应**:query 一次性给完对比表就结束(那是 answer,不是 comparison);comparison 是**常驻页**,由用户拍板后才建
 
@@ -442,6 +452,22 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ---
 
 ## 12. Change History
+
+### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 13 | **路径 C — 单次词命中触发**(D3 决策,v0.5.1 PATCH 新增):query 含 `vs` / `对比` / `区别` / `异同` / `优缺点` / `X vs Y` 型对象对 → LLM 阶段3推断 intent=comparison → 本次回答走 G11 gating 触发 analysis 落档(对照常驻 comparison 页是**另一职责**)。**D1 不引入 Python 本地 intent router**:intent 仍由 LLM 推断,触发词清单是 SKILL.md 提示词里的**辅助倾向词**,不是硬规则 —— LLM 可按语义判断边界(如"虽含 vs 但在解释用法而非比较") | 用户提"Comparison 触发词清单(intent=comparison 立即识别)" | prd §4.6 路径 C 整段(词表 + D1 决策 + 三路径职责不重叠说明);design §4.3 跳 4 + prd §4.6 三路径关系表 |
+| 14 | **跳 3 权重降权 + 跳 4 累积触发显式化**(D2 + D4 决策):跳 3 优先级(sources: 数组 → `## 关联溯源` 末尾 `> 引用:` 行 → syntheses 的 `## 子主题`/`## 引用` → `## Related pages`(可选)→ 正文其他 wikilink(降权不忽略));跳 4 comparison 累积触发探测显式化(全局累计 ≥3 次,**不加 7 天时间窗**,D4 决策,按主题近似匹配非精确 X/Y);**D2 不引入新 `parent:` 字段 + 不引入强制 `## Related pages` 节**(契约零扩张) | 用户提"第 3 跳带权重剪枝 + 若近 7 天 X vs Y ≥3 次提示建 comparison 页" | design §4.3 跳 3(优先级降权伪代码 + D2 决策)+ 跳 4(累积触发探测 + D4 决策);prd §4.6 路径 B 全局累计说明 + 三路径职责不重叠表 |
+
+**兼容性**:**v0.5.1 PATCH bump**(MINOR bump 内的小补丁)。本次改动:
+- **不引入**新 frontmatter 字段(原 `parent:` 提议被 D2 决策否决)
+- **不引入**新正文骨架(原 `## Related pages` 强制节被 D2 决策否决)
+- **不引入**新 scripts 入口(原 Python intent router 被 D1 决策否决)
+- **不修改**OKF v0.2 schema,不动 lint C15 (analysis 骨架 / sources_used / gating),不动 G10 转换契约
+- **只细化**设计澄清(§4.3 跳 3 优先级伪代码)+ §4.6 路径 C 词表显式化
+
+**升级路径**:既有 v0.5.0 wiki 升级到 v0.5.1 plugin **无需**重跑 init,**无需**跑迁移脚本;SKILL.md 内部行为升级即可(weight-based pruning + comparison 路径 C 词表)。
 
 ### v0.5.0(2026-09-03) — Round 10 G11 query 落档消除 3 个隐患(专属骨架 + sources_used + gating)
 

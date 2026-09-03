@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.5.0 待冻结(2026-09-03) — Round 10 G11 query 落档 3 隐患
+> **状态**:v0.5.1 已冻结(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -1706,14 +1706,27 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
   - 提取与 query 直接相关的"显式答案"
   - 同时记录每个候选页出现的 [[wikilink]] 链接,准备跳 3
 
-跳 3:跳邻居(1 跳深度,避免雪崩)
-  - 顺着强候选页里出现的 [[wikilink]] 跳
+跳 3:跳邻居(1 跳深度,避免雪崩)—— v0.5.1 PATCH 增加**权重降权**
+  - 顺着强候选页里出现的 [[wikilink]] 跳,**优先级**(高 → 低):
+    1. **frontmatter `sources:`** 数组的 `[[wikilink]]`(OKF §5.1,plugin 已用)
+    2. **正文结构化引用段**(按页类型):
+       - `analyses/` 的 `## 关联溯源` 末尾 `> 引用:` 行(逗号分隔路径,lint C15.4 已对齐)
+       - `syntheses/` 的 `## 子主题` / `## 引用`(详见 SCHEMA.md §3.1 行106)
+       - `entities/<子类>/` / `concepts/<子类>/` 的首段 `[[wikilink]]` 通常嵌在概述里(自由发挥,启发式)
+       - 用户手填的 `## Related pages` 段落(可选,若存在则采)
+    3. 正文其他位置的 `[[wikilink]]`(降权,**不忽略** —— 避免上下文漂移,但按出现顺序靠后读)
   - 目标页类型偏好:concepts/* > entities/* > sources/* > analyses/* > syntheses/* > comparisons/*
-  - 1 跳深度(不从邻居再追邻居),硬上限 8 个邻居页
+  - 1 跳深度(不从邻居再追邻居),硬上限 8 个邻居页(QUERYY_NEIGHBOR_MAX)
+  - **D2 决策**:**不引入**新 `parent:` 字段 + **不引入**强制 `## Related pages` 节;复用既有 `sources:` + 各类型已存在的结构化引用段(契约零扩张,v0.5.1 PATCH 不动 frontmatter / 骨架)
 
-跳 4:glossary + log 辅助
+跳 4:glossary + log + comparison 累积触发辅助
   - glossary.md:用 query 关键词消歧(同义词 / 术语官方翻译)
   - log.md:取最近 10 条,找近期 ingest 是否含相关源(避免新内容没消化)
+  - **comparison 累积触发探测**(v0.5.1 PATCH 显式化,详见 prd §4.6 路径 B):
+    - grep `log.md` 检测模式 `**Creation**: ... query "<原问句>"` 与当前 query 主题相似度
+    - 计数同主题(用首实体名 / slug 做近似匹配,如 "S32G vs NXP S32K") ≥ 3 次 → 触发路径 B 提议建 comparison 页
+    - **全局计数,不加 7 天时间窗**(v0.5.1 PATCH 显式:D4 决策)
+    - 提示语:`💡 X vs Y 这个对比已问过 N 次,要不要建一个常驻 comparison 页?(path: knowledge/comparisons/<a>-vs-<b>.md)`
 ```
 
 **qmd 入口**(当 wiki 规模达到阈值且 qmd 已装):
@@ -2344,7 +2357,42 @@ git ls-remote --tags --refs origin \
 
 ## 9. Change History
 
-### v0.4.0(2026-09-03) — Round 8 G10 外部转换副本入 raw + 源页 link 指副本
+### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
+
+**§4.3 跳 3 权重降权**(D2 决策,v0.5.1 PATCH):
+
+- **优先级清单**(高 → 低):
+  1. frontmatter `sources:` 数组(OKF §5.1,plugin 已用)
+  2. 正文结构化引用段(按页类型):analyses 的 `## 关联溯源` 末尾 `> 引用:` 行 / syntheses 的 `## 子主题`/`## 引用` / entities/concepts 自由发挥首段 wikilink / 用户手填的 `## Related pages`(可选)
+  3. 正文其他位置 `[[wikilink]]`(降权不忽略)
+- **不引入**新 `parent:` 字段 + **不引入**强制 `## Related pages` 节(契约零扩张)
+
+**§4.3 跳 4 comparison 累积触发显式化**(D4 决策,v0.5.1 PATCH):
+
+- grep `log.md` 检测模式 `**Creation**: ... query "<原问句>"` + 主题近似匹配(首实体名/slug)
+- 计数阈值 ≥ 3 次,**全局累计,不加 7 天时间窗**
+- 提示语:`💡 X vs Y 这个对比已问过 N 次,要不要建一个常驻 comparison 页?(path: knowledge/comparisons/<a>-vs-<b>.md)`
+
+**§4.6 三路径职责**(prd + design 一致):
+
+- 路径 A(同类 entity,ingest 阶段)→ 触发常驻 comparison 页
+- 路径 B(累积 ≥3 次,query 跳 4)→ 触发常驻 comparison 页
+- 路径 C(单次词命中,query 阶段,D3 决策新增)→ 触发本次 analysis 落档
+
+**路径 C 触发词清单**(D3 + D1 决策):`vs` / `对比` / `区别` / `异同` / `优缺点` / `X vs Y` 型对象对;**D1 不引入 Python 本地 intent router** —— intent 仍由 LLM 推断(详见 §4.3.2 `should_prompt_save()` 伪代码假设),触发词清单是 SKILL.md 提示词辅助倾向词,不是硬规则。
+
+**不动**:
+
+- lint C15(analysis 骨架 / sources_used / gating)
+- frontmatter schema + extensions.plugin 白名单
+- §3.6.2 `links:` 镜像同步机制(Q6/Q7)
+- G10 转换副本入 raw + 源页 link 指副本
+- v0.3.2 Normalizer + Lint --fix 安全锁
+- Q11 subagent 写权矩阵
+
+**兼容性**:**v0.5.1 PATCH bump**(MINOR bump 内的小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只细化设计澄清(§4.3 跳 3 优先级伪代码 + §4.6 路径 C 词表显式化)。OKF v0.2 schema 无 breaking change;既有 v0.5.0 wiki 升级到 v0.5.1 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
+
+### v0.5.0(2026-09-03) — Round 10 G11 query 落档消除 3 个隐患(专属骨架 + sources_used + gating)
 
 **Round 8: G10 — 外部工具转换的 md 副本随原文件入 raw + 源页 link 指副本**
 

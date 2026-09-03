@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-02,文档层(src/design.md v0.3.1 + src/prd.md v0.3.1 + 4 份 templates)已完成。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.1 + src/prd.md v0.5.1 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -700,6 +700,46 @@ git tag -l "v*" | sort -V | tail -5
 1. 升级 plugin → 跑 `/aeps-llm-wiki-init`(幂等再入,新加 `templates/analysis-page.md` + `scripts/migrate-analysis-skeleton.py`)
 2. **跑 `migrate-analysis-skeleton.py`**:`analyses/` 下旧骨架页批量转新骨架 + 补 sources_used
 3. 跑 `/aeps-llm-wiki-lint --fix --apply` 二次确认所有 FAIL 已清零
+
+### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
+
+**不动 fixture**:无新 pytest 文件;原 §C15 全部 fixture 仍 PASS(本次 PATCH 不动 analysis 骨架 / sources_used / gating)。
+
+**新增 fixture 段**(可写可不写,v0.5.1 PATCH 范围内可选):
+
+- [ ] `tests/test_query_path_c_keywords.py` —— 路径 C 词命中单元:
+  - fixture 1:query 含 "S32G vs NXP S32K 优缺点" → SKILL.md 阶段3输出 intent=comparison → 走 gating 触发 analysis 落档
+  - fixture 2:query 含 "PCIe 接口数"(无 vs/对比/区别/异同/优缺点)→ intent=exact → 不触发
+  - fixture 3:query 含 "vs" 但语义是"我之前 vs 现在"(非对象对比)→ LLM 阶段3 推断 intent ≠ comparison(不硬命中) → 走默认意图(overview 或 other)
+  - fixture 4:query 含 "对比" 但语义是"请把这两段对比起来"(隐含对比,对象未指定)→ LLM 阶段3 推断 intent=comparison(强倾向词)
+- [ ] `tests/test_query_hop3_weight_pruning.py` —— 跳 3 权重降权单元:
+  - fixture 1:候选页含 `sources:` 数组 + 正文 5 个 wikilink → 跳 3 优先采 `sources:` 数组里的(优先级 1),再采正文(优先级 3)
+  - fixture 2:analyses 页候选含 `## 关联溯源` 末尾 `> 引用:` 3 条 + 正文 8 个 wikilink → 跳 3 优先采 `> 引用:` 行
+  - fixture 3:用户手填 `## Related pages`(可选) → 跳 3 优先采该节
+  - fixture 4:无结构化引用段 + 正文大量 wikilink → 跳 3 降权采正文(权重 3,但仍采,不忽略)
+  - fixture 5:邻居页硬上限仍 8 个(QUERYY_NEIGHBOR_MAX 不变)
+- [ ] `tests/test_query_hop4_comparison_accumulation.py` —— 跳 4 累积触发单元:
+  - fixture 1:`log.md` 含 3 条 `**Creation**: ... query "S32G vs NXP S32K ..."`(全局累计)→ 跳 4 探测命中 → 提示建 comparison 页
+  - fixture 2:`log.md` 含 2 条 S32G vs NXP S32K + 1 条 S32G vs Renesas RH850(主题近似匹配)→ 跳 4 探测命中 3 次(主题近似,非精确 X/Y)→ 提示建 comparison 页
+  - fixture 3:`log.md` 含 3 条 S32G vs NXP S32K 但**全部在 7 天前**(D4 不加时间窗)→ 仍命中 → 提示
+  - fixture 4:`log.md` 含 2 条 S32G vs NXP S32K + 1 条 S32G 单点查证 → 跳 4 探测不命中(主题不同)→ 不提示
+  - fixture 5:跳 4 探测**不**自动建 comparison,只**提示**(语义级,等用户拍板;prd §4.6 三路径职责不重叠)
+
+**新增 frontmatter 字段**:无(D2 决策:不引入 `parent:` + 不引入强制 `## Related pages` 节)。
+
+**新增正文骨架**:无(D2 决策:`## Related pages` 是可选,不强锁)。
+
+**新增 scripts 入口**:无(D1 决策:不引入 Python 本地 intent router,LLM 阶段3推断)。
+
+**不动**:
+- Q6 wikilink 一等公民 / Q7 死循环防护 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- design §3.6.2 / §4.4 / §C4.1 lint 行为边界(确定性 vs 语义分流):已冻结
+- v0.3.2 Normalizer + Lint --fix 安全锁:已冻结
+- G10 转换副本入 raw + 源页 link 指副本:已冻结
+- G11 分析专属骨架 + sources_used 必填 + gating:已冻结(v0.5.0)
+- 所有 v0.5.0 §C15 fixture:已冻结
+
+**兼容性**:**v0.5.1 PATCH bump**(MINOR bump 内的小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只细化设计澄清(§4.3 跳 3 优先级伪代码 + §4.6 路径 C 词表显式化)。OKF v0.2 schema 无 breaking change;既有 v0.5.0 wiki 升级到 v0.5.1 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
 
 ### v0.4.0(2026-09-03) — Round 9 G10 外部转换副本入 raw + 源页 link 指副本
 
