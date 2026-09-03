@@ -1,0 +1,16 @@
+{
+  "name": "aeps-llm-wiki-plugin",
+  "version": "0.5.5",
+  "description": "把 Karpathy 的 LLM Wiki 模式、OKF v0.2 开放规范、Obsidian 直读前端三种范式合成到一处的 Claude Code plugin。在自己的研究项目里跑一次 /aeps-llm-wiki-init,即可得到 OKF 兼容、Karpathy 启发、Obsidian 可直读的知识库;LLM 写、Obsidian 读、plugin 管一致性。",
+  "author": {
+    "name": "zhigang.liu"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "llm-wiki",
+    "okf",
+    "automotive-electronics"
+  ]
+}
