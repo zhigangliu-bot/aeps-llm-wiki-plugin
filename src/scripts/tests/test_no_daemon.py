@@ -45,12 +45,21 @@ def scripts_dir() -> Path:
 def _target_scripts(scripts_dir: Path) -> list[Path]:
     """返回本组 .py 文件列表(排除本测试文件自身)。"""
     targets: list[Path] = []
+    # 顶层 .py
     for py_file in sorted(scripts_dir.glob("*.py")):
         if py_file.name.startswith("test_"):
             continue
         if py_file.name.startswith("_"):
             pass
         targets.append(py_file)
+    # 子目录 .py(ingest/ query/ synthesize/)
+    for sub in ("ingest", "query", "synthesize"):
+        sub_dir = scripts_dir / sub
+        if sub_dir.exists():
+            for py_file in sorted(sub_dir.glob("*.py")):
+                if py_file.name.startswith("test_"):
+                    continue
+                targets.append(py_file)
     return targets
 
 
@@ -71,6 +80,9 @@ def _target_scripts(scripts_dir: Path) -> list[Path]:
         "lint-query-output.py", "migrate-analysis-skeleton.py", "okf-reader.py",
         # 阶段 C-1.4 lint 组(3 个 .py,2026-09-03 落地)
         "lint.py", "lint-orphans.py", "okf-lint.py",
+        # 阶段 C-1.5 synthesize 组(4 个 .py,2026-09-03 落地)
+        "synthesize/make-slug.py", "synthesize/detect-existing.py",
+        "synthesize/build-page.py", "synthesize/append-index.py",
     ],
 )
 def test_no_input_calls_in_scripts(scripts_dir: Path, script_name: str) -> None:

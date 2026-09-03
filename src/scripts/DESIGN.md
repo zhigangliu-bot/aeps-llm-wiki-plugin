@@ -525,6 +525,28 @@ DESIGN.md 内部一致性自检:
 
 ## 9. Change History
 
+### v0.5.5(2026-09-03)— 阶段 C-1.5 synthesize 组落地
+
+- **新增 synthesize/ 子目录 4 个 .py**:
+  - `synthesize/make-slug.py`(178 行 / ~6 KB)— 派生 topic slug,纯字符串处理(无 IO);规则:全角→半角(FF01-FF5E → 21-7E;U+3000 → 半角空格)→ ASCII 小写 → ASCII 标点 → 空格 → CJK 标点 → 空格 → `\s+` 折叠 `-` → 连续 `-` 折叠 → 收尾去 `-` → NFKC 兜底 → 中文保留
+  - `synthesize/detect-existing.py`(181 行 / ~6 KB)— 探测 `<project>/knowledge/syntheses/<slug>.md` 是否存在 + 从 frontmatter 解析 `sources_count`(int,默认 0);只读,无写盘;不带 frontmatter schema 校验(留给 validate-frontmatter.py)
+  - `synthesize/build-page.py`(494 行 / ~17 KB)— 写 / 更新 synthesis 页;frontmatter 序列化(通用 5 + synthesis 必填 3 = type / topic / sources_count / last_updated / updated + tags + generated + links + summary);CREATE 流程 `updated = last_updated = now`;UPDATE 流程**只改** `last_updated` + `sources_count`,**不动** `updated`(Q7 死循环防护);二次写盘走 `atomic_write_preserving_mtime`(atime + mtime 双还原);`sources_count < 3` WARN 不阻断(走 stderr,SKILL.md 已向用户确认);log.md append `**Creation**`(CREATE) / `**Update**`(UPDATE);actor 默认 `agent: producer/aeps-llm-wiki-plugin/0.5.5`
+  - `synthesize/append-index.py`(197 行 / ~7 KB)— append `knowledge/index.md` 一行 `- [slug](syntheses/<slug>.md) — type: synthesis · sources_count: N · <summary>`;幂等检测(同 slug 重复 → skip,`already_present: true`);frontmatter 之后插入(latest-first);Q7 atomic write 保留 mtime
+- **新增 tests/test_synthesize_group.py**(748 行)— **26 个测试用例**,覆盖:7 个 make-slug 派生(SKILL.md §阶段 2 三示例 + 标点 + 全角 + 多空格 + 标点链)/ 3 个 detect-existing(存在 / 不存在 / sources_count 读取)/ 11 个 build-page(CREATE 写盘 / frontmatter 字段 / updated=last_updated / UPDATE 不动 updated(Q7)/ UPDATE 改 last_updated / UPDATE 改 sources_count / log.md Creation / log.md Update / sources_count < 3 WARN 不阻断 / Q7 atime+mtime 双还原 / --update 但文件不存在报错)/ 3 个 append-index(写一行 / 行格式校验 / 同 slug 幂等)/ 2 个 E2E(CREATE 整合 / UPDATE 整合)
+- **pytest 结果**:138 旧 + 26 新 + 4 no_daemon synthesize/ 参数化新增 = **168 passed in 39.34s**(0 failed)
+- **修改 test_no_daemon.py**:参数化列表新增 `synthesize/make-slug.py` / `synthesize/detect-existing.py` / `synthesize/build-page.py` / `synthesize/append-index.py`;`_target_scripts` 扩展扫描 `ingest/` / `query/` / `synthesize/` 3 个子目录
+- **DESIGN.md 落地注脚**:
+  - **make-slug.py 中文保留 + NFKC 兜底**:CJK Unified Ideographs U+4E00-U+9FFF 直接透传;ASCII 标点走 `_ASCII_PUNCT` set(含 `,` / `.` / `!` 等),CJK 标点走 `_CJK_PUNCT_RE`(覆盖 U+3000-U+303F 段);末尾 NFKC `unicodedata.normalize("NFKC", s)` 兜底处理剩余兼容字符(全角字母数字 / compatibility decomposition 形式),保证 ASCII 边界干净
+  - **detect-existing.py 只读探测**:无任何写盘调用;frontmatter 解析走本地 `_parse_frontmatter`(不走 yaml 依赖,失败容忍返回 `sources_count=0`);`syntheses/` 目录不存在时 `exists=false`(不 mkdir,留给 build-page 路径)
+  - **build-page.py CREATE vs UPDATE 流程区分**:CREATE 走 `_build_frontmatter(is_update=False)` → `updated = last_updated = now_iso`(用脚本生成的 now 覆盖 meta 传入值);UPDATE 走 `_build_frontmatter(is_update=True, existing_updated=...)` → 优先读原文件 `updated` 字段 → 保留写入;frontmatter 其他字段(title / topic / tags / generated.by)在 UPDATE 流程**不动**(与 SKILL.md §"不调用 frontmatter `updated` 字段做不必要的改写"对齐)
+  - **build-page.py log.md Creation/Update 前缀**:`_append_log()` 调 `append-log.py`(subprocess)写 `**Creation**: synthesize "<topic>" → [slug.md](syntheses/<slug>.md)` / `**Update**: synthesized update on [slug.md](syntheses/<slug>.md) — sources_count now N`;append-log 失败容忍(不影响主流程 returncode)
+  - **append-index.py 幂等**:正则 `INDEX_LINE_RE = r"^\s*-\s*\[([^\]]+)\]\(syntheses/([^)]+)\)"` 同时校验 `slug` 文件名 + 显示文本两边,避免别名问题;同 slug 二次 append → `appended=false, already_present=true`,文件不改;行格式严格 `- [<slug>](syntheses/<slug>.md) — type: synthesis · sources_count: <N> · <summary>`,em dash (—,U+2014) + 中点 (·,U+00B7) 是硬要求
+  - **build-page.py Q7 atomic**:CREATE 首次写盘走 `target.write_text()`(atomic_write_preserving_mtime 要求文件存在,首次创建无 mtime 保留价值);UPDATE 二次写盘走 `atomic_write_preserving_mtime(target, full_md)`(atime + mtime 双还原);`test_synthesize_build_page_atomic_preserve_mtime` 显式设 `os.utime(target, (1700000000.0, 1700000000.0))` 后 UPDATE,断言 `mtime + atime` 都保持 1700000000.0
+  - **synthesize/ 子目录脚本顶部 `sys.path.insert(0, Path(__file__).resolve().parent.parent)`** 复用 `_common.emit_json` / `atomic_write_preserving_mtime`(与 `query/` / `ingest/` 子目录同款做法);`_SCRIPTS_DIR` 常量专门存 scripts 绝对路径,供 `append-log.py` subprocess 调用
+  - **build-page.py 测试正则用 `^updated:` 行首匹配**:因 `last_updated` 也含 `updated:` 子串,行首 `re.MULTILINE` 避免误匹配 — 已踩坑修正
+- **不 bump 版本号**:仍是 v0.5.5 MINOR 修订
+- **commit**:不 bump v0.5.5,MINOR 修订;commit 前询问用户是否更新版本号
+
 ### v0.5.5(2026-09-03)— 阶段 C-1.4 lint 组落地
 
 - **新增 3 个 .py 顶层**:
