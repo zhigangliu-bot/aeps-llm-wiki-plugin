@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.3.1 已冻结(2026-09-02)
+> **状态**:v0.4.0 已冻结(2026-09-03)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -767,6 +767,12 @@ extensions:                             # 允许的扩展键(白名单),其它 l
   plugin:
     - updated
     - summary
+    # G10 v0.4.0 增量 — 外部工具转换的 md 副本定位(详见 prd §4.2 M2 + templates/source-page.md)
+    - format             # 原文件扩展名(小写,OKF 风格)
+    - converter          # anydoc / paddleocr / claude-native / null
+    - native_text        # bool;true ⇔ converter=null ⇔ converted_path=null
+    - converted_path     # md 副本相对 raw/ 的路径;纯文本 = null
+    - source_file        # v0.2 Q9 已有;在此显式列出便于 grep
 
 # type 合法值(与 §3.1 表对齐,entities/concepts 14 子类由 templates/concept-entities-readme.md 字典为权威;另含 `source` `analysis` `comparison` `synthesis` 共 4 个非子类类型;`knowledge/` 顶层合计 **18 个叶子存储目录** = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses;权威清单见 §4.1.1 知识库初始化子目录清单)
 type_enum:
@@ -809,6 +815,33 @@ tags_format:
   maturity_required: true                                       # maturity 单值必填
   docform_required: true                                        # docform 单值必填(对照 §1 设计原则)
   domain_max_per_page: 5                                        # 软上限
+
+# G10 v0.4.0 — type: source 强校验三元组(详见 prd §4.2 M2 + templates/source-page.md + implement §C13.3)
+# lint C13: native_text 与 converter / converted_path 三元组必须一致
+g10_source_consistency:
+  # 原生纯文本(native_text: true)必须三 null
+  - when: {native_text: true}
+    then:
+      converter: null
+      converted_path: null
+      format: '<原文件扩展名,小写>'    # 仍要求填(如 "md" / "txt")
+  # 走过转换(native_text: false)必须三非 null
+  - when: {native_text: false}
+    then:
+      converter: '<anydoc|paddleocr|claude-native>'
+      converted_path: '^raw/<subdir>/<basename>\\.<ext>\\.converted\\.md$'    # 正则,匹配命名
+  # 历史归档兼容(v0.3.x 老 wiki 缺 G10 字段):lint **WARN 不 FAIL**
+  # 由 C13.5 fixture 覆盖:G10 是 ingest 增量,历史 raw/ 不强制补建
+
+# G10 v0.4.0 — links: 镜像同步扩展(详见 prd §4.2 M3 + design §3.6.2)
+# 转换场景:links: ["[[<basename>.<ext>.converted]]"]
+# 纯文本场景:links: ["[[<basename>]]"]
+# Q7 死循环防护规则继续生效(Set 比对 / updated 不改 / mtime 保留)
+g10_links_mirror:
+  - when: {native_text: false}
+    links_pattern: '^\\[\\[.+\\.<ext>\\.converted\\]\\]$'
+  - when: {native_text: true}
+    links_pattern: '^\\[\\[[^.]+\\]\\]$'        # 无 `.converted` 后缀;无扩展名
 ```
 
 ### 3.2.1 扩展工作流(US-6:加新实体/概念类型)
@@ -1286,7 +1319,21 @@ Init re-run 完成。sync 摘要:
    | 其他                                                                                                      | **FAIL**,提示"未支持的扩展名 <ext></ext>" | —                        | —                            |
 
    **SKILL.md 必须先校验依赖**:跑 convert-to-md.py 之前检查 `scripts/requirements.txt` 的依赖(anydoc / paddleocr)是否安装;**未装 → 提示并退出**,避免跑到一半才报缺包。详见 §2.4。
-3. **路径来自 `inbox/`**:
+
+   **G10 — 转换产物落盘**(G10 M1,详见 prd §2.1 G10 + §4.2 M1):
+
+   | 扩展名类 | 处理路径 | 是否生成 `.converted.md` 副本 |
+   |---|---|---|
+   | 纯文本(`.md`/`.txt`/`.json`/...) | 直接读 | ❌ 不生成(native_text: true) |
+   | 走转换(`.pptx`/`.docx`/`.xlsx`/`.pdf`/`.png`/`.jpg`/...) | 转 md 文本 | ✅ **必须生成**,命名 `<basename>.<ext>.converted.md`,与原文件**同一 raw/ 子目录共存** |
+
+   **入口扩展**:`scripts/convert-to-md.py` 新增 `--emit-to <subdir>` 参数(G10 M4):
+   - **batch 模式**(`--batch temp/inbox-batch.json --emit-to temp/`)—— 把 N 份转换产物统一落到 `<subdir>/<basename>.<ext>.converted.md`(供 §4.2 step3 safe-mv 一次性双文件迁移)
+   - **单文件模式保留现有行为**(stdout 输出 md 文本,**不变**;向后兼容纯文本走读 LLM 上下文的场景)
+   - 命名规则:**保留原扩展名**(`iso26262.pdf.converted.md`,**不**简化成 `iso26262.converted.md`)—— 视觉关联原文件 + Obsidian wikilink 目标唯一
+   - 转换失败 → **不**生成空副本,FAIL 退出
+
+3. **路径来自 `inbox/`** + **G10 双文件迁移**:
 
    - LLM **提议**一个 raw 子目录分类 + 短理由(参考 `<project>/raw/raw-readme.md` 的 15 类清单和边界规则)
    - 提议格式:`建议迁到 raw/<subdir>/<basename>`,其中 `<subdir>` 可能是:
@@ -1298,11 +1345,16 @@ Init re-run 完成。sync 摘要:
    - **拍板门**:
      - 目标目录已存在(包括 init 时预建的 15 类)→ **无需拍板**,直接 mv 文件
      - 目标目录不存在 → **必须拍板**才创建并 mv(创建一级 `mkdir`;二级 `mkdir -p`)
+   - **G10 双文件迁移**(G10 M1):`scripts/safe-mv.py --apply temp/decision-*.json` 时,**同时迁移两个文件**(若 G10 适用):
+     - `inbox/<file>` → `raw/<subdir>/<file>`(原文件)
+     - `<emit-to>/<file>.converted.md`(纯文本场景下 `<file>.converted.md` 不存在,**跳过** md 副本迁移)
    - mv 文件后从 inbox 删除
-   - 在 `knowledge/log.md` 记 `**Migration**: inbox/<file> → raw/<subdir>/<file>`
+   - 在 `knowledge/log.md` 记两条(G10 增量):
+     - `**Migration**: inbox/<file> → raw/<subdir>/<file>`
+     - G10 适用时再记 `**Converted**: raw/<subdir>/<file>.converted.md (via <converter>)`
    - **绝不静默创建未存在的目录**
 4. 与用户做要点确认(不阻塞,可一句"继续"跳过)
-5. 生成 `type: source` 的源页,放在 `knowledge/sources/<basename>.md`(frontmatter §A + §B 都写)
+5. 生成 `type: source` 的源页,放在 `knowledge/sources/<basename>.md`(frontmatter §A + §B 都写,**§G10 增字段也写**,见下)
 6. 抽取概念 / 特性 / 术语,**自动**生成对应子页(frontmatter §A + §B + §C 全写)
 7. 追加 `knowledge/log.md`(本次 ingest 涉及的所有文件)
 8. 更新 `knowledge/index.md`(新增条目)
@@ -1320,6 +1372,20 @@ Init re-run 完成。sync 摘要:
 - `created` / `updated` = `<now ISO 8601>`
 - `summary` = `description` 同值(Q1 暂留冗余)
 
+**G10 源页 frontmatter 增字段**(G10 M2,详见 prd §4.2 M2):
+
+| 字段 | 类型 | 含义 | 例 |
+|---|---|---|---|
+| `format` | string | 原文件扩展名(OKF 风格,小写) | `pdf` / `pptx` / `md` |
+| `converter` | string \| null | 实际走过的转换器;`null` 表示纯文本 | `anydoc` / `paddleocr` / `claude-native` / `null` |
+| `native_text` | bool | 是否原生纯文本 | `false`(走过转换) / `true`(纯文本) |
+| `converted_path` | string \| null | md 副本相对 raw/ 的路径;`null` 表示纯文本 | `raw/06_功能安全/iso26262.pdf.converted.md` / `null` |
+
+- `source_file:` 与 `sources[].resource` **仍指原文件**(不变,与 v0.2 Q9 兼容)
+- `converted_path` 与 `links:` 指 md 副本(供 query 阶段 LLM 直接读)
+- **links: 镜像同步**(G10 M3):详见 §3.6.2 + §5.4 —— `[[<basename>.<ext>.converted]]`(转换的)或 `[[<basename>]]`(纯文本);Q7 死循环防护规则继续生效(Set 比对 / `updated` 不改 / mtime 保留)
+- 正文 `## 重点摘录` 末尾追加 `> 原始来源:[[<basename>.<ext>.converted]]`(纯文本则 `[[<basename>]]`)
+
 #### 4.2.1 并发处理 + batch OCR(ingest 多文件并行)
 
 **触发场景**:inbox/ 下有 ≥ 2 份文档需要 ingest 时(用户期望加速,而不是逐个串行等)。
@@ -1334,11 +1400,17 @@ Init re-run 完成。sync 摘要:
 │ 一次性调 python3 ./scripts/convert-to-md.py    │
 │   --batch <f1> <f2> ... <fn>                     │
 │   --project-dir . --output-dir temp/             │
+│   --emit-to temp/    (G10: 转换产物 .converted.md │
+│                       落到 temp/,供阶段 3 双文件 mv) │
 │   ↓                                              │
 │ 脚本内部:                                         │
 │   - 共享单 paddleocr Engine(只1 次冷启动)        │
 │   - 共享单 anydoc 实例                           │
-│   - 依次处理 N 个文件,输出 temp/<basename>.md   │
+│   - 依次处理 N 个文件:                           │
+│     · 纯文本(无转换)→ 只写 temp/<basename>.md   │
+│     · 走转换 → 写 temp/<basename>.md(给 subagent 读)│
+│                  + temp/<basename>.<ext>.converted.md│
+│                    (供阶段 3 safe-mv 迁到 raw/)   │
 │   - 仍单次跑完即退(NFR-1 约束)                  │
 │   - Bash timeout 显式 600000ms(Claude Code max) │
 └──────────────────────────────────────────────────┘
@@ -1350,6 +1422,8 @@ Init re-run 完成。sync 摘要:
 │   - LLM 提议 raw 子目录 + 抽概念/特性/术语       │
 │   - 写到 temp/<doc-id>-proposal.json:           │
 │       {file, suggested_subdir, raw_category,    │
+│        format, converter, native_text,          │
+│        converted_path,                           │
 │        concepts:[{name,type,aliases}],...}       │
 │   - 不动 knowledge/ 任何文件(避免并发写冲突)    │
 │ ↓                                                │
@@ -1365,10 +1439,15 @@ Init re-run 完成。sync 摘要:
 │   2. concept 去重:跨 proposal 按 aliases 合并,  │
 │      同一概念不同名 → 合并到一页                 │
 │   3. mv inbox → raw/<subdir>/(走拍板门)         │
+│      G10: 同时 mv 原文件 + .converted.md 副本   │
 │   4. 写 knowledge/sources/<basename>.md         │
+│      G10: frontmatter 追加 format/converter/     │
+│           native_text/converted_path 四字段       │
+│           + links: [[basename.ext.converted]]    │
 │   5. 写 knowledge/entities/<子类>/*.md          │
 │      /knowledge/concepts/<子类>/*.md            │
-│   6. 追加 knowledge/log.md(一次写完,N 条合并)  │
+│   6. 追加 knowledge/log.md(一次写完,N 条合并;  │
+│      G10: 每条 Migration 后跟 Converted 行)      │
 │   7. 更新 knowledge/index.md / glossary.md      │
 │      / overview.md                              │
 │ 所有写入在主 agent 进程内串行,无并发冲突       │
@@ -1377,7 +1456,7 @@ Init re-run 完成。sync 摘要:
 
 **关键边界**:
 
-- **batch IO 入口**:`convert-to-md.py --batch <f1> <f2> ... <fn>`(替代逐文件调用);脚本内部仍"单次跑完即退"(NFR-1 兼容,详见 §1.4 / §2.4)
+- **batch IO 入口**:`convert-to-md.py --batch <f1> <f2> ... <fn> --emit-to temp/`(替代逐文件调用;G10 `--emit-to` 是相对原有 `--output-dir` 的补充,语义"为 raw/ 双文件迁移产物落 temp/");脚本内部仍"单次跑完即退"(NFR-1 兼容,详见 §1.4 / §2.4)
 - **subagent 仅用于 LLM 任务**,不用于 IO/OCR 调用;每个 subagent 独立的 LLM 上下文(读 md + 提议),**不**直接动 knowledge/
 - **并发上限 ≤ 5**(Claude Code Task 工具工程保守值;Claude Code 文档上限 10,留缓冲)
 - **Bash timeout**:**SKILL.md 调 convert-to-md.py --batch 必须显式 `timeout: 600000`**(Claude Code Bash 工具 max 600000ms = 10 分钟;paddleocr 冷启动 5-30s + N 文件 OCR ≈ N×1-3s + 收尾合并,远低于 10 分钟上限;若实测不够,M5 调整)
@@ -2113,6 +2192,21 @@ git ls-remote --tags --refs origin \
 ---
 
 ## 9. Change History
+
+### v0.4.0(2026-09-03) — Round 8 G10 外部转换副本入 raw + 源页 link 指副本
+
+**Round 8: G10 — 外部工具转换的 md 副本随原文件入 raw + 源页 link 指副本**
+
+- §4.2 step 2 扩展"G10 — 转换产物落盘"子段:`scripts/convert-to-md.py` 新增 `--emit-to <subdir>` 参数(batch 模式 + emit 到 temp/;单文件模式保留 stdout 行为);纯文本不生成 .converted.md;命名 `<basename>.<ext>.converted.md`
+- §4.2 step 3 改造为"双文件迁移":`safe-mv.py --apply` 时同时迁移原文件 + md 副本;log.md 增 `**Converted**: ... (via <converter>)` 行
+- §4.2 step 5 + frontmatter 填充规则:源页 frontmatter 增 `format` / `converter` / `native_text` / `converted_path` 四字段(G10 M2,与 OKF v0.2 兼容)
+- §4.2.1 阶段 1:convert-to-md `--batch --emit-to temp/`,脚本内部纯文本走只写 `temp/<basename>.md`,转换走同时写 `temp/<basename>.md` + `temp/<basename>.<ext>.converted.md`
+- §4.2.1 阶段 2 proposal JSON schema:`{file, suggested_subdir, raw_category, format, converter, native_text, converted_path, concepts:[...]}`
+- §4.2.1 阶段 3 step 3/4/6 同步 G10 双文件迁移 + 源页 4 字段 + log.md 双行
+- §3.6.2 `links:` 镜像同步 + §5.4 报告段:扩展 G10 适配 ——`[[<basename>.<ext>.converted]]`(转换)或 `[[<basename>]]`(纯文本);Q7 死循环防护规则继续生效
+- §3.2 `frontmatter.schema.yaml` 设计:`extensions.plugin` 白名单追加 `format` / `converter` / `native_text` / `converted_path` / `source_file`;新增 `g10_source_consistency` 强校验三元组(native_text ⇔ converter ⇔ converted_path 三元一致性)+ `g10_links_mirror` 镜像正则
+
+**兼容性**:v0.4.0 MINOR bump,4 字段均属 OKF v0.2 §B 推荐字段或 plugin 扩展字段(§9 "consumers MUST NOT reject bundle because of missing optional frontmatter fields")。既有 v0.3.1 wiki 升级到 v0.4.0 plugin 不需要重跑 init(G10 是 ingest 增量,历史 raw/ 归档不变);用户主动补建历史转换副本时把原文件 `cp` 回 inbox/ 走 ingest。
 
 ### v0.2(2026-09-02) — 五轮增量
 

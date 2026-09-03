@@ -266,6 +266,45 @@ plugin 上架资产                          ❌ 待新建
   - [ ] fixture 缺 source_file 或 sources[0].resource 任一字段 → 跑 lint → FAIL
   - [ ] 写 `tests/test_source_obsidian_link.py`:fixture 在 Obsidian 笔记属性面板里 source_file 字段值渲染为可点击链接(由 jsonschema 校验该字段存在 + 值符合 `raw/<subdir>/<basename>.<ext>` 正则)
 
+#### C13:G10 外部转换副本入 raw + 源页 link 指副本(详见 prd §4.2 M1-M4 + design §4.2 + design §4.2.1)
+
+- [ ] **C13.1 `convert-to-md.py --batch --emit-to` 双产物落盘**(G10 M1 + M4):
+  - [ ] 写 `tests/test_convert_emit_to_pdf.py`:fixture `inbox/iso26262.pdf` + `inbox/someip-spec.pptx` + `inbox/notes.md`,跑 `python3 scripts/convert-to-md.py --batch <...> --emit-to temp/`,断言:
+    - (a) `temp/iso26262.md` + `temp/iso26262.pdf.converted.md` 同时存在(走 anydoc)
+    - (b) `temp/someip-spec.md` + `temp/someip-spec.pptx.converted.md` 同时存在(走 claude-native / 降级 anydoc)
+    - (c) `temp/notes.md` 存在(`notes.md.converted.md` **不**存在,native_text: true)
+    - (d) 单文件模式 `--emit-to temp/ iso26262.pdf` 也按 (a) 输出(向后兼容)
+  - [ ] 写 `tests/test_convert_emit_to_image.py`:fixture `inbox/screenshot.png`,跑 `--batch --emit-to temp/`,断言 `temp/screenshot.png.converted.md` 存在(paddleocr)
+  - [ ] 写 `tests/test_convert_emit_to_failure.py`:fixture 故意造一个空 .pdf(anydoc 解析失败)→ 跑 --batch --emit-to → 断言 (a) **不**生成 `*.pdf.converted.md` 空副本;(b) 退出非 0;(c) inbox 原文件保留
+- [ ] **C13.2 safe-mv 双文件迁移**(G10 M1):
+  - [ ] 写 `tests/test_safe_mv_dual_file.py`:fixture (a) `inbox/iso26262.pdf` + `temp/iso26262.pdf.converted.md`(G10 适用)+ (b) `inbox/notes.md` + 无 .converted.md(纯文本);写两份 `temp/decision-*.json`;跑 `safe-mv.py --apply`;断言:
+    - (a) `raw/<subdir>/iso26262.pdf` + `raw/<subdir>/iso26262.pdf.converted.md` 同时存在;`inbox/iso26262.pdf` + `temp/iso26262.pdf.converted.md` 已删
+    - (b) `raw/<subdir>/notes.md` 存在;`notes.md.converted.md` **不**被创建;`inbox/notes.md` 已删
+    - (c) `log.md` 追加 3 行:1 条 `**Migration**: inbox/iso26262.pdf → raw/<subdir>/iso26262.pdf` + 1 条 `**Converted**: raw/<subdir>/iso26262.pdf.converted.md (via anydoc)` + 1 条 `**Migration**: inbox/notes.md → raw/<subdir>/notes.md`(无 Converted 行)
+- [ ] **C13.3 源页 frontmatter G10 四字段 + links 镜像**(G10 M2 + M3):
+  - [ ] 写 `tests/test_source_frontmatter_g10_fields.py`:fixture 跑 ingest `inbox/iso26262.pdf` → 验证生成的 `knowledge/sources/iso26262.md` frontmatter 含:
+    - (a) `format: pdf` + `converter: anydoc` + `native_text: false`
+    - (b) `converted_path: raw/<subdir>/iso26262.pdf.converted.md`
+    - (c) `links: ["[[iso26262.pdf.converted]]"]`
+    - (d) `source_file: raw/<subdir>/iso26262.pdf`(仍指原文件,**不**指 md 副本;Q9 兼容)
+  - [ ] 写 `tests/test_source_frontmatter_g10_native.py`:fixture 跑 ingest `inbox/notes.md` → 验证 `format: md` + `converter: null` + `native_text: true` + `converted_path: null` + `links: ["[[notes]]"]`
+  - [ ] 写 `tests/test_source_frontmatter_g10_consistency.py`(lint C13 强校验):fixture 故意造 frontmatter 三元组不一致:
+    - (i) `native_text: true` + `converter: anydoc`(矛盾)→ 跑 lint → FAIL + 报告"native_text 与 converter 不一致"
+    - (ii) `native_text: false` + `converted_path: null`(矛盾)→ 跑 lint → FAIL + 报告"缺 md 副本路径"
+    - (iii) `native_text: false` + `converted_path: raw/<subdir>/foo.pdf`(与原文件名不匹配)→ 跑 lint → WARN + 报告"converted_path 与 source_file basename 不一致"
+    - (iv) `native_text: true` + `converted_path: raw/<subdir>/foo.md.converted.md`(矛盾)→ 跑 lint → FAIL
+- [ ] **C13.4 links 镜像含 .converted 后缀 + 正文原始来源行**(G10 M3):
+  - [ ] 写 `tests/test_links_mirror_for_converted.py`(扩 §C4.2):fixture 跑 ingest `inbox/iso26262.pdf` → 验证:
+    - (a) frontmatter `links: ["[[iso26262.pdf.converted]]"]`(走 wikilink 解析后 target = `iso26262.pdf.converted`)
+    - (b) 正文 `## 重点摘录` 末尾行 `> 原始来源:[[iso26262.pdf.converted]]`
+    - (c) 跑 lint → **不告警**(links[0] 与正文 `> 原始来源` 一致,Set 相等,Q7 死循环防护规则生效)
+  - [ ] 写 `tests/test_links_mirror_for_native.py`:fixture 跑 ingest `inbox/notes.md` → 验证 frontmatter `links: ["[[notes]]"]` + 正文 `> 原始来源:[[notes]]`(纯文本走 basename,**不**带 `.converted` 后缀)
+  - [ ] 写 `tests/test_links_mirror_drift_converted.py`:fixture 故意把 frontmatter `links: ["[[wrong-name]]"]`(与正文 `> 原始来源:[[iso26262.pdf.converted]]` 不一致)→ 跑 lint → WARN + `--fix` 自动同步(`links: ["[[iso26262.pdf.converted]]"]`)
+- [ ] **C13.5 历史归档兼容**(G10 不强制历史补建):
+  - [ ] 写 `tests/test_g10_historical_compat.py`:fixture 模拟 v0.3.1 历史 wiki ——`raw/<subdir>/old-spec.pdf` 存在但**无** `old-spec.pdf.converted.md`;对应 source 页 frontmatter `native_text: false` + `converted_path: null`(旧版未填);跑 lint → **WARN**(不是 FAIL):"该 source 缺 md 副本,请把原文件 `cp` 回 inbox/ 走 ingest 补建";不阻塞 plugin 运行
+- [ ] **C13.6 重转策略拒绝**(G10 不开重转入口):
+  - [ ] 写 `tests/test_g10_no_reconvert.py`:fixture 已存在 `raw/<subdir>/iso26262.pdf` + `raw/<subdir>/iso26262.pdf.converted.md`;模拟用户跑 `--emit-to` 试图覆盖 .converted.md → 断言 **FAIL** + 报告"raw/ 不可变 + G7 原则 + Q5 + G10;如需重转请把原文件 cp 回 inbox/ 走标准 ingest"
+
 #### C6:AC-6(ingest inbox 拍板门)
 
 - [ ] fixture 在 `inbox/<file>`,跑 `/aeps-llm-wiki-ingest`,验证未拍板前 inbox 文件不动
@@ -577,3 +616,23 @@ git tag -l "v*" | sort -V | tail -5
 - scripts/ 严禁交互硬契约(NFR-1 加严,本轮 stdin 全禁):v0.3.1 PATCH 已冻结
 
 **兼容性**:**v0.3.2 PATCH bump**。本次是**新增设计契约**(Normalizer + 安全锁两条全新约束),不是已有规则的加严;OKF v0.2 schema 无 breaking change;既有 v0.3.1 wiki 升级到 v0.3.2 plugin **无需**重跑 init,但需要新 fixture 测试通过验证。lint `--fix` 命令行行为有用户可见变化(从单开关 → 双开关),需要在 plugin manifest / README 注明迁移提示。
+
+### v0.4.0(2026-09-03) — Round 9 G10 外部转换副本入 raw + 源页 link 指副本
+
+**新增 §C13**:`tests/test_convert_emit_to_pdf.py` / `test_convert_emit_to_image.py` / `test_convert_emit_to_failure.py` / `test_safe_mv_dual_file.py` / `test_source_frontmatter_g10_fields.py` / `test_source_frontmatter_g10_native.py` / `test_source_frontmatter_g10_consistency.py` / `test_links_mirror_for_converted.py` / `test_links_mirror_for_native.py` / `test_links_mirror_drift_converted.py` / `test_g10_historical_compat.py` / `test_g10_no_reconvert.py`(共 12 个 fixture,覆盖 G10 M1-M4 全部 + 历史兼容 + 重转拒绝)。
+
+**关键边界测试用例**:
+
+- C13.1 --emit-to 双产物落盘(batch / 单文件 / 图片 OCR / 失败不生成空副本)
+- C13.2 safe-mv 双文件迁移 + log.md 双行(`**Migration**` + `**Converted**`)
+- C13.3 源页 frontmatter 4 字段一致性(转换的 + 纯文本 + lint C13 强校验 4 种矛盾组合)
+- C13.4 links 镜像含 `.converted` 后缀 + 正文 `> 原始来源:[[...]]` 行(Q7 死循环防护规则继续生效)
+- C13.5 历史归档兼容(lint WARN 不 FAIL)
+- C13.6 重转策略拒绝(覆盖 .converted.md → FAIL)
+
+**不动**:
+- Q6 wikilink 一等公民 / Q7 死循环防护 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- design §4.4 / §C4.1 lint 行为边界(确定性 vs 语义分流):已冻结
+- v0.3.2 Normalizer + Lint --fix 安全锁:已冻结
+
+**兼容性**:**v0.4.0 MINOR bump**。本次新增 G 级目标(G10)+ 4 个 frontmatter 字段(`format` / `converter` / `native_text` / `converted_path`),均属 OKF v0.2 §B 推荐字段或 plugin 扩展字段,§9 "consumers MUST NOT reject bundle because of missing optional frontmatter fields" 兼容。既有 v0.3.2 wiki 升级到 v0.4.0 plugin **无需**重跑 init(G10 是 ingest 增量,历史 raw/ 归档不变);用户主动补建历史转换副本时把原文件 `cp` 回 inbox/ 走 ingest。

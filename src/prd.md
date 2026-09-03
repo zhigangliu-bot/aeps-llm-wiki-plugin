@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.3.1 已冻结(2026-09-02)
+> **状态**:v0.4.0 已冻结(2026-09-03)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -38,6 +38,12 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **G7**:用户把资料丢进 `inbox/`(暂存入口,**唯一入口**),跑 `/aeps-llm-wiki-ingest`(无参数,自动扫 inbox/),**LLM 提议 raw/ 子目录分类 + 用户拍板**后,文件迁移到 `raw/<subdir>/`,inbox 清空。统一为 `inbox/` 入口;raw/ 是已归档的不可变层。
 - **G8**:用户跑 `/aeps-llm-wiki-synthesize <topic>`,plugin 帮用户在 `knowledge/syntheses/` 写一份**常驻综合页**(`type: synthesis`,不带时间戳),引用 wiki 里所有与 `<topic>` 相关的页(Karpathy line 31 "synthesis")。
 - **G9**:plugin 在 ingest 多份同类 entity 或 query 累计"X vs Y"高频时,**主动提议**建 `knowledge/comparisons/<a>-vs-<b>.md` 常驻对照页(Karpathy line 31 "comparisons"),由用户拍板才建。
+- **G10**:**外部工具转换的 md 副本随原文件一起入 raw**,源页 link 指向 md 副本(G10 衍生需求,见 §4.2 M1-M4 + design §4.2 + implement §C13):
+  - `.pptx` / `.docx` / `.xlsx` / `.pdf` / `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` 经 anydoc / paddleocr / Claude converter 转换后,转换产物 **必须落盘到 raw/**(命名 `<basename>.<ext>.converted.md`),与原文件**同一子目录共存**
+  - 源页 `type: source` frontmatter `source_file:` / `sources[].resource` 仍指向**原文件**;`links:` 镜像字段与正文 `[[<basename>.<ext>.converted]]` 指向 **md 副本**(OKF v0.2 §9 `links:` 镜像机制,详见 design §3.6.2)
+  - query 阶段 LLM 通过 `links:` 直接读 md 副本,**不再二次跑转换**(原"raw/ 里 .pdf LLM 解析不了"痛点解决)
+  - 重转策略:**不重转**(对齐 raw/ 不可变层 + G7 + Q5);需重转时由用户手工 `cp` 回 `inbox/` 走标准 ingest
+  - 纯文本类(.md / .markdown / .rst / .txt / .csv / .json / .yaml / .yml / .xml / .html / .htm) **不生成** .converted.md 副本(原生可直接读)
 
 ### 2.2 非目标(明确不做)
 
@@ -109,12 +115,37 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **raw/ 已有但无 knowledge 页的场景**:用户历史归档(`cp` 进 raw/ 或 git checkout 旧版)需要补建 → 把文件 `cp` 回 `inbox/` 再走标准 ingest(等价于"先把资料丢 inbox"的标准流),**不**给 plugin 开 raw/ 直接入口(G7 不可变层原则不变)
 - **子命令 `--raw-subdir=<name>`**:跳过分类交互,强制把 inbox 文件迁到 `raw/<name>/`(LLM 不再提议)。**仅 inbox 非空时生效**(详见 design §5.1)
 - **必须**(文件读取策略,详见 design §4.2):
-  - `.md` / `.markdown` / `.rst` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` —— **直接读**(纯文本)
+  - `.md` / `.markdown` / `.rst` / `.txt` / `.csv` / `.json` / `.yaml` / `.yml` / `.xml` / `.html` / `.htm` —— **直接读**(纯文本;**不**生成 .converted.md 副本)
   - `.pptx` / `.docx` / `.xlsx` / `.pdf` —— 先试 Claude 内置 converter,**失败后降级 anydoc 转 markdown**
   - `.png` / `.jpg` / `.jpeg` / `.bmp` / `.tiff` —— **paddleocr 转 md**(OCR)
   - 转换失败的 → **FAIL**,提示"无法转换 <file></file>,请手动预处理"
   - 转换入口:**统一 `scripts/convert-to-md.py`**(Python 3.10+ 单栈),按扩展名分流(详见 design §4.2 / §2.4)
   - 依赖库清单:`scripts/requirements.txt`(anydoc / paddleocr / jsonschema / pyyaml 等 Python 依赖),**用户必须装**;未装 → 提示并退出
+- **必须 M1**(G10 — 转换产物落盘到 raw/,详见 design §4.2 step 2 + §4.2.1 阶段 1):
+  - 转换成功后,`scripts/convert-to-md.py` 通过 `--emit-to <subdir>` 参数把产物落盘到 `<subdir>/<file>.converted.md`(同 subdir)
+  - ingest 阶段 3 `safe-mv.py --apply temp/decision-*.json` 时,**同时迁移两个文件**:`inbox/<file>` → `raw/<subdir>/<file>`(原文件)+ `temp/<file>.converted.md`(或 inbox 内的对应副本)→ `raw/<subdir>/<file>.converted.md`(md 副本)
+  - 纯文本类 **不生成** .converted.md 副本(原生直接读,`native_text: true`)
+  - 转换失败 → **不迁原文件,也不生成空副本**(原文件保留在 inbox,等用户预处理)
+  - 命名:`<basename>.<ext>.converted.md`(例 `iso26262.pdf.converted.md`),保留原扩展名语义 + 视觉关联
+- **必须 M2**(G10 — 源页 frontmatter 增字段,与 OKF v0.2 兼容):
+  - `type: source` 源页 frontmatter 在原有 `source_file:` + `sources[]` 双字段基础上,**追加 4 个字段**:
+
+    | 字段 | 类型 | 含义 | 例 |
+    |---|---|---|---|
+    | `format` | string | 原文件扩展名(OKF 风格,小写) | `pdf` / `pptx` / `docx` / `png` ... |
+    | `converter` | string \| null | 实际走过的转换器;`null` 表示纯文本直接读 | `anydoc` / `paddleocr` / `claude-native` / `null` |
+    | `native_text` | bool | 是否原生纯文本(决定是否生成 .converted.md) | `false`(走过转换) / `true`(纯文本) |
+    | `converted_path` | string \| null | md 副本相对 raw/ 的路径;`null` 表示纯文本(无副本) | `raw/06_功能安全/iso26262.pdf.converted.md` / `null` |
+
+  - `source_file:` 与 `sources[].resource` **仍指原文件**(不变,与 v0.2 Q9 兼容);`converted_path` 与 `links:` 指 md 副本
+- **必须 M3**(G10 — `links:` 镜像字段自动同步,详见 design §3.6.2 + §5.4):
+  - 源页 frontmatter `links:` **必须**包含 `[[<basename>.<ext>.converted]]`(经转换的)或 `[[<basename>]]`(纯文本)
+  - 正文 `## 重点摘录` 末尾加一行 `> 原始来源:[[<basename>.<ext>.converted]]`(纯文本则 `[[<basename>]]`)
+  - `scripts/okf-lint.py` 在每次 ingest/lint 时校验 frontmatter `links:` 与正文 wikilink 一致(沿用 v0.2 Q6 + Q7 死循环防护机制)
+- **必须 M4**(G10 — `convert-to-md.py` 行为变更):
+  - `--batch temp/inbox-batch.json --emit-to temp/` —— 批量模式 + 把产物落到 temp/(供后续 mv 到 raw/)
+  - 单文件模式保留现有"stdout 输出 md 文本"行为(不变)
+  - SKILL.md 调用顺序固定 3 步:**Step 1 转换产物落 temp/** → **Step 2 拍板门(LLM 对话层)** → **Step 3 `safe-mv.py --apply` 同时 mv 原文件 + md 副本**
 - **必须**(分类 + 写入):
   - **路径来自 `inbox/`**:LLM 先**提议**一个 raw 子目录分类 + 短理由
     - **命名飘检查**(Q5,前移自 lint):LLM 提议的子目录名,先与 `raw/` 下已有子目录做相似度比较(Levenshtein ≤ 2 / 前缀差异 / 同义拼写,详见 design §4.4)
@@ -138,6 +169,12 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **必须遵循**:frontmatter 严格符合 `schema/frontmatter.schema.yaml`
 - **必须遵循**:OKF v0.2 兼容性 —— type 必填,所有 frontmatter 字段 OKF 工具可读
 - **不应**:未经用户拍板就把 inbox 文件迁到**未存在的目录**(创建新目录必须拍板;已存在目录无需拍板,直接放)
+- **不应**(G10 — 外部转换副本相关):
+  - ❌ 不为纯文本文件(.md / .txt / .json / ...)生成 .converted.md 副本(native_text: true)
+  - ❌ 不允许原地覆盖已有 .converted.md(对齐 raw/ 不可变层 + Q5 + G7)
+  - ❌ 不新增 "重转" skill(用户主动 `cp` 回 inbox/ 走标准 ingest,见 G10)
+  - ❌ 不在 `source_path` / `links:` 留任何与 md 副本哈希相关的字段(可由 lint 按需计算;非 AC)
+  - ❌ 不在 raw/ 下生成 `_converted/` 子目录(保持 raw 子目录语义单一:放哪类就只放哪类)
 
 ### 4.3 Query skill
 
@@ -279,8 +316,6 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 ## 7. 验收标准
 
-## 7. 验收标准
-
 ### 7.1 功能验收
 
 - [ ] AC-1:用户 install plugin + `/aeps-llm-wiki-init`,5 分钟内得到完整目录;`SCHEMA.md` 内容可读、覆盖 ingest/query/lint 三个工作流
@@ -291,6 +326,8 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - [ ] AC-6:`/aeps-llm-wiki-ingest`(无参数,扫 inbox/):LLM 输出迁移提议,**未拍板前 inbox 文件不动**;用户拍板后文件出现在 `raw/<subdir>/`,`inbox/<file>` 删除,`log.md` 记录迁移路径
 - [ ] AC-7:`/aeps-llm-wiki-ingest --raw-subdir=<name>`:跳过分类交互,直接迁到 `raw/<name>/`;`log.md` 仍记迁移路径
 - [ ] AC-8:`/aeps-llm-wiki-ingest` 但 `inbox/` 为空:提示"inbox/ 为空,先把资料丢进 inbox 再跑",**不报错**(退出码 0,符合 SKILL 调用语义)
+- [ ] AC-9(G10):丢 `inbox/iso26262.pdf` → ingest 完成后 `raw/06_功能安全/iso26262.pdf` 与 `raw/06_功能安全/iso26262.pdf.converted.md` **同时存在**;源页 frontmatter 含 `format: pdf` + `converter: anydoc` + `native_text: false` + `converted_path: raw/06_功能安全/iso26262.pdf.converted.md`,且 `links:` 含 `[[iso26262.pdf.converted]]`
+- [ ] AC-10(G10):丢 `inbox/notes.md`(纯文本) → ingest 完成后 `raw/<subdir>/notes.md` 存在,**不**生成 `notes.md.converted.md`;源页 frontmatter `format: md` + `converter: null` + `native_text: true` + `converted_path: null`,`links:` 含 `[[notes]]`
 
 ### 7.2 非功能验收
 
@@ -324,6 +361,9 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 | raw 子目录无限增长,LLM 起名飘(15 类之外)                             | 子目录碎片化(`16_公司内部_a`、`16_公司内部_b`...) | init 时 15 类全部预建,日常基本不会触发创建;字典外的创建必须拍板,用户当场就拦下;lint 仍建议合并相似的子目录                                                                                                   |
 | comparison 触发逻辑误报(LLM 提议用户不需要的对比页)                  | `comparisons/` 出现噪声                             | 两条触发路径(同类 entity / 高频检索)都只在落档询问时**提议**,用户拍板才建;**只提一次**,后续不再重复                                                                                              |
 | synthesis 写得太空(只是简单罗列,没真正"综合")                        | synthesis 页失去价值                                  | frontmatter`sources_count` 字段是"参考多少页"硬指标,sources_count 太低(<3)的 synthesis lint 警告;正文不锁骨架,LLM 自由发挥,但搜索功能可"找引用最广的综合页"                                                |
+| **G10 — raw/ 体积翻倍**(每份非 md 资料都生成 .converted.md 副本)| 用户磁盘占用增加 | 仅对走过转换的文件生成;OCR md 副本通常 << 原文件;`raw/` 本就是归档层,体积增长在预期内;`source_file:` 仍指原文件,引用侧不受影响 |
+| **G10 — 重转需求被用户触发**(anydoc / paddleocr 升级 / 转换异常)| 用户需要覆盖 raw/ 副本 | 不开重转 skill(G10 拍板);`cp` 回 inbox 走标准 ingest = 新文件,旧副本保留(可手工 `git rm`);raw/ 不可变层 + Q5 原则保护 |
+| **G10 — query 仍读到 raw/ 原 .pdf**(用户未走 ingest 直接 `git mv` 进 raw)| query 仍解析不了 | lint 检查:`source_file` 指 raw/<subdir>/<file> 但 `converted_path` 为 null 且 `native_text: false` → 报错"该 source 缺 md 副本,请把原文件 `cp` 回 inbox/ 走 ingest" |
 
 ---
 
@@ -365,6 +405,20 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ---
 
 ## 12. Change History
+
+### v0.4.0(2026-09-03) — Round 8 G10 外部转换副本入 raw + 源页 link 指副本
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 9 | **G10 目标 + M1-M4 必须**:新增 G10(外部工具转换的 md 副本随原文件入 raw,源页 link 指 md 副本);§4.2 追加 M1(转换产物落盘到 raw/,命名 `<basename>.<ext>.converted.md`,与原文件同 subdir 共存)+ M2(源页 frontmatter 增 `format` / `converter` / `native_text` / `converted_path` 四字段,OKF v0.2 兼容)+ M3(`links:` 镜像字段自动同步 + Q7 死循环防护)+ M4(`convert-to-md.py --batch --emit-to` 参数 + SKILL.md 三步调用顺序) | 用户提"ingest 增加需求:外部工具转换的 md 文件也要拷贝到 raw,源页 link 指 md 副本而不是原文件,query 时 llm 同样解析不了原文件" | prd §2.1(G10)+ §4.2(M1-M4)+ §4.2 不应做段(G10 相关 5 条)+ §7.1 AC-9/AC-10 + §8 风险表 3 行;design §3.2(extensions.plugin + g10_source_consistency + g10_links_mirror)+ §4.2 step 2/3/5(G10 整段)+ §4.2.1 阶段 1/2/3(G10 适配)+ §3.6.2(links 镜像扩展);templates/source-page.md(frontmatter 锁 + G10 写入指引 + 不变量 lint C13);implement §C13(12 个 fixture,见 Change History Round 9 列表) |
+| 10 | **G10 重转策略拍板**:不对 .converted.md 开重转入口(raw/ 不可变层 + Q5 原则 + G7);用户需重转时 `cp` 回 inbox/ 走标准 ingest(新文件生成新副本,旧副本手工 `git rm` 即可) | G10 派生决策 | prd §2.1 G10 + §4.2 不应做 + §8 风险表 |
+
+**兼容性**:v0.4.0 是 **MINOR bump**(新增 G 级目标 + 4 字段,无 OKF schema breaking change —— `format` / `converter` / `native_text` / `converted_path` 均为 OKF v0.2 §B 推荐字段或 plugin 扩展字段,§9 规则:"consumers MUST NOT reject bundle because of missing optional frontmatter fields")。
+
+**升级路径**:既有 v0.3.1 wiki 升级到 v0.4.0 plugin:
+1. 升级 plugin → 跑 `/aeps-llm-wiki-init`(幂等再入,scripts/ + templates/ 同步)
+2. **历史 raw/ 中已有的非 md 文件**(无 .converted.md 副本)**不需要强制补建**(G10 是 ingest 增量,历史归档不变);lint 检查时按需报"该 source 缺 md 副本"提示
+3. 用户主动补建:把原文件 `cp` 回 inbox/ → 跑 ingest(走 M1-M4 新流程,自动生成副本)
 
 ### v0.2(2026-09-02) — 五轮增量
 
