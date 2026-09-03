@@ -1,8 +1,8 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.5 + src/prd.md v0.5.5 + 7 份 templates(含 v0.5.0 新增 analysis-page.md + source-page.md)已完成;**阶段 A(plugin 骨架)已完成**。
-> **剩余工作**:阶段 B(5 份 SKILL.md)+ 阶段 C(测试)+ 阶段 D(GitHub 发布)。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.5 + src/prd.md v0.5.5 + 7 份 templates(含 v0.5.0 新增 analysis-page.md + source-page.md)已完成;**阶段 A(plugin 骨架)+ 阶段 B(5 份 SKILL.md)已完成**。
+> **剩余工作**:阶段 C(测试用例 + scripts/ 主体实现)+ 阶段 D(GitHub 发布)。
 
 ---
 
@@ -36,11 +36,11 @@ plugin 上架资产
 ├── README.md                           ✅(阶段 A;对外定位 + 5 skill 简介 + 安装方式)
 ├── LICENSE                             ✅(阶段 A;Apache License 2.0 全文)
 ├── skills/
-│   ├── aeps-llm-wiki-init/SKILL.md     ❌ 阶段 B
-│   ├── aeps-llm-wiki-ingest/SKILL.md   ❌ 阶段 B
-│   ├── aeps-llm-wiki-query/SKILL.md    ❌ 阶段 B
-│   ├── aeps-llm-wiki-lint/SKILL.md     ❌ 阶段 B
-│   └── aeps-llm-wiki-synthesize/SKILL.md ❌ 阶段 B
+│   ├── aeps-llm-wiki-init/SKILL.md     ✅ 阶段 B(2026-09-03)
+│   ├── aeps-llm-wiki-ingest/SKILL.md   ✅ 阶段 B(2026-09-03)
+│   ├── aeps-llm-wiki-query/SKILL.md    ✅ 阶段 B(2026-09-03)
+│   ├── aeps-llm-wiki-lint/SKILL.md     ✅ 阶段 B(2026-09-03)
+│   └── aeps-llm-wiki-synthesize/SKILL.md ✅ 阶段 B(2026-09-03)
 ├── tests/                              ❌ 阶段 C
 └── docs/                               ✅(阶段 A;prd / design / implement 对外快照 + README 说明以 src/ 为准)
 ```
