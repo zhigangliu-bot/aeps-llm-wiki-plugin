@@ -1,12 +1,12 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.5 + src/prd.md v0.5.5 + 7 份 templates(含 v0.5.0 新增 analysis-page.md + source-page.md)已完成。
-> **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.5 + src/prd.md v0.5.5 + 7 份 templates(含 v0.5.0 新增 analysis-page.md + source-page.md)已完成;**阶段 A(plugin 骨架)已完成**。
+> **剩余工作**:阶段 B(5 份 SKILL.md)+ 阶段 C(测试)+ 阶段 D(GitHub 发布)。
 
 ---
 
-## 0. 现状盘点(2026-09-02)
+## 0. 现状盘点(2026-09-03 更新:阶段 A 已完成)
 
 **产品定位**(2026-09-02 增):`aeps-llm-wiki-plugin` 的输出 `knowledge/` 目录是给 **Obsidian** 消费的。LLM 写、人用 Obsidian 读、plugin 管一致性。Obsidian 直读是产品级硬约束,所有链接 / tag / 目录 / 文件名设计必须 Obsidian 原生可识别(详见 prd §1 背景 + design §0 前端契约)。
 
@@ -31,33 +31,36 @@ src/                                    已完成
     ├── source-page.md                  ✅(sources/ 页生成模板)
     └── analysis-page.md                ✅(analyses/ 页生成模板,G11 v0.5.0 专属骨架)
 
-plugin 上架资产                          ❌ 待新建
-├── .claude-plugin/plugin.json          ❌
+plugin 上架资产
+├── .claude-plugin/plugin.json          ✅(阶段 A;version 0.5.5 / license Apache-2.0)
+├── README.md                           ✅(阶段 A;对外定位 + 5 skill 简介 + 安装方式)
+├── LICENSE                             ✅(阶段 A;Apache License 2.0 全文)
 ├── skills/
-│   ├── aeps-llm-wiki-init/SKILL.md     ❌
-│   ├── aeps-llm-wiki-ingest/SKILL.md   ❌
-│   ├── aeps-llm-wiki-query/SKILL.md    ❌
-│   ├── aeps-llm-wiki-lint/SKILL.md     ❌
-│   └── aeps-llm-wiki-synthesize/SKILL.md ❌
-├── tests/                              ❌
-└── docs/                               ❌(对外文档)
+│   ├── aeps-llm-wiki-init/SKILL.md     ❌ 阶段 B
+│   ├── aeps-llm-wiki-ingest/SKILL.md   ❌ 阶段 B
+│   ├── aeps-llm-wiki-query/SKILL.md    ❌ 阶段 B
+│   ├── aeps-llm-wiki-lint/SKILL.md     ❌ 阶段 B
+│   └── aeps-llm-wiki-synthesize/SKILL.md ❌ 阶段 B
+├── tests/                              ❌ 阶段 C
+└── docs/                               ✅(阶段 A;prd / design / implement 对外快照 + README 说明以 src/ 为准)
 ```
 
 ---
 
 ## 1. 执行任务(分阶段)
 
-### 阶段 A:plugin 骨架(预计 1 天)
+### 阶段 A:plugin 骨架(预计 1 天)—— ✅ 已完成(2026-09-03)
 
-- [ ] **A1** 在 plugin 根目录建 `.claude-plugin/plugin.json`
+- [x] **A1** 在 plugin 根目录建 `.claude-plugin/plugin.json`
   - 字段:`name`、`version: 0.5.5`(与三文档现行冻结版本一致)、`description`(中文)、`author: zhigang.liu`、`license`
   - `keywords`:claude-code / plugin / llm-wiki / okf / automotive-electronics
-- [ ] **A2** 在 plugin 根目录建 `README.md`(对外)
+- [x] **A2** 在 plugin 根目录建 `README.md`(对外)
   - 一句话定位 + 截图占位 + 5 个 skill 简介 + 安装方式(`/plugin install ...`)
   - 指向 `src/prd.md` / `src/design.md` / `src/templates/`
-- [ ] **A3** 在 plugin 根目录建 `LICENSE`(MIT 或 Apache 2.0,用户拍板)
-- [ ] **A4** 建立 `docs/` 目录:把 `src/prd.md` / `src/design.md` / `src/implement.md` 镜像过去(对外文档)
+- [x] **A3** 在 plugin 根目录建 `LICENSE`(**用户拍板:Apache 2.0**,与 §C13 `test_license.py` 断言一致)
+- [x] **A4** 建立 `docs/` 目录:把 `src/prd.md` / `src/design.md` / `src/implement.md` 镜像过去(对外文档)
   - 在 `docs/README.md` 写"内部维护在 src/,对外快照在 docs/"
+  - 镜像策略:`cp` 快照(非软链 / 非自动同步),以 `src/` 为准;`src/` 变更后需手工重新 `cp`
 
 ### 阶段 B:5 个 SKILL.md 撰写(预计 2-3 天)
 
@@ -921,3 +924,13 @@ git tag -l "v*" | sort -V | tail -5
 - **不动**:§C15 派生脚本 `migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0` 与 §C16.3 / §C15 fixture 中的 `v0.4.0` 属**历史迁移语义**(描述"从哪个旧版升级"),照原样保留;§6 Change History 各轮条目为历史记录,不改。
 - **影响面**:仅 implement.md 前向引用措辞;无测试新增 / 无 OKF schema 变化 / prd.md 与 design.md 行为面无变化。
 - **版本号**:v0.5.5 PATCH 内合并,**不** bump(纯引用对齐,无行为面变化)。
+
+---
+
+**补丁登记(2026-09-03):阶段 A 完成状态回写**
+
+- **背景**:阶段 A 四项交付物(plugin.json / README.md / LICENSE / docs 镜像)已落地并提交,但 §状态行、§0 现状盘点的"plugin 上架资产 ❌ 待新建"、§阶段 A 的 A1-A4 复选框仍标未完成,与仓库现状不符。
+- **决议**:回写三处状态 —— §状态行标注"阶段 A 已完成"+ 剩余工作收窄为 B/C/D;§0 现状盘点把 `.claude-plugin/plugin.json` / `docs/` 改 ✅ 并补 `README.md` / `LICENSE` 两行,`skills/` 与 `tests/` 标注所属阶段;§阶段 A 标题加"✅ 已完成(2026-09-03)"、A1-A4 勾选,A3 记录用户拍板结果(Apache 2.0),A4 补记镜像策略为 `cp` 快照(以 `src/` 为准,`src/` 变更后需手工重新 `cp`)。
+- **不动**:阶段 B / C / D 全部条目;§2 验收 checklist;§4 时间预算(阶段 A 实际耗时未回填,预算表是计划值不作执行记录)。
+- **影响面**:仅 implement.md 执行状态标记;无测试新增 / 无 OKF schema 变化 / prd.md 与 design.md 无变化。
+- **版本号**:v0.5.5 PATCH 内合并,**不** bump(执行状态回写,非设计变更)。
