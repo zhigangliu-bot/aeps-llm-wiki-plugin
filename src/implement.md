@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.4 + src/prd.md v0.5.4 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.5 + src/prd.md v0.5.5 + 7 份 templates(含 v0.5.0 新增 analysis-page.md + source-page.md)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -14,14 +14,22 @@
 src/                                    已完成
 ├── design.md                           ✅
 ├── prd.md                              ✅
-├── scripts/                            ❌ 待新建(convert-to-md.py + 其他脚本,Python 3.10+ 单栈)
-│   └── (暂无)                           ❌
-└── templates/                          ✅
+├── implement.md                        ✅
+├── schema/                             ⚠️ 设计阶段保留(frontmatter + proposal .yaml 待阶段 C 实现 scripts 时落地)
+│   ├── frontmatter.schema.yaml         ⚠️ 待新建(阶段 C,见 design §1.2)
+│   └── proposal.schema.yaml            ⚠️ 待新建(阶段 C,见 design §1.2)
+├── scripts/                            ⚠️ 设计阶段仅 README.md + requirements.txt
+│   ├── README.md                       ✅(scripts/ 约定 + 未来脚本规划)
+│   └── requirements.txt                ✅(anydoc / paddleocr / jsonschema / pyyaml / pytest)
+│   └── *.py                            ❌ 设计阶段未生成,阶段 C 实现(convert-to-md.py + 其他,Python 3.10+ 单栈)
+└── templates/                          ✅(7 份现状;设计意图 9 份含 analysis-page.md + tag-template.md)
     ├── raw-readme.md                   ✅(15 类权威字典,plugin 主)
     ├── concept-entities-readme.md      ✅(子类 ↔ 目录绑死)
     ├── tag-template.md                 ✅(6 轴受控词表 v0.4)
     ├── inbox-readme.md                 ✅(简版提示,plugin 主)
-    └── knowledge-SCHEMA.md             ✅(用户项目下操作手册,含占位符)
+    ├── knowledge-SCHEMA.md             ✅(用户项目下操作手册,含占位符)
+    ├── source-page.md                  ✅(sources/ 页生成模板)
+    └── analysis-page.md                ✅(analyses/ 页生成模板,G11 v0.5.0 专属骨架)
 
 plugin 上架资产                          ❌ 待新建
 ├── .claude-plugin/plugin.json          ❌
@@ -860,6 +868,22 @@ git tag -l "v*" | sort -V | tail -5
 - Q6 wikilink 一等公民 / Q7 死循环防护业务意图 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
 - v0.3.2 Normalizer(v0.5.4 PATCH 不动 Normalizer 解析规则)
 - G10 转换副本入 raw + 源页 link 指副本:已冻结
+
+### v0.5.5(2026-09-03) — Round 15 PATCH 一致性对齐(plugin 本体目录布局与现状对齐)
+
+**§0 现状盘点对齐**(v0.5.5 PATCH,三文档一致性):
+
+- **`templates/` 行**:从 5 份 → **7 份现状**(补 `source-page.md` + `analysis-page.md`);新增 `templates/README.md` 未生成 / `tag-template.md` 已生成标注
+- **`scripts/` 行**:从"❌ 待新建" → **设计阶段仅 README.md + requirements.txt**(对齐 design §1.1);`*.py` 标注为"阶段 C 实现"
+- **`schema/` 行**:新增 ⚠️ 设计阶段保留(frontmatter + proposal .yaml 待阶段 C 实现 scripts 时落地)
+- **状态行 bump**:从 v0.5.4 → v0.5.5;templates 计数从 5 → 7(含 v0.5.0 新增 analysis-page.md)
+
+**不动**:
+
+- Q1-Q11 设计决策 / G1-G11 业务纪律 / 5 个 SKILL.md 触发契约:已冻结
+- v0.5.3 Q7 atime + mtime 双还原 / v0.5.4 proposal JSON schema 校验 + 损坏降级:已冻结
+- §C 阶段 B/C 测试清单:已冻结(本轮纯文档一致性,不动测试用例)
+- 5 个 SKILL.md / plugin.json / tests/ / docs/:仍为 ❌ 待新建(plugin 上架资产,阶段 D)
 - G11 分析专属骨架 + sources_used 必填 + gating:已冻结
 - v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
 - v0.5.2 Intent ambiguous fallback + G10 atomic overwrite:已冻结

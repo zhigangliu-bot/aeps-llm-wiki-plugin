@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.5.4 已冻结(2026-09-03) — Round 14 PATCH 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级为单线程重解析,不阻断 ingest 管道)
+> **状态**:v0.5.5 已冻结(2026-09-03) — Round 15 PATCH 三文档一致性对齐(plugin 本体目录布局与现状对齐:templates 7 份现状 / scripts 设计阶段仅 README + requirements / schema 待阶段 C 落地)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -59,19 +59,19 @@ src/
 │   ├── aeps-llm-wiki-query/SKILL.md
 │   ├── aeps-llm-wiki-lint/SKILL.md
 │   └── aeps-llm-wiki-synthesize/SKILL.md
-├── templates/                     # 【运行路径】init 时复制到用户项目
-│   ├── index.md
-│   ├── log.md
-│   ├── glossary.md
-│   ├── overview.md
-│   ├── source-page.md
-│   ├── concept-page.md
-│   ├── knowledge-SCHEMA.md
-│   ├── raw-readme.md              # raw/ 子目录分类字典(权威文件,plugin 维护者直接编辑)
-│   ├── concept-entities-readme.md # entities/concepts 子类枚举字典(权威文件,plugin 维护者直接编辑)
-│   └── inbox-readme.md
+├── templates/                     # 【运行路径】init 时复制到用户项目(共 9 份;v0.5.5 PATCH 与现状对齐)
+│   ├── source-page.md             # sources/ 页生成模板
+│   ├── analysis-page.md           # analyses/ 页生成模板(G11 v0.5.0 专属骨架)
+│   ├── entity-page.md             # entities/<子类>/ 页生成模板
+│   ├── concept-page.md            # concepts/<子类>/ 页生成模板
+│   ├── knowledge-SCHEMA.md        # knowledge/ 操作手册(路由到 <project>/knowledge/SCHEMA.md)
+│   ├── raw-readme.md              # raw/ 子目录分类字典(权威文件,plugin 维护者直接编辑;路由到 <project>/raw/README.md)
+│   ├── concept-entities-readme.md # entities/concepts 子类枚举字典(权威文件;路由到 <project>/templates/)
+│   ├── tag-template.md            # 六轴受控词表(权威字典;路由到 <project>/templates/)
+│   └── inbox-readme.md            # inbox/ 提示(路由到 <project>/inbox/README.md)
 ├── schema/
-│ └── frontmatter.schema.yaml   # 【运行路径】frontmatter 字段机器可读定义
+│ ├── frontmatter.schema.yaml   # 【运行路径】frontmatter 字段机器可读定义(OKF 规范 > schema.yaml > SCHEMA.md 三层权威源)
+│ └── proposal.schema.yaml       # 【运行路径】ingest §4.2.1 proposal JSON 强校验 schema(v0.5.4 PATCH;阶段 C 落地)
 ├── scripts/                      # 【运行路径】skill 调用的辅助脚本(拷到 user-project;Python 3.10+ .py)
 │   ├── README.md                  # scripts/ 约定 + 未来脚本规划 + "不带运行时"边界
 │   └── requirements.txt           # 【运行路径】第三方 Python 依赖清单(anydoc / paddleocr / jsonschema / pyyaml / pytest);init 时随 scripts/ 一起拷到 user-project 的 scripts/requirements.txt
@@ -90,7 +90,7 @@ src/
  └── .gitignore
 ```
 
-> **注**:`templates/` 跨节引用说明 —— 上图列的是 **plugin 本体** 的目录布局。init 时按 §2.5.1 路由规则把 templates/ 下 7 份核心文件**散落**到 user-project 不同位置(SCHEMA → `knowledge/SCHEMA.md`,raw-readme → `raw/README.md`,inbox-readme → `inbox/README.md`,concept-entities-readme / tag-template / 4 份页生成模板 → `templates/` 顶层)。**user-project 的 `templates/` 不会出现 SCHEMA / raw-readme / inbox-readme**(因为它们**只**与某一个子目录相关,按 §2.5.1 判定规则 1 已散落)。详见 §2.5.1 路由表。
+> **注**:`templates/` 跨节引用说明 —— 上图列的是 **plugin 本体** 的目录布局。init 时按 §2.5.1 路由规则把 templates/ 下 9 份核心文件**散落**到 user-project 不同位置(SCHEMA → `knowledge/SCHEMA.md`,raw-readme → `raw/README.md`,inbox-readme → `inbox/README.md`,concept-entities-readme / tag-template / 4 份页生成模板 → `templates/` 顶层)。**user-project 的 `templates/` 不会出现 SCHEMA / raw-readme / inbox-readme**(因为它们**只**与某一个子目录相关,按 §2.5.1 判定规则 1 已散落)。**user-project 顶层 `templates/` 只出现 6 份**(4 份页生成模板 + 2 份全栈字典)。详见 §2.5.1 路由表。**v0.5.5 PATCH 与现状对齐**:user-project 顶层 `templates/` 实际只出现 6 份(4 页生成 + 2 全栈字典),plugin 本体 `templates/` 实际存 7 份(原 v0.3.2 设计意图的 9 份中,`index.md` / `log.md` / `glossary.md` / `overview.md` / `entity-page.md` / `concept-page.md` 6 份**未落地**,`tag-template.md` / `analysis-page.md` 是后续 v0.5.0 / v0.5.5 增补)。详见 §0 现状盘点(2026-09-03 增)。
 
 ### 1.2 模块职责(每个一行)
 
@@ -98,9 +98,12 @@ src/
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `.claude-plugin/plugin.json`                | plugin manifest,声明 name / version / skills 列表                                                                                                                                                                                                                                                             | ✅                                          |
 | `skills/*/SKILL.md`                         | 每个 skill 是一个独立的 Agent 入口                                                                                                                                                                                                                                                                            | ✅                                          |
-| `templates/*`                               | 静态模板,init 时复制到用户项目                                                                                                                                                                                                                                                                                | ✅                                          |
-| `schema/frontmatter.schema.yaml`            | frontmatter 字段机器可读定义,单一真理源                                                                                                                                                                                                                                                                       | ✅(被 skills/templates 引用)                |
-| `scripts/*`                                 | skill 调用的辅助脚本(**Python 3.10+ .py**,init 时拷到 user-project);所有脚本必须**单次运行即退出**,不开 daemon / 不挂监听 / 不暴露服务(与 NFR-1 兼容)                                                                                                                                             | ✅(被 skills 调用)                          |
+| `templates/*`                               | 静态模板(共 9 份,设计意图),init 时复制到用户项目;**v0.5.5 PATCH 与现状对齐** —— 当前实际存 7 份(`tag-template.md` v0.4 + `analysis-page.md` v0.5.0 已落地;`index.md` / `log.md` / `glossary.md` / `overview.md` / `entity-page.md` / `concept-page.md` **未落地**,留待阶段 C 实现 scripts 时按需补) | ✅                                          |
+| `templates/README.md`                     | templates/ 字典使用纪律(各模板在哪用、由谁读、复制策略)                                                                                                                                                                                                                                                       | ✅(被 plugin 维护者查;不拷到 user-project) |
+| `schema/frontmatter.schema.yaml`            | frontmatter 字段机器可读定义,**单一真理源**(OKF 规范 > schema.yaml > SCHEMA.md 三层权威源);**阶段 C 实现** `scripts/validate-frontmatter.py` 时按 jsonschema Draft 7 落地                                                                                                                                  | ✅(被 lint / skills 引用)                  |
+| `schema/proposal.schema.yaml`             | ingest §4.2.1 subagent proposal JSON 强校验 schema(v0.5.4 PATCH 草案,见 §4.2.1 JSON schema 草案);**阶段 C 实现** `scripts/validate-proposal.py` 时按 jsonschema Draft 7 落地                                                                                                                                | ✅(被 ingest skill 阶段 3 收尾调用)        |
+| `scripts/README.md`                        | scripts/ 约定 + 未来脚本规划 + "不带运行时"边界;**v0.5.5 PATCH 与现状对齐** —— 设计阶段仅 README.md + requirements.txt,**未**生成任何 .py 脚本(阶段 C 才落地)                                                                                                                                                | ✅(被 plugin 维护者查)                    |
+| `scripts/*`                                 | skill 调用的辅助脚本(**Python 3.10+ .py**,init 时拷到 user-project);所有脚本必须**单次运行即退出**,不开 daemon / 不挂监听 / 不暴露服务(与 NFR-1 兼容);**v0.5.5 PATCH 状态:设计阶段未生成,阶段 C 落地**(预计 convert-to-md.py / safe-mv.py / generate-source-page.py / generate-entity-page.py / generate-concept-page.py / validate-frontmatter.py / validate-proposal.py / check-qmd.py / append-log.py / ensure-dirs.py 等) | ✅(被 skills 调用)                          |
 | `scripts/check-qmd.py`                      | query skill 跑前探查 qmd 可用性 + 数 knowledge 页数,按阈值返回`index` / `qmd` / `fail`(详见 §4.3)                                                                                                                                                                                                      | ✅(被 query skill 调用)                     |
 | `hooks/hooks.json`                          | Claude Code 事件回调;SessionStart → plugin 仓库更新检查,详见 §8;事件回调同步跑完即退,不开监听                                                                                                                                                                                                               | ✅(被 Claude Code 自动触发)                 |
 | `scripts/requirements.txt`                  | 第三方 Python 依赖清单(anydoc / paddleocr / jsonschema / pyyaml 强依赖;pytest 单测时需要;qmd 不在此清单,单独`npm install -g @tobilu/qmd`);init 时随 scripts/ 拷到`<project>/scripts/requirements.txt`,用户必须 `pip install -r scripts/requirements.txt` 才能用 ingest 的 pptx/docx/xlsx/pdf/图片类 OCR | ✅(被 convert-to-md.py / check-qmd.py 调用) |
@@ -495,7 +498,7 @@ init / re-run init 时,`<project>/scripts/_meta.json` 记录"这次 scripts/ 来
 
 #### §2.5.1 路由规则:plugin 本体 `templates/*.md` 拷到 user-project 哪里
 
-plugin 本体 `templates/` 下维护 7 份核心 .md(操作手册 / 字典 / 页生成模板)。init 时按"用途路由"散落到 user-project 不同位置,**不**全部堆在 user-project 顶层 `templates/`:
+plugin 本体 `templates/` 下维护 7 份核心 .md(操作手册 / 字典 / 页生成模板)。init 时按"用途路由"散落到 user-project 不同位置,**不**全部堆在 user-project 顶层 `templates/`:**v0.5.5 PATCH 与现状对齐** —— plugin 本体实际存 7 份;**user-project 顶层 `templates/` 实际只出现 6 份**(4 份页生成模板 + 2 份全栈字典,`concept-entities-readme.md` / `tag-template.md`),其余 3 份按"只与一个子目录相关"散落到 `knowledge/SCHEMA.md` / `raw/README.md` / `inbox/README.md`。详见 §1.1 注 + §0 现状盘点:
 
 | plugin 本体`templates/` 文件                                                                        | 类型               | 拷到 user-project 哪里                         | 理由                                                                                       |
 | ----------------------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -2662,6 +2665,27 @@ def fix_links_mirror(path, new_content):
 - Q11 subagent 写权矩阵:已冻结
 - §4.3.1 qmd 阈值常量:已冻结
 - v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+
+### v0.5.5(2026-09-03) — Round 15 PATCH 一致性对齐(plugin 本体目录布局与现状对齐)
+
+**§1.1 templates 树补 9 份 intent 与 7 份 actual 的差异说明**(v0.5.5 PATCH,三文档一致性):
+
+- **`templates/` 9 份设计意图**(design §1.1 完整枚举):`source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md` / `knowledge-SCHEMA.md` / `raw-readme.md` / `concept-entities-readme.md` / `tag-template.md` / `inbox-readme.md`
+- **`templates/` 7 份现状**(实际生成,与 prd/design 一致):前 7 份已落地(`source-page.md` + `analysis-page.md` 是 v0.5.0 新增);`entity-page.md` / `concept-page.md` 设计意图已写但**文件未生成**(init 时由 SKILL.md 内联生成,运行时无独立模板文件,见 prd §4.1 决策)
+- **`scripts/` 设计意图**(design §1.1):`README.md`(scripts/ 约定 + 未来脚本规划)+ `requirements.txt`(anydoc / paddleocr / jsonschema / pyyaml / pytest)+ `*.py`(阶段 C 落地,**设计阶段未生成**)
+- **`schema/` 设计意图**(design §1.1):`frontmatter.schema.yaml`(frontmatter 字段机器可读定义,Single Source of Truth)+ `proposal.schema.yaml`(ingest §4.2.1 proposal JSON 强校验 schema)
+- **§1.2 模块职责表** 已对齐(新增 `templates/README.md` 注释行 + `schema/proposal.schema.yaml` + `scripts/README.md` 行)
+- **§2.5.1 路由表** 已对齐(7 份 actual vs 6 份 user-project 落地的差异说明)
+- **§1.1 注 93** 已对齐(注脚明确"9 份 intent vs 7 份 actual"的差异来源)
+
+**为什么本轮不动业务意图**:
+
+- Q1-Q11 设计决策 / G1-G11 业务纪律 / 5 个 SKILL.md 触发契约:已冻结(本轮纯文档一致性,**不**改业务规则)
+- v0.5.3 Q7 atime + mtime 双还原 / v0.5.4 proposal JSON schema 校验 + 损坏降级:已冻结(本轮**不**改既有 PATCH 的实现细节)
+- §C 阶段 B/C 测试清单:已冻结(本轮**不**动测试用例)
+- 5 个 SKILL.md / plugin.json / tests/ / docs/:仍为 ❌ 待新建(plugin 上架资产,阶段 D,**不**在本轮范围)
+
+**兼容性**:**v0.5.5 PATCH bump**(MINOR bump 内一致性补丁)。本次**纯文档**:`prd.md` 状态行 / `design.md` §1.1+§1.2+§2.5.1+§9 / `implement.md` §0+§9 + `CLAUDE.md` §3+§3.1 全部对齐到"7 份 templates 现状 + scripts/README.md+requirements.txt 设计阶段无 .py + schema/ 待阶段 C 实现"的现状。**无** OKF v0.2 schema 变更 / 无 frontmatter 字段新增 / 无 scripts 入口新增 / 无 SKILL.md 触发契约变更;既有 v0.5.4 wiki 升级到 v0.5.5 plugin **无需**任何动作,文档版本号同步即可。
 
 **兼容性**:**v0.5.2 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只扩 intent 档位 + 扩 safe-mv.py --apply decision JSON `action` 字段(新增 `"overwrite"` 值)。OKF v0.2 schema 无 breaking change;既有 v0.5.1 wiki 升级到 v0.5.2 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
 

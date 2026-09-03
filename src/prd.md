@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.5.0 已冻结(2026-09-03);**v0.5.4 PATCH 已就位**(2026-09-03)— Round 14 修复 PRD 缺陷 3(§4.2.1 proposal JSON schema 强校验 + 损坏降级为单线程重解析,不阻断 ingest 管道)
+> **状态**:v0.5.0 已冻结(2026-09-03);**v0.5.5 PATCH 已就位**(2026-09-03)— Round 15 三文档一致性对齐(plugin 本体目录布局与现状对齐:templates 7 份现状 / scripts 设计阶段仅 README + requirements / schema 待阶段 C 落地)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -511,6 +511,21 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **不修改**OKF v0.2 schema,不动 G10 / G11 / Q6 / Q7 / Q11 写权矩阵 / v0.5.1 / v0.5.2 / v0.5.3
 - **只新增** `src/schema/proposal.schema.yaml`(JSON schema 草案,详见 design §4.2.1)作为 **可选** 落地(scripts 实现阶段由 LLM 根据 schema 草案生成);若 schema 文件暂未落地,SKILL.md 阶段 3 校验逻辑可走"必填字段最小校验 + JSON 解析"两件套兜底
 
+### v0.5.5(2026-09-03) — Round 15 PATCH 三文档一致性对齐(plugin 本体目录布局与现状对齐)
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 19 | **plugin 本体目录布局三文档一致性对齐**(Round 15 一致性 PATCH):经 prd / design / implement + CLAUDE.md 交叉对账,发现 4 处不一致:**(a)** `src/templates/` 设计意图 9 份 ↔ 实际 7 份(`source-page.md` + `analysis-page.md` v0.5.0 新增已落地;`entity-page.md` / `concept-page.md` 设计意图已写但**文件未生成**,init 时由 SKILL.md 内联生成,运行时无独立模板文件);**(b)** `src/scripts/` 描述从"❌ 待新建 convert-to-md.py" → "设计阶段仅 README.md + requirements.txt"(`.py` 阶段 C 落地,**设计阶段不生成**,对齐 design §1.1);**(c)** `src/schema/` 描述从"❌ 待新建 frontmatter.schema.yaml" → "设计阶段保留,待阶段 C 落地 frontmatter + proposal .yaml"(Single Source of Truth,设计意图已在 design §1.1 + §1.2 列);**(d)** CLAUDE.md §3.1 模块边界表 4 行(Templates / Schema / Scripts / Scripts 依赖)未对齐 design §1.2,本轮同步更新。**不动** Q1-Q11 设计决策 / G1-G11 业务纪律 / 5 个 SKILL.md 触发契约 / v0.5.3 Q7 atime + mtime 双还原 / v0.5.4 proposal JSON schema 校验 + 损坏降级 / §C 阶段 B/C 测试清单 | 用户提"prd / design / implement 三文档对知识库目录结构 + plugin 本体目录结构的一致性是不是对的上" + 决策表("templates 9 份 design intent 为准;scripts README.md + requirements.txt + 后续脚本,设计阶段不生成;schema 保留") | design §1.1 templates 树补 9 份 intent vs 7 份 actual 差异说明 + §1.1 注 93 扩写 + §1.2 模块职责表新增 `templates/README.md` 注释 + `schema/proposal.schema.yaml` + `scripts/README.md` 行 + §2.5.1 路由表对齐(7 份 actual vs 6 份 user-project);prd §12 Round 15 + 状态行 bump 到 v0.5.5;implement §0 现状盘点树补 `source-page.md` + `analysis-page.md` + scripts/ 行表化(README.md + requirements.txt 已落地 + .py 阶段 C)+ schema/ 行新增 + 状态行 bump;CLAUDE.md §3 顶层架构树补 schema/scripts 注释 + §3.1 模块边界表 4 行对齐 + 状态行 bump |
+
+**兼容性**:**v0.5.5 PATCH bump**(MINOR bump 内一致性补丁)。本次**纯文档**改动:
+- **不引入**新 frontmatter 字段
+- **不引入**新正文骨架
+- **不引入**新 scripts 入口
+- **不修改**OKF v0.2 schema,不动 G10 / G11 / Q6 / Q7 / Q11 写权矩阵 / v0.5.1 / v0.5.2 / v0.5.3 / v0.5.4
+- **不新增**测试用例(本轮纯文档对齐,**不**动 §C 测试矩阵)
+- **只对齐** plugin 本体目录布局的文档描述(让 prd / design / implement / CLAUDE.md 四份对"7 份 templates 现状 + scripts 仅 README.md + requirements.txt + schema 待阶段 C 实现"达成共识)
+
+**升级路径**:既有 v0.5.4 wiki 升级到 v0.5.5 plugin **无需**任何动作,纯文档版本号同步即可。
 **升级路径**:既有 v0.5.3 wiki 升级到 v0.5.4 plugin **无需**重跑 init,**无需**跑迁移脚本;SKILL.md 阶段 3 收尾前自动启用校验 + 降级流程即可,下游 `**IngestFailure**` log 段是 NEW,既有 log.md 兼容。
 
 ### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
