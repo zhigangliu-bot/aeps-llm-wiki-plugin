@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.5.2 已冻结(2026-09-03) — Round 12 PATCH 修复 2 个 PRD 缺陷(Intent ambiguous fallback + G10 atomic overwrite)
+> **状态**:v0.5.3 已冻结(2026-09-03) — Round 13 PATCH 修复 PRD 缺陷 5(Q7 `links:` 自动重写时 mtime + atime 双还原)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -1196,7 +1196,20 @@ links:
 
 1. **Set 比对(顺序无关)**:drift 检测走 `frozenset` 比对,`{type, target}` 元组集合相等即视为一致。**不允许用 list 顺序比对**(用户 Obsidian UI 重排 wikilink 不应触发 WARN);**不允许用 deep equality on JSON object 顺序**(YAML 解析后 key 顺序不稳定)。**仅当 Set 真不等时才触发重写**,触发条件精确描述为 `set(current_links) ^ set(scanned_links) != ∅`
 2. **`updated` 字段绝对不改**:`links:` 自动重写属于**机械镜像修复**,**不是**业务内容变更(对齐 §3.4 "重新生成 ≠ 更新" 不变量 / SCHEMA.md §7 不变量)。即使 fix 触发了文件写入,`updated` 字段保持原值。**反例警戒**:不允许把"`--fix` 跑了"当成"`updated` 改写"
-3. **文件 mtime 保留**:重写时必须用 `os.utime(path, (atime, original_mtime))` 保留原 mtime;**禁止**用普通文件写入(否则 `os.stat().st_mtime` 会被刷新,触发文件系统层面陈旧检测误判)。**反例警戒**:不能用 `Path.write_text(content)` 默认行为;必须先 `stat → utime`
+3. **文件 mtime + atime 双还原**(v0.5.3 PATCH 修复缺陷 5,Round 13,`updated` 不改 + 内容不变的副作用收敛到 0):重写 `links:` 时必须按以下**强制 4 步流程**执行,缺一步即视为循环:
+   1. **`stat` 取原始时间戳**:`stat = os.stat(path); original_atime = stat.st_atime; original_mtime = stat.st_mtime`(二元组一次性取齐,不在 stat 之前或之间触任何写入)
+   2. **`write` 写盘**:`Path.write_text(new_content, encoding='utf-8')` 或等价 API(允许 atomic 写入如先写 `<path>.tmp` 再 `os.replace`),但**允许在这一步让 mtime / atime 改变**(因为 mtime 在写入瞬间一定会被 OS 刷新,这是物理事实,不是 bug)
+   3. **`utime` 还原**:`os.utime(path, (original_atime, original_mtime))` —— **atime 与 mtime 都必须显式还原**(macOS HFS+ / APFS Spotlight 索引 + 部分 inotify watcher 以 atime 触发 metadata 刷新,atime 不还原会触发"假修改")
+   4. **`assert` 自检**(测试代码):`assert os.stat(path).st_mtime == original_mtime and os.stat(path).st_atime == original_atime`(仅在 fixture 中强制,生产代码不强制 assert 避免性能损耗)
+   **反例警戒**:
+   - ❌ 用 `Path.write_text(content)` 默认行为 + **不调 utime** → mtime 必变,atime 必变 → Obsidian 文件监视器 + git working tree 双触发
+   - ❌ 只还原 mtime **不还原 atime** → 部分 FS(inotify / FSEvents 监听 atime 的 watcher)误判文件被访问 → 重新加载,触发"陈旧检测误判 → 用户困惑"
+   - ❌ 用 `Path.touch()` 模拟时间戳还原(它会刷新为当前时间,反向 bug)
+   - ❌ 跳过第 1 步直接用 `os.path.getmtime` 取值(getmtime 与 stat 同义,但要明确"二元组一次性取齐",避免 atime 与 mtime 不一致时 stat 内部二次调用漂移)
+   **不动 a/mtime 的根本原因**(对齐 §5.4 陈旧检测 + §3.4 不变量):
+   - `updated` 反映**业务时间**;a/mtime 反映**文件系统事件**;`links:` 同步是 plugin 维护视图,二者都不应被这次"机械镜像修复"波及
+   - Obsidian 文件监视器(macOS FSEvents + Windows ReadDirectoryChangesW + Linux inotify)在 mtime/atime 任一变化时可能刷新 vault 视图 / 重新解析 yaml frontmatter / 触发 Dataview 重算 → 用户体感"我什么都没改,wiki 又跳了一下"
+   - git `status` 用 mtime + content hash 判修改,`--fix` 改了 mtime 但 content hash 不变会让用户误以为有改动要 commit(实际没有),污染 commit 决策
 
 **为什么这样设计**(回应"为什么不直接刷新 updated"疑问):
 
@@ -2423,6 +2436,65 @@ git ls-remote --tags --refs origin \
 - **SKILL.md 强制拍板**:`[y]` 覆盖 / `[n]` 跳过(保留旧,exit 0)/ `[d]` 仅删旧副本
 - **`safe-mv.py --apply` action: "overwrite" 行为**:备份到 `temp/raw_backup_<hash>/` → `os.replace()` 一次性替换两文件 → 覆盖范围仅 `<file>` + `<file>.converted.md` → **不动**同 subdir 其他文件 + frontmatter `updated` + 文件 mtime(Q7 死循环防护延续)
 - **不开"重转 skill"**(对齐 v0.4.0 G10 拍板):不对历史所有 .converted.md 提供批量重转入口
+
+### v0.5.3(2026-09-03) — Round 13 PATCH 修复 PRD 缺陷 5(Q7 `links:` 自动重写时 mtime + atime 双还原)
+
+**§3.6.2 Q7 第 3 条规则扩写为强制 4 步流程**(修复缺陷 5):lint `--fix` 重写 `links:` 时,**文件 a/mtime 必须显式还原**(否则触发 Obsidian 文件监视器 + git working tree 假修改)。
+
+- **原 Q7 第 3 条规则**(v0.3.2 Round 7):只规定"`updated` 不改 + mtime 保留",但**未明确实现细节**(stat / write / utime 三步流程,atime 是否还原)
+- **缺陷 5 暴露**:用户在 prd_3.md 指出 "Lint --fix 改写 links: 必须断言 os.stat().st_mtime 保持完全相等" —— 但即使代码路径里调 `os.utime(path, (atime, original_mtime))`,若 **atime 是 utime 调用时的当前时间**(而非原值),且只还原 mtime 不还原 atime,**macOS APFS Spotlight 索引 + 部分 inotify watcher 会以 atime 触发 metadata 刷新**,仍可能触发 Obsidian 重新加载
+
+**§3.6.2 第 3 条扩写后**(v0.5.3 PATCH,行 1199-1230 替换原"文件 mtime 保留"规则):
+
+```python
+# lint --fix 重写 links: 的强制 4 步流程
+def fix_links_mirror(path, new_content):
+    # 1. stat 取原始时间戳(二元组一次性取齐)
+    stat = os.stat(path)
+    original_atime = stat.st_atime
+    original_mtime = stat.st_mtime
+
+    # 2. write 写盘(允许这一瞬间让 mtime/atime 改变 —— 物理事实,不是 bug)
+    Path(path).write_text(new_content, encoding='utf-8')
+    #   或等价 atomic 写法:Path(path + '.tmp').write_text(...) → os.replace(path + '.tmp', path)
+
+    # 3. utime 显式双还原(atime 与 mtime 都必须还原)
+    os.utime(path, (original_atime, original_mtime))
+
+    # 4. assert 自检(仅测试代码;生产代码不强制 assert 避免性能损耗)
+    assert os.stat(path).st_mtime == original_mtime
+    assert os.stat(path).st_atime == original_atime
+```
+
+**反例警戒**:
+
+- ❌ 用 `Path.write_text(content)` 默认行为 + **不调 utime** → mtime 必变,atime 必变 → Obsidian + git 双触发
+- ❌ 只还原 mtime **不还原 atime** → 部分 FS(inotify / FSEvents 监听 atime 的 watcher)误判文件被访问 → 重新加载
+- ❌ 用 `Path.touch()` 模拟时间戳还原(它会刷新为当前时间,反向 bug)
+- ❌ 跳过第 1 步直接用 `os.path.getmtime` 取值(getmtime 与 stat 同义,但要明确"二元组一次性取齐",避免 stat 内部二次调用漂移)
+
+**为什么强制 a/mtime 都不动**(对齐 §5.4 陈旧检测 + §3.4 不变量):
+
+- **`updated` 反映业务时间**;a/mtime 反映**文件系统事件**;`links:` 同步是 plugin 维护视图,二者都不应被这次"机械镜像修复"波及
+- **Obsidian 文件监视器**(macOS FSEvents + Windows ReadDirectoryChangesW + Linux inotify)在 mtime/atime 任一变化时可能刷新 vault 视图 / 重新解析 yaml frontmatter / 触发 Dataview 重算 → 用户体感"我什么都没改,wiki 又跳了一下"
+- **git `status` 用 mtime + content hash 判修改**,`--fix` 改了 mtime 但 content hash 不变会让用户误以为有改动要 commit(实际没有),污染 commit 决策
+
+**§3.6.2 与其他节的交叉引用同步**:
+
+- §3.4 "重新生成 ≠ 更新"不变量:**`updated` 反映内容变更**(业务时间);a/mtime 由 OS 管(物理时间);二者独立
+- §5.4 陈旧检测:`stale_after` / `updated` 反映业务时间 → `links:` 同步是不进业务时间的机械动作
+- §C4.1 lint 行为边界:确定性结构修复(`links:` 同步属于这一类)→ 必须无副作用
+
+**不动**:
+
+- Q6 wikilink 一等公民 / Q7 死循环防护业务意图 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- v0.3.2 Normalizer(v0.5.3 PATCH 不动 Normalizer 解析规则)
+- G10 转换副本入 raw + 源页 link 指副本:已冻结
+- G11 分析专属骨架 + sources_used 必填 + gating:已冻结
+- v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+- v0.5.2 Intent ambiguous fallback + G10 atomic overwrite:已冻结
+
+**兼容性**:**v0.5.3 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;**只升级** Q7 第 3 条规则的**实现细节**(atime/mtime 双还原 + 4 步流程),**不**改 Q7 业务意图(`updated` 不改 + Set 比对 + 文件无副作用)。OKF v0.2 schema 无 breaking change;既有 v0.5.2 wiki 升级到 v0.5.3 plugin **无需**重跑 init,无需跑迁移脚本,`okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数行为升级即可。
 
 **不动**:
 

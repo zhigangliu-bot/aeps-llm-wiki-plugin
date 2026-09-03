@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.5.0 已冻结(2026-09-03)
+> **状态**:v0.5.0 已冻结(2026-09-03);**v0.5.3 PATCH 已就位**(2026-09-03)— Round 13 修复 PRD 缺陷 5(Q7 mtime + atime 双还原)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -482,6 +482,21 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **只扩 intent 档位**(`exact` → `exact` / `ambiguous` / `{overview, comparison, other}`)+ **扩 safe-mv.py --apply decision JSON 字段**(`action` 字段新增 `"overwrite"` 值)
 
 **升级路径**:既有 v0.5.1 wiki 升级到 v0.5.2 plugin **无需**重跑 init,**无需**跑迁移脚本;SKILL.md 内部行为升级即可(ambiguous fallback + safe-mv overwrite 分支)。
+
+### v0.5.3(2026-09-03) — Round 13 PATCH 修复 PRD 缺陷 5(Q7 `links:` 自动重写时 mtime + atime 双还原)
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 17 | **Q7 `links:` 自动重写强制 4 步流程:stat → write → utime → assert**(修复缺陷 5):lint `--fix` 重写 `links:` 时,虽然 `updated` 字段已强制不改(v0.3.2 Round 7),但**文件 a/mtime 必须显式还原** —— 普通 `Path.write_text` 会让 mtime 必变 + atime 必变,触发 Obsidian 文件监视器(macOS FSEvents / Windows ReadDirectoryChangesW / Linux inotify)+ git `working tree modified` 假阳性;**强制 4 步流程** (1) `os.stat(path)` 取 `(st_atime, st_mtime)` 二元组 → (2) `Path.write_text(new_content)`(允许 `temp/<path>.tmp + os.replace` atomic 写入)→ (3) `os.utime(path, (original_atime, original_mtime))` 显式双还原 → (4) 测试中 `assert os.stat(path).st_mtime == original_mtime and st_atime == original_atime`(仅 fixture,生产代码不强制 assert 避免性能损耗);**atime 必还原**:macOS APFS Spotlight 索引 + 部分 inotify watcher 以 atime 触发 metadata 刷新,只还原 mtime 不还原 atime 会触发"假修改";**反例警戒**:不用 `Path.write_text` 默认行为 + 不调 utime / 只还原 mtime 不还原 atime / 用 `Path.touch()` 假装还原(它会刷为当前时间) | 用户提"缺陷 5:Q7 死循环防护在真实文件系统中的死穴 —— mtime 必变 + atime 必变,必须显式 stat → utime 还原" | design §3.6.2 Q7 第 3 条扩写为强制 4 步流程(原 atime/mtime 双还原 + 反例警戒 4 条 + 不动 a/mtime 根本原因 3 条:§5.4 陈旧检测 / §3.4 不变量 / Obsidian + git working tree);implement §C4.2 新增 2 个 fixture:`test_links_mirror_preserves_atime_and_mtime.py`(atime 浮点精度 1e-6 断言 + monkeypatch 监视 `os.utime` 调用 + 参数二元组断言 + content hash 不变)+ `test_links_mirror_utime_flow_order.py`(monkeypatch `os.stat / Path.write_text / os.utime` 记录顺序,断言严格 stat → write → utime + 反例测试 utime no-op 触发 mtime 必变) |
+
+**兼容性**:**v0.5.3 PATCH bump**(MINOR bump 内小补丁)。本次改动:
+- **不引入**新 frontmatter 字段
+- **不引入**新正文骨架
+- **不引入**新 scripts 入口(只是 `okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数行为升级,**不**新增脚本)
+- **不修改**OKF v0.2 schema,不动 G10 / G11 / Q6 / 路径 C / Intent ambiguous fallback / G10 atomic overwrite
+- **只升级** Q7 第 3 条规则的**实现细节**(atime/mtime 双还原 + 4 步流程),**不**改 Q7 业务意图(`updated` 不改 + Set 比对 + 文件无副作用)
+
+**升级路径**:既有 v0.5.2 wiki 升级到 v0.5.3 plugin **无需**重跑 init,**无需**跑迁移脚本;`okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数行为升级即可(下次跑 `--fix` 自动按 4 步流程写盘)。
 
 ### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
 

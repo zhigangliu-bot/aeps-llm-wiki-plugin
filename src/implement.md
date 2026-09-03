@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.2 + src/prd.md v0.5.2 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.3 + src/prd.md v0.5.3 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -246,6 +246,8 @@ plugin 上架资产                          ❌ 待新建
   - [ ] 写 `tests/test_links_mirror_types.py`:fixture 含正文 `[text](path.md)` markdown 链接 → 跑 ingest → 验证 frontmatter `links:` 含 `{type: markdown, target: path.md}` 条目
   - [ ] 写 `tests/test_links_mirror_idempotent.py`(**Q7 Round 7 新增**,Set 比对规则):fixture 写一份页 frontmatter `links: [A, B]`(顺序 A→B)+ 正文 wikilink `[[B]]` + `[[A]]`(顺序 B→A)→ 跑 lint → **不告警**(Set 相等)、`--fix` **不重写**文件(content hash 不变 + mtime 不变);正反两次跑结果完全相同(幂等)
   - [ ] 写 `tests/test_links_mirror_preserves_updated_and_mtime.py`(**Q7 Round 7 新增**,死循环防护):fixture 造一份页 frontmatter `updated: 2026-01-01T00:00:00Z` + 故意把 `links:` 加 ghost → 跑 lint --fix → 断言 (a) `updated` 字段值不变;(b) 文件 mtime 在 fix 前后保持相等(`os.stat().st_mtime` 一致);(c) log.md 追加 `**LintFix**: links-mirror-sync ...` 不含 `updated` 字段字样(暗示业务时间未受影响)
+  - [ ] 写 `tests/test_links_mirror_preserves_atime_and_mtime.py`(**Q7 Round 13 v0.5.3 PATCH 新增**,修复缺陷 5,atime + mtime 双还原):fixture 同上 → 跑 lint --fix → 断言 (a) `os.stat(path).st_atime` 与 fix 前**完全相等**(浮点精度 1e-6 容差);(b) `os.stat(path).st_mtime` 与 fix 前**完全相等**;(c) 用 `monkeypatch` 监视 `os.utime` 调用,断言 lint 代码路径中**确实调用** `os.utime(path, (original_atime, original_mtime))` 至少一次,参数是二元组(不允许只传 mtime 不传 atime);(d) 断言 fix 前后 content hash 完全相等(说明 `links:` 同步是 no-op,业务无变更)
+  - [ ] 写 `tests/test_links_mirror_utime_flow_order.py`(**Q7 Round 13 v0.5.3 PATCH 新增**,流程性 fixture):fixture 同上 + 用 `monkeypatch` 包装 `os.stat` / `Path.write_text` / `os.utime` 三个调用并记录顺序 → 断言调用顺序严格为 `stat → write_text → utime`(四步流程,design §3.6.2 行 1199-1201);**反例测试**:故意把 fixture 中 `os.utime` 替换成 no-op(模拟"只 write 不 utime"的实现错误)→ 跑 lint --fix → 断言 `mtime` 必变(说明测试有效)+ `utime` 未被调用(说明实现漏掉了第 3 步)
   - [ ] **C4.3 Link Normalizer 解析规则**(详见 design §3.6.2,v0.3.2 新增):
     - [ ] 写 `tests/test_links_normalizer_alias.py`:fixture 正文 `[[NoteName|Alias]]` + frontmatter `links: [{type: wikilink, target: NoteName}]` → 跑 lint → **不告警**(别名已剥离,不进比对)
     - [ ] 写 `tests/test_links_normalizer_anchor.py`:fixture 正文 `[[NoteName#section]]` + `links: [{type: wikilink, target: NoteName}]` → 跑 lint → **不告警**(锚点剥离且不进 links:);fixture 含 2 处不同锚点同 Note → 跑 lint → **不告警**(去重后 Set 相等)
@@ -797,6 +799,32 @@ git tag -l "v*" | sort -V | tail -5
 - 所有 v0.5.1 §C15 fixture(原 7 个):已冻结 + 新增 4 个
 
 **兼容性**:**v0.5.2 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只扩 intent 档位 + 扩 safe-mv.py --apply decision JSON `action` 字段。OKF v0.2 schema 无 breaking change;既有 v0.5.1 wiki 升级到 v0.5.2 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
+
+### v0.5.3(2026-09-03) — Round 13 PATCH 修复 PRD 缺陷 5(Q7 `links:` 自动重写时 mtime + atime 双还原)
+
+**§C4.2 新增 2 个 fixture**(v0.5.3 PATCH,修复缺陷 5):
+
+- **新增 `tests/test_links_mirror_preserves_atime_and_mtime.py`**(Q7 Round 13 v0.5.3 PATCH 新增,atime + mtime 双还原):fixture 同原 `test_links_mirror_preserves_updated_and_mtime.py`(frontmatter `updated: 2026-01-01T00:00:00Z` + `links:` 加 ghost)→ 跑 lint --fix → 断言:
+  - (a) `os.stat(path).st_atime` 与 fix 前**完全相等**(浮点精度 1e-6 容差)
+  - (b) `os.stat(path).st_mtime` 与 fix 前**完全相等**
+  - (c) 用 `monkeypatch` 监视 `os.utime` 调用,断言 lint 代码路径中**确实调用** `os.utime(path, (original_atime, original_mtime))` 至少一次,参数是**二元组**(不允许只传 mtime 不传 atime)
+  - (d) fix 前后 content hash 完全相等(说明 `links:` 同步是 no-op,业务无变更)
+
+- **新增 `tests/test_links_mirror_utime_flow_order.py`**(Q7 Round 13 v0.5.3 PATCH 新增,流程性 fixture):fixture 同上 + 用 `monkeypatch` 包装 `os.stat` / `Path.write_text` / `os.utime` 三个调用并记录顺序 → 断言:
+  - 调用顺序严格为 **`stat → write_text → utime`**(design §3.6.2 行 1199-1231 四步流程的强制 3 步)
+  - **反例测试**:故意把 fixture 中 `os.utime` 替换成 no-op(模拟"只 write 不 utime"的实现错误)→ 跑 lint --fix → 断言 `mtime` 必变(说明测试有效)+ `utime` 未被调用(说明实现漏掉了第 3 步)
+
+**不动**:
+
+- Q6 wikilink 一等公民 / Q7 死循环防护业务意图 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- v0.3.2 Normalizer(v0.5.3 PATCH 不动 Normalizer 解析规则)
+- G10 转换副本入 raw + 源页 link 指副本:已冻结
+- G11 分析专属骨架 + sources_used 必填 + gating:已冻结
+- v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+- v0.5.2 Intent ambiguous fallback + G10 atomic overwrite:已冻结
+- 原 `test_links_mirror_preserves_updated_and_mtime.py`(v0.3.2 Round 7):**已冻结**,v0.5.3 PATCH 不重写,**只新增** atime + 流程性两个 fixture
+
+**兼容性**:**v0.5.3 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;**只升级** `okf-lint.py` / `lint.py` 内部 `fix_links_mirror()` 函数的**实现细节**(atime/mtime 双还原 + 4 步流程),**不**改 Q7 业务意图。OKF v0.2 schema 无 breaking change;既有 v0.5.2 wiki 升级到 v0.5.3 plugin **无需**重跑 init,无需跑迁移脚本,`okf-lint.py` / `lint.py` 内部函数行为升级即可(下次跑 `--fix` 自动按 4 步流程写盘)。
 
 ### v0.4.0(2026-09-03) — Round 9 G10 外部转换副本入 raw + 源页 link 指副本
 
