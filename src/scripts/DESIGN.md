@@ -416,6 +416,32 @@ plugin 强制 5 种(便于 lint 解析);v0.5.4 PATCH 新增 **第 6 种** `**Ing
 | **`test_no_daemon_static_scan`(C10.1 AST 扫)** | `tests/test_no_daemon.py:scan` + `_common.assert_no_input_calls` | **design §2.4.1 + Q10 + implement §C10.1** |
 | `test_atomic_write_preserving_mtime_4_steps`(stat → write → utime 4 步 + assert) | `_common.atomic_write_preserving_mtime` | design §3.6.2 v0.5.3 PATCH |
 | `test_link_normalizer_alias_anchor_path`(aliases / `#anchor` / path prefix 归一) | `_common.link_normalizer` | design §3.6.2 Link Normalizer |
+| `test_a1_op_mv_basic_path`(op=mv 源 inbox → 目标 raw/<sub>,源被删目标被建) | `safe-mv.py:_process_one_action --op=mv` | design §3.6 mv 语义 |
+| `test_a2_op_mv_source_missing_errors`(mv 源不存在 → atomic=false + errors 含"源不存在"标签,但 exit 0 不阻断) | `safe-mv.py:_process_one_action --op=mv` 错误路径 | design §3.6 单 action 失败不阻断整批 |
+| `test_a3_op_overwrite_dest_missing_treated_as_mv`(overwrite 但 dest 不存在视为 mv,backup 目录无备份文件) | `safe-mv.py:_process_one_action --op=overwrite` v0.5.2 PATCH | design §3.6 v0.5.2 PATCH |
+| `test_a4_op_overwrite_backs_up_converted_md`(overwrite 时 .converted.md 也备份到 temp/raw_backup_<hash>/) | `safe-mv.py:_process_one_action --op=overwrite` G10 双文件备份 | design §3.1 G10 + §3.6 |
+| `test_a5_op_skip_and_delete_only_combo`(同批 decision 含 skip + delete-only 两条 action 各自独立处理) | `safe-mv.py:_process_one_action` 批处理 | design §3.6 skip/delete-only 语义 |
+| `test_a6_decision_json_validation_fails`(decision JSON 缺必填 → ValueError → exit 1) | `safe-mv.py:_validate_decision` | design §2.2 decision JSON 4 必填 |
+| `test_b1_pdf_anydoc_stub_when_dep_missing`(.pdf 走 anydoc 路由;未装时 SystemExit(1) + stderr 中文"缺依赖") | `convert-to-md.py:classify` + `_probe_module("anydoc")` | design §3.1 G10 anydoc 路由 |
+| `test_b2_png_paddleocr_stub_or_chinese_error`(.png → paddleocr 路由同款) | `convert-to-md.py:classify` + `_probe_module("paddleocr")` | design §3.1 G10 paddleocr 路由 |
+| `test_b3_unknown_extension_exits_1`(非 4 路由扩展名 → ValueError → exit 1) | `convert-to-md.py:classify` ValueError 抛出 | design §3.1 4 路由限定 |
+| `test_b4_classify_uppercase_extension_lowered`(classify 内置 lstrip+lower,大写扩展名仍正确路由) | `convert-to-md.py:classify` | design §3.1 4 路由分流 |
+| `test_c1_deprecation_prefix_alone`(**Deprecation** 单独使用场景) | `append-log.py:_build_line` Deprecation 分支 | design §2.6 7 种前缀 |
+| `test_c2_log_md_missing_exits_1`(init 之前 log.md 不存在 → FileNotFoundError → exit 1) | `append-log.py:run` FileNotFoundError | design §2.6 init 前置 |
+| `test_c3_large_log_insertion_position`(大 log.md 多行历史 → 新记录插在 frontmatter 之后、第一个 H2 之前) | `append-log.py:_insert_after_frontmatter` | design §2.6 + §3.4 最新在前 |
+| `test_d1_g10_missing_converted_path_fails`(native_text=false + converter=anydoc 但缺 converted_path → FAIL) | `validate-frontmatter.py:_check_source_specific` | design §2.5 G10 三元组 |
+| `test_d2_g10_invalid_converter_value_fails`(converter 非合法 4 值 → FAIL) | `validate-frontmatter.py:_check_source_specific` | design §2.5 G10 三元组 |
+| `test_d3_g10_mixed_dir_scan_ok_and_g10`(analysis + G10 source 混存各自走对应分支) | `validate-frontmatter.py:run` tp dispatch | design §3.6 type-specific 互不串扰 |
+| `test_d4_unknown_keys_warn_not_fail`(未知 frontmatter 字段进 unknown_keys,但 ok 由 missing/errors 决定) | `validate-frontmatter.py:run` unknown_keys 收集 | design §2.5 OKF §11 容忍 |
+| `test_e1_source_page_native_text_omits_converted_path`(native_text=true → frontmatter converter/converted_path = null) | `generate-source-page.py:_build_frontmatter` `_scalar(None)` | design §3.1 G10 + §2.5 |
+| `test_e2_entity_page_all_7_subtypes_writable`(7 subtype 各自生成 + 子目录自动创建) | `generate-entity-page.py:_target_path` ENTITY_SUBTYPES | design §3.1 18 叶子 1:1:1 |
+| `test_e3_concept_page_invalid_subtype_rejected`(argparse choices 拦截非法 subtype) | `generate-concept-page.py:_parse_args` choices | design §3.1 7 concept subtype |
+| `test_e4_entity_page_chinese_slug`(中文 slug 可写盘 + frontmatter 含中文 title/aliases) | `generate-entity-page.py:_write_atomic` 透传 | design §5.2 中文优先 |
+| `test_e5_source_page_missing_required_field_fails`(缺 updated 字段 → exit 1) | `generate-source-page.py:_validate_meta` | design §2.5 通用 5 必填 |
+| `test_f1_first_run_creates_6_top_level_and_15_raw_and_18_knowledge`(顶层 6 + raw 15 + knowledge 18 + 4 种子全数验证) | `init-vault.py:_build_top_level/_build_raw_subdirs/_build_knowledge_leaves/_write_seed_files` | design §1.1 init-vault 模块边界 + §4.1 |
+| `test_f2_re_run_does_not_overwrite_user_content`(--re-run 二次 init:用户 index.md 内容保留 + log.md 追加 Update 行) | `init-vault.py:_write_seed_files` + `_append_log_re_run` | design §3.6 幂等再入 |
+| `test_g1_keeps_sanitized_drops_md`(OCR .md + .converted.md + proposal-*.json 删;.sanitized/.corrupt.bak/.gitignore/raw_backup_*/decision-*.json 留) | `ingest/cleanup.py:_match_any` DELETE_PATTERNS_DEFAULT / KEEP_PATTERNS_DEFAULT | design §2.3 temp/ 文件命名 + §阶段 4 |
+| `test_g2_idempotent_second_cleanup_no_error`(三次连续 cleanup,errors 始终为空,幂等无副作用) | `ingest/cleanup.py:run` | design §阶段 4 幂等 |
 
 ---
 
@@ -524,6 +550,34 @@ DESIGN.md 内部一致性自检:
 ---
 
 ## 9. Change History
+
+### v0.5.5(2026-09-03)— 阶段 C-2 高风险路径测试用例落地
+
+- **新增 tests/test_c2_high_risk.py**(576 行)— **26 个测试用例**,按 A-G 七组覆盖真实存在风险的关键路径:
+  - **A 组 safe-mv 4 op 语义**(6 用例):`test_a1_op_mv_basic_path`(普通 mv 源→目标路径)/ `test_a2_op_mv_source_missing_errors`(mv 源不存在 errors 列表含"源不存在"标签,exit 0 不阻断)/ `test_a3_op_overwrite_dest_missing_treated_as_mv`(overwrite 但 dest 不存在视为 mv,备份目录无备份文件)/ `test_a4_op_overwrite_backs_up_converted_md`(overwrite 时 .converted.md 也备份,backup 目录含原文件 + 副本两份)/ `test_a5_op_skip_and_delete_only_combo`(同批 decision 两条 action 各按语义独立处理)/ `test_a6_decision_json_validation_fails`(decision JSON 缺必填 → ValueError + exit 1)
+  - **B 组 convert-to-md 4 路由**(4 用例):`test_b1_pdf_anydoc_stub_when_dep_missing`(.pdf → anydoc 路由;未装时 SystemExit(1) + stderr 中文报错)/ `test_b2_png_paddleocr_stub_or_chinese_error`(.png → paddleocr 同款)/ `test_b3_unknown_extension_exits_1`(非 4 路由扩展名 → ValueError)/ `test_b4_classify_uppercase_extension_lowered`(classify 内置 lstrip+lower,大写扩展名仍正确路由)
+  - **C 组 append-log 边界**(3 用例):`test_c1_deprecation_prefix_alone`(**Deprecation** 单独使用,init SKILL.md §阶段 4 中 deprecate 一页时场景)/ `test_c2_log_md_missing_exits_1`(init 前 log.md 不存在 → FileNotFoundError → exit 1)/ `test_c3_large_log_insertion_position`(大 log.md 多行历史 → 新记录插在 frontmatter 之后、第一个 H2 之前)
+  - **D 组 validate-frontmatter G10 三元组边界**(4 用例):`test_d1_g10_missing_converted_path_fails`(native_text=false 但 converted_path 缺失 → FAIL)/ `test_d2_g10_invalid_converter_value_fails`(converter 非合法 4 值 → FAIL)/ `test_d3_g10_mixed_dir_scan_ok_and_g10`(analysis + G10 source 混存目录各自走对应分支)/ `test_d4_unknown_keys_warn_not_fail`(未知 frontmatter 字段进 unknown_keys,但 ok 由 missing/errors 决定)
+  - **E 组 generate-* 序列化分支**(5 用例):`test_e1_source_page_native_text_omits_converted_path`(native_text=true → frontmatter converter/converted_path = null)/ `test_e2_entity_page_all_7_subtypes_writable`(7 subtype 各自生成,子目录自动创建)/ `test_e3_concept_page_invalid_subtype_rejected`(argparse choices 拦截非法 subtype)/ `test_e4_entity_page_chinese_slug`(中文 slug 可写盘,frontmatter 含中文 title + aliases)/ `test_e5_source_page_missing_required_field_fails`(缺 updated 字段 → exit 1)
+  - **F 组 init-vault 幂等再入**(2 用例):`test_f1_first_run_creates_6_top_level_and_15_raw_and_18_knowledge`(顶层 6 + raw 15 + knowledge 18 + 4 种子全数验证)/ `test_f2_re_run_does_not_overwrite_user_content`(--re-run 二次 init:用户 index.md 内容保留 + log.md 追加 Update 行)
+  - **G 组 ingest/cleanup 留删策略**(2 用例):`test_g1_keeps_sanitized_drops_md`(OCR .md + .converted.md + proposal-*.json 删;.sanitized/.corrupt.bak/.gitignore/raw_backup_*/decision-*.json 留)/ `test_g2_idempotent_second_cleanup_no_error`(三次连续 cleanup,errors 始终为空,幂等无副作用)
+- **pytest 结果**:168 旧 + 26 新 = **194 passed in 46.41s**(0 failed)
+- **DESIGN.md 落地注脚**:
+  - **safe-mv 单 action 失败不阻断整批**:A2 测试验证 mv 源不存在时 exit 0(单 action 失败),但 `atomic=false` + `errors` 含 `"源不存在"` 标签。**设计意图**:批 ingest 场景下,某条 action 失败不影响其他 action 继续处理;主 agent 读 errors 列表决定是否人工兜底
+  - **safe-mv overwrite dest 缺失视为 mv**:A3 测试验证 overwrite 路径下 dest 不存在时不走 backup(因无东西可备)。**与 v0.5.2 PATCH 一致**:`_process_one_action` 的 overwrite 分支先 `_backup_target`(若 dest 存在),然后调 `_move_pair`;dest 缺失时备份目录为空,但 action 仍成功
+  - **safe-mv decision JSON 缺必填**:A6 测试缺 type/actions 必填 → ValueError → exit 1。**注意**:实测 `safe-mv.py` `_validate_decision` 报 `"decision JSON 缺必填字段:['type', 'actions']"`,与 DESIGN.md §2.2 decision JSON 4 必填(type / schema_version / decided_at / actor / proposal_refs / actions)字段名一致
+  - **convert-to-md B1/B2 容忍 anydoc/paddleocr 已装环境**:脚本走 `importlib.import_module(module_name)`,若环境意外装了对应包则走 stub 文件生成路径(`.md` 文件含 `# <basename> (anydoc/paddleocr 转换产物)` 占位),stub 文件 size>0 + converter 字段正确。本测试两类结果都 PASS,断言 `r.returncode != 0` 时 stderr 含 `"缺依赖"` 或模块名
+  - **append-log C3 插入位置**:实测 `_insert_after_frontmatter` 在 frontmatter (---...---) 与第一个 H2 之间插入新行;若既有 log.md 没有 H2,则插在 frontmatter 结束标记之后;完全无 frontmatter 则 prepend。**与 design §3.4 SCHEMA.md §7 "最新在前" 一致**
+  - **validate-frontmatter D3 混存测试**:同一 project 下分别校验 analysis 页(走 analysis-specific 校验 sources_used/answer_to/generated_by 必填)和 G10 source 页(走 source-specific 校验 Q9 双字段同源 + G10 三元组)。验证 `tp == "analysis"` 分支**不触发** G10 三元组检查(互不串扰)
+  - **generate-source-page E1 native_text 序列化**:`_build_frontmatter` 用 `_scalar(None) → "null"` 输出;`converter: null` / `converted_path: null` 字面字符串进入 frontmatter YAML。测试断言 `converter: null` 或 `converter: 'null'` 之一出现即通过(容错 YAML 单引号包裹)
+  - **generate-source-page E5 缺 updated 报错**:`_validate_meta` 第 71-74 行对 title/description/updated 三字段做"字符串非空"校验,缺 updated 直接抛 ValueError → main 捕获 emit_json error → exit 1。**测试命中**:`"updated"` 出现在 error 字符串
+  - **init-vault F1 完整性**:实测顶层 6 + RAW_SUBDIRS 15 项 + KNOWLEDGE_LEAF_DIRS 18 项 + 4 种子文件全数 assert。RAW_SUBDIRS / KNOWLEDGE_LEAF_DIRS 与 DESIGN.md §1.1 init-vault 模块边界表对齐,也是 raw-readme.md L5-L19 / templates/knowledge-SCHEMA.md §1.1/§1.2 的权威源
+  - **init-vault F2 re-run 幂等**:实测 `_write_seed_files` 内 `if not path.exists()` 守卫保证用户已有 seed 文件不被覆盖;`_append_log_re_run` 在 re-run 时追加 `**Update**: re-run init at <ISO> by <actor>` 一行到 log.md 末尾
+  - **cleanup G1 留删策略**:实测 `DELETE_PATTERNS_DEFAULT` 命中 `*.md` / `*.converted.md` / `proposal-*.json` 三类;`KEEP_PATTERNS_DEFAULT` 命中 `.gitkeep` / `proposal-*.json.sanitized` / `proposal-*.json.corrupt.bak` / `raw_backup_*` / `raw_backup_*/**` / `decision-*.json` / `plan-*.json` / `.gitignore`。**注意**:`plan-*.json` 当前模板未生成,作为未来扩展预留 keep 模式
+  - **cleanup G2 幂等**:实测三次连续 cleanup 第一次空 temp/(deleted=0)/ 第二次删 2 个 OCR .md / 第三次再空。**关键不变量**:`errors` 列表三次都为空 → 不存在"上次已删,本次 unlink 报错"的副作用
+- **设计意图确认**:26 用例覆盖 SKILL.md 5 份契约入口(init / ingest / query / lint / synthesize 的核心 IO 路径),其中 init 2 + ingest 14 + query 0(已有 test_query_group 34 个覆盖) + lint 0(已有 test_lint_group 32 个覆盖) + synthesize 0(已有 test_synthesize_group 26 个覆盖)
+- **不 bump 版本号**:仍是 v0.5.5 MINOR 修订
+- **commit**:不 bump v0.5.5,MINOR 修订;commit 前询问用户是否更新版本号
 
 ### v0.5.5(2026-09-03)— 阶段 C-1.5 synthesize 组落地
 
