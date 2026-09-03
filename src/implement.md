@@ -1,7 +1,7 @@
 # implement.md — 执行清单
 
 > **来源**:[prd.md](prd.md) 产品需求 + [design.md](design.md) 技术设计。
-> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.1 + src/prd.md v0.5.1 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
+> **状态**:截至 2026-09-03,文档层 src/design.md v0.5.2 + src/prd.md v0.5.2 + 5 份 templates(含 v0.5.0 新增 analysis-page.md)已完成。
 > **剩余工作**:把 src/ 内容打包为可上架的 Claude Code plugin(目录结构 + SKILL.md + plugin.json + 测试 + GitHub 发布)。
 
 ---
@@ -426,6 +426,10 @@ plugin 上架资产                          ❌ 待新建
   - [ ] fixture 5:query 走 intent=overview + 回答 50 字(< 200) → 末尾必须含 `💡` 跳过标记(不触发优先级 > 触发)
   - [ ] fixture 6:query 输出末尾既无 `❓` 也无 `💡` → lint C15.3 FAIL,report-only(语义级)
   - [ ] fixture 7:e2e 端到端:模拟同一 wiki 跑三种 query 类型(Exact 单点 / Overview 多源 / Comparison 对比),**断言** 落档询问输出与 gating 规则一致(Exact 无 prompt / Overview 必有 / Comparison 必有)
+  - [ ] fixture 8(v0.5.2 PATCH,修复缺陷 1):query 走 intent=ambiguous(语义模糊,例:"这篇芯片文档和上一篇有什么异同?" 含"异同"对比倾向词 + "上一篇"指代模糊)→ LLM 阶段3推断无法稳定分类 → 走 `intent == "ambiguous"` 分支 → 末尾必须含 `💡` 跳过标记(v0.5.2 fallback 低扰动)
+  - [ ] fixture 9(v0.5.2 PATCH):query 走 intent=ambiguous + 命中 2 子目录源 + 回答 350 字 → 仍然走 `intent == "ambiguous"` 跳过(intent 不触发优先级 > 触发,避免 ambiguous 误判被 sources_count / answer_length 兜底绕过)
+  - [ ] fixture 10(v0.5.2 PATCH,冲突测试):query 含路径 C 触发词"异同"(v0.5.1 PATCH)+ 但 LLM 阶段3推断 intent=ambiguous(语义模糊)→ **断言** ambiguous 优先于词命中,走 `💡` 跳过;**路径 C 触发词清单不覆盖 fallback**
+  - [ ] fixture 11(v0.5.2 PATCH):query 走 intent=other(无法归入 overview/comparison/exact/ambiguous)+ 命中 ≥ 2 子目录源 + 回答 ≥ 200 字 → 走触发条件 `sources_count_ge:2` 或 `answer_length_ge:200` → 末尾必须含 `❓` 触发 prompt(intent=other 走触发路径,仅 ambiguous 走跳过)
 - [ ] **C15.4 `tests/test_analysis_sources_used_mirror.py`** —— `## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` Set 比对:
   - [ ] fixture 1:一致(>` 引用:` 行 3 条 + `sources_used` 3 条完全相同)→ WARN 不触发
   - [ ] fixture 2:`sources_used` 多 1 条(`sources/extra.md`,fixture 预建) → WARN,lint diff 输出 `sources_used 中有但 > 引用行没有 = [sources/extra.md]`
@@ -455,6 +459,25 @@ plugin 上架资产                          ❌ 待新建
     - fixture 2:无 `## 我的思考`(v0.4.0 异常页) → 迁移时**仅**追加占位 `## 关联溯源` + 派生 sources_used,lint C15.1 后续校验 PASS
     - fixture 3:`--dry-run` 模式不写盘(原文件 mtime 不变,内容不变)
     - fixture 4:迁移后跑 `lint C15.1-C15.4` 全部 PASS
+
+#### C16:G10 v0.5.2 PATCH 重 ingest 同名文件 atomic overwrite(详见 prd §4.2 + design §4.2 step 3)
+
+- [ ] **C16.1 `tests/test_safe_mv_overwrite_detect.py`** —— 重 ingest 场景检测 + 强制拍板:
+  - [ ] fixture 1:`raw/<subdir>/iso26262.pdf` + `raw/<subdir>/iso26262.pdf.converted.md` 已存在;`inbox/iso26262.pdf` 新版本;跑 ingest → SKILL.md **不**直接迁移,而是**强制拍板**:`[y]` 覆盖 / `[n]` 跳过 / `[d]` 仅删除旧副本
+  - [ ] fixture 2:fixture 1 拍板 `[n]` → safe-mv.py --apply 不执行任何写动作,**断言** `inbox/iso26262.pdf` 仍存在 + `raw/<subdir>/iso26262.pdf` 内容不变 + log.md 无新增条目
+  - [ ] fixture 3:fixture 1 拍板 `[d]` → safe-mv.py --apply 删除 `raw/<subdir>/iso26262.pdf` + `iso26262.pdf.converted.md`,**不**写入新内容;`inbox/iso26262.pdf` 仍存在(等用户手动处理)
+- [ ] **C16.2 `tests/test_safe_mv_overwrite_atomic.py`** —— 拍板 `[y]` 的 atomic overwrite 行为:
+  - [ ] fixture 1:fixture 拍板 `[y]` → safe-mv.py --apply 收到 `action: "overwrite"` → **先备份**到 `temp/raw_backup_<hash>/iso26262.pdf` + `iso26262.pdf.converted.md`(断言备份文件存在)
+  - [ ] fixture 2:**atomic 替换**:`os.replace()` 一次性替换 `raw/<subdir>/iso26262.pdf` + `raw/<subdir>/iso26262.pdf.converted.md`;**断言** 中途任何一步失败 → 两文件均保持旧值(模拟中途失败:故意在备份后 / 替换前 kill 进程,断言两文件不变)
+  - [ ] fixture 3:覆盖范围边界:故意构造同 subdir 含 3 个文件:`raw/<subdir>/foo.pdf` + `foo.pdf.converted.md` + 无关文件 `raw/<subdir>/bar.pdf`(bar 在 subdir 内但与本次 ingest 无关)→ 拍板 `[y]` 重 ingest foo → **断言** `bar.pdf` 内容不变 + mtime 不变
+  - [ ] fixture 4:Q7 死循环防护:拍板 `[y]` 后,**断言** `raw/<subdir>/iso26262.pdf` 对应的源页 `knowledge/sources/iso26262.md` 的 frontmatter `updated` 字段值不变 + 文件 mtime 不变(Q7 防护延续,覆盖 raw 不影响 source 页 updated)
+  - [ ] fixture 5:log.md 追加:`**Migration**(overwrite): inbox/iso26262.pdf → raw/<subdir>/iso26262.pdf` + `**Converted**(overwrite): raw/<subdir>/iso26262.pdf.converted.md (via anydoc)` + 备份路径 `**Backup**: temp/raw_backup_<hash>/iso26262.pdf`(便于用户回滚)
+- [ ] **C16.3 `tests/test_safe_mv_no_reconvert_skill.py`** —— v0.5.2 PATCH 不开重转 skill:
+  - [ ] fixture 1:`scripts/` 下不应有 `reconvert-raw.py` / `reconvert-all.py` / `bulk-reconvert.py` 等批量重转入口(G10 派生决策:不开批量重转 skill)
+  - [ ] fixture 2:用户尝试跑 `python ./scripts/reconvert-raw.py --all` → **FileNotFoundError**,**不**新增此脚本
+  - [ ] fixture 3:文档层 grep `reconvert` / `bulk-reconvert` 关键字 → **不应**出现在 SKILL.md 入口列表(对齐 v0.4.0 G10 拍板)
+- [ ] **C16.4 `tests/test_safe_mv_first_ingest_no_overwrite.py`** —— 首次 ingest 不触发拍板门(回归测试):
+  - [ ] fixture 1:`raw/<subdir>/` 不存在目标文件(首次 ingest 同名文件)→ safe-mv.py --apply **直接 mv**,**不**强制拍板(拍板门仅在覆盖场景触发)
 
 ### 手动验证清单(自动测试难以覆盖的项目)
 
@@ -740,6 +763,40 @@ git tag -l "v*" | sort -V | tail -5
 - 所有 v0.5.0 §C15 fixture:已冻结
 
 **兼容性**:**v0.5.1 PATCH bump**(MINOR bump 内的小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只细化设计澄清(§4.3 跳 3 优先级伪代码 + §4.6 路径 C 词表显式化)。OKF v0.2 schema 无 breaking change;既有 v0.5.0 wiki 升级到 v0.5.1 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
+
+### v0.5.2(2026-09-03) — Round 12 PATCH 修复 2 个 PRD 缺陷(Intent ambiguous fallback + G10 atomic overwrite)
+
+**新增 §C15.3 fixture 8/9/10/11**:(详见 §C15.3 fixture 列表)
+
+- fixture 8:**intent=ambiguous**(语义模糊,例:"这篇芯片文档和上一篇有什么异同?")→ 走 `💡` 跳过(v0.5.2 fallback 低扰动)
+- fixture 9:intent=ambiguous + 命中 2 子目录 + ≥200 字 → 仍走 ambiguous 跳过(优先级 > 不触发其他项)
+- fixture 10:**冲突测试** —— 路径 C 触发词"异同" + LLM 推断 intent=ambiguous → 走 ambiguous 跳过(路径 C 不覆盖 fallback)
+- fixture 11:intent=other + 命中 2 子目录 + ≥200 字 → 走触发条件 → `❓` 触发 prompt(intent=other 走触发路径)
+
+**新增 §C16**(v0.5.2 PATCH 修复缺陷 2):4 个 fixture 脚本:
+
+- C16.1 `tests/test_safe_mv_overwrite_detect.py`:重 ingest 同名文件检测 + 强制拍板(`[y]`/`[n]`/`[d]`)+ `[n]` 不写盘 / `[d]` 仅删旧副本
+- C16.2 `tests/test_safe_mv_overwrite_atomic.py`:拍板 `[y]` 的 atomic overwrite 行为(备份到 `temp/raw_backup_<hash>/` → `os.replace()` 一次性替换 + 覆盖范围边界 + Q7 死循环防护延续 + log.md 追加 Migration/Converted/Backup 三行)
+- C16.3 `tests/test_safe_mv_no_reconvert_skill.py`:不开重转 skill(grep 断言 `scripts/` 下无 `reconvert-raw.py` / `bulk-reconvert.py` + 文档层无对应 SKILL.md 入口)
+- C16.4 `tests/test_safe_mv_first_ingest_no_overwrite.py`:首次 ingest 同名文件回归(不触发拍板,直接 mv)
+
+**新增 frontmatter 字段**:无(只扩 intent 档位,不动 schema)
+
+**新增正文骨架**:无
+
+**新增 scripts 入口**:无(只扩 `safe-mv.py --apply` decision JSON `action` 字段,新增 `"overwrite"` 值)
+
+**不动**:
+
+- Q6 wikilink 一等公民 / Q7 死循环防护 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- design §3.6.2 / §4.4 / §C4.1 lint 行为边界:已冻结
+- v0.3.2 Normalizer + Lint --fix 安全锁:已冻结
+- G10 转换副本入 raw + 源页 link 指副本:已冻结
+- G11 分析专属骨架 + sources_used 必填 + gating:已冻结
+- v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+- 所有 v0.5.1 §C15 fixture(原 7 个):已冻结 + 新增 4 个
+
+**兼容性**:**v0.5.2 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只扩 intent 档位 + 扩 safe-mv.py --apply decision JSON `action` 字段。OKF v0.2 schema 无 breaking change;既有 v0.5.1 wiki 升级到 v0.5.2 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
 
 ### v0.4.0(2026-09-03) — Round 9 G10 外部转换副本入 raw + 源页 link 指副本
 

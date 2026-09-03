@@ -128,6 +128,14 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **必须 M1**(G10 — 转换产物落盘到 raw/,详见 design §4.2 step 2 + §4.2.1 阶段 1):
   - 转换成功后,`scripts/convert-to-md.py` 通过 `--emit-to <subdir>` 参数把产物落盘到 `<subdir>/<file>.converted.md`(同 subdir)
   - ingest 阶段 3 `safe-mv.py --apply temp/decision-*.json` 时,**同时迁移两个文件**:`inbox/<file>` → `raw/<subdir>/<file>`(原文件)+ `temp/<file>.converted.md`(或 inbox 内的对应副本)→ `raw/<subdir>/<file>.converted.md`(md 副本)
+  - **G10 — 重新 ingest 同名文件的覆盖策略**(v0.5.2 PATCH 修复缺陷 2,G10 派生):
+    - **场景**:用户把 `inbox/<file>`(原文件可能已更新 / 转换器升级 / 修正后重转) 再次走标准 ingest,且 `raw/<subdir>/<file>` **已存在**(原文件)+ `raw/<subdir>/<file>.converted.md` **已存在**(md 副本)
+    - **行为**:**不报 FileExistsError**,而是**用户拍板 + atomic overwrite**
+      - SKILL.md 检测到 raw/ 下已有同名 → **强制拍板询问**(即使是用户主动重 ingest,也要明确告知"raw/ 下已存在同文件,是否覆盖?")
+      - 拍板选项:`[y]` 覆盖 / `[n]` 跳过 / `[d]` 仅删除旧副本并跳过 ingest(用户自己手动处理)
+      - `safe-mv.py --apply` 收到 `decision.action = "overwrite"` → **atomic overwrite**:**先备份旧文件到 `temp/raw_backup_<hash>/<file>` + `<file>.converted.md`**(Q7 防护,出问题时可回滚),再用 `os.replace()` 一次性替换两个文件
+      - **覆盖范围**:仅 `<file>` + `<file>.converted.md` 两个目标,不动同 subdir 其他文件;不动 frontmatter `updated` 字段 + 文件 mtime(对齐 Q7 死循环防护)
+    - **不开"重转 skill"**(对齐 v0.4.0 G10 拍板):不提供批量重转历史所有 .converted.md 的入口;用户需批量重转时,自己写脚本 loop 这个流程
   - 纯文本类 **不生成** .converted.md 副本(原生直接读,`native_text: true`)
   - 转换失败 → **不迁原文件,也不生成空副本**(原文件保留在 inbox,等用户预处理)
   - 命名:`<basename>.<ext>.converted.md`(例 `iso26262.pdf.converted.md`),保留原扩展名语义 + 视觉关联
@@ -183,7 +191,12 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ### 4.3 Query skill
 
 - **触发**:`/aeps-llm-wiki-query <question>`
-- **必须**(4 跳扫描,详见 design §4.3):
+- **必须**(Intent 路由 + 4 跳扫描,详见 design §4.3):
+  - **Intent 路由(3 档)**(v0.5.2 PATCH 修复缺陷 1,G11 M3 gating 语义对齐):
+    - LLM 在阶段3推断 intent,**显式分 3 档**:`exact` / `ambiguous` / `{overview, comparison, other}`(overview/comparison/other 走触发路径)
+    - **`ambiguous` 档含义**:语义模糊,LLM **不能**明确判断是纯事实查证还是综合推演(例:"这篇芯片文档和上一篇有什么异同?" —— 既含"异同"对比倾向词,又含"上一篇"指代模糊;LLM 无法在阶段3稳定分类)
+    - **`ambiguous` 档默认行为**:**走 fallthrough 不触发** ——"低扰动路线"(Skip Proposing Analysis),避免误判导致 over-prompting 或误杀;**这是 fallback,不是路径 C 词命中场景**
+    - **路径 C 触发词清单**(v0.5.1 PATCH,vs/对比/区别/异同/优缺点/X vs Y)是**SKILL.md 提示词辅助倾向词**,不替代 LLM 阶段3 3 档推断;**显式冲突时以 LLM 推断的 `ambiguous` 为准**(避免路径 C 词命中覆盖模糊语义)
   - **第 1 跳**:`knowledge/index.md` 找候选页;按 `tags` 关键词做第一轮过滤(条目 frontmatter 的 tag 与 query 关键词重合数,top-K 入选)
   - **第 2 跳**:读候选页(优先级:`description` / `summary` → `title` → 全文)
   - **第 3 跳**:顺着候选页内的 `[[wikilink]]` / `Related pages` 段跳到相邻 `entities/` `concepts/` `analyses/` `comparisons/` 页(1 跳深度,避免雪崩)
@@ -204,12 +217,13 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
       - **深度回答**:回答字数 ≥ 200 字(LLM 综合推演,非短答)
     - **不触发**(任一命中即跳过):
       - intent = `exact`(纯事实查证,如"S32G PCIe 几个接口")
+      - intent = `ambiguous`(语义模糊,fallback 低扰动,v0.5.2 PATCH 修复缺陷 1)
       - 回答字数 < 200 字
       - 命中源 < 2 个
       - 回答含 "Wiki 未覆盖此问题" 字样(LLM 诚实声明)
     - **Gating 提示语模板**(SKILL.md 用):
       - 触发:`❓ 本次回答命中 ≥2 个 Wiki 源、深度 ≥200 字,符合 analysis 落档门槛。是否落档为 \`knowledge/analyses/<时间戳>-<slug>.md\`?[Y/n]`
-      - 不触发:`💡 本次回答为单点查证 / 短答 / Wiki 未覆盖,跳过落档询问。`
+      - 不触发:`💡 本次回答为单点查证 / 语义模糊 / 短答 / Wiki 未覆盖,跳过落档询问。`
   - **G11 — 落档为 analysis 页**(G11 M1 + M2,详见 design §3.6.1 + templates/analysis-page.md):
     - 新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`
     - frontmatter 必填:
@@ -452,6 +466,22 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ---
 
 ## 12. Change History
+
+### v0.5.2(2026-09-03) — Round 12 PATCH 修复 2 个 PRD 缺陷(Intent fallback + G10 atomic overwrite)
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 15 | **Intent 3 档分类 + ambiguous fallback**(修复缺陷 1):LLM 阶段3推断 intent **显式分 3 档** `exact` / `ambiguous` / `{overview, comparison, other}`;**`ambiguous` 走 fallthrough 不触发**,语义模糊时默认低扰动(例:"这篇芯片文档和上一篇有什么异同?" 含路径 C 触发词"异同"但"上一篇"指代模糊 → LLM 无法稳定分类 → 走 ambiguous 跳过);**路径 C 触发词清单不覆盖 ambiguous fallback**(冲突时 ambiguous 胜,避免硬词命中误判);`should_prompt_save()` 伪代码新增 `intent == "ambiguous"` 早返回分支(优先级 > 不触发条件其他项,先判 ambiguous 再判 sources/length/Wiki 未覆盖) | 用户提"PRD §4.3 Intent Router 保底策略:语义模糊时默认走低扰动路线 Skip Proposing Analysis";v0.5.1 路径 C 触发词 + v0.5.0 G11 M3 gating 语义冲突修复 | prd §4.3 Intent 路由段(3 档分类 + ambiguous 默认行为 + 路径 C 不替代说明)+ §4.3 不触发条件 5 行(`exact` / `ambiguous` / <200 字 / <2 源 / Wiki 未覆盖);design §4.3.2 `should_prompt_save()` 伪代码新增 ambiguous 早返回分支 + 注释说明路径 C 不覆盖;implement §C15.3 fixture 8/9/10/11(ambiguous 语义模糊 + ambiguous vs 路径 C 冲突 + intent=other vs 触发条件兜底)|
+| 16 | **G10 重 ingest 同名文件 atomic overwrite**(修复缺陷 2):用户重新跑 ingest 且 `raw/<subdir>/<file>` + `<file>.converted.md` 已存在时,**不**报 FileExistsError,而是 **SKILL.md 强制拍板**(`[y]` 覆盖 / `[n]` 跳过 / `[d]` 仅删旧副本)+ `safe-mv.py --apply` 收到 `action: "overwrite"` 走 **atomic overwrite**:**先备份到 `temp/raw_backup_<hash>/`**,再 `os.replace()` 一次性替换两文件(写盘要么全成要么全败);覆盖范围仅 `<file>` + `<file>.converted.md`,**不动**同 subdir 其他文件 + frontmatter `updated` + 文件 mtime(Q7 死循环防护延续);**不开"重转 skill"**(对齐 v0.4.0 G10 拍板:不提供批量重转历史 .converted.md 入口) | 用户提"PRD §4.2 G10 重转与 G7 不可变层死锁:重新 ingest 同名文件应用户拍板 atomic overwrite,而不是 FileExistsError";v0.4.0 G10 不开重转 skill + Q7 死循环防护规则延续 | prd §4.2 G10 派生决策段(覆盖场景 + 拍板选项 + atomic overwrite 行为 + 不动 updated/mtime + 不开重转 skill);design §4.2 step 3 G10 双文件迁移段(atomic overwrite 4 步行为 + 拍板 JSON action schema);implement §C16(4 fixture 脚本:C16.1 重 ingest 检测 + 强制拍板 / C16.2 atomic overwrite 行为 / C16.3 不开重转 skill / C16.4 首次 ingest 回归不触发拍板)|
+
+**兼容性**:**v0.5.2 PATCH bump**(MINOR bump 内小补丁)。本次改动:
+- **不引入**新 frontmatter 字段
+- **不引入**新正文骨架
+- **不引入**新 scripts 入口(只是 `safe-mv.py --apply` 新增 `action: overwrite` 分支处理,**不**新增脚本)
+- **不修改**OKF v0.2 schema,不动 lint C15 (analysis 骨架 / sources_used / gating)
+- **只扩 intent 档位**(`exact` → `exact` / `ambiguous` / `{overview, comparison, other}`)+ **扩 safe-mv.py --apply decision JSON 字段**(`action` 字段新增 `"overwrite"` 值)
+
+**升级路径**:既有 v0.5.1 wiki 升级到 v0.5.2 plugin **无需**重跑 init,**无需**跑迁移脚本;SKILL.md 内部行为升级即可(ambiguous fallback + safe-mv overwrite 分支)。
 
 ### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
 

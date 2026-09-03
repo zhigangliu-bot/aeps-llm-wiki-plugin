@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.5.1 已冻结(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
+> **状态**:v0.5.2 已冻结(2026-09-03) — Round 12 PATCH 修复 2 个 PRD 缺陷(Intent ambiguous fallback + G10 atomic overwrite)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -285,12 +285,12 @@ SKILL.md 是 prompt(Llm 读),但**有外部依赖或系统调用**的逻辑(批�
 
 **禁止调用清单**(等价 lint C10.1 静态扫描,详见 implement §C10.1):
 
-| 禁止调用 | 替代方案 |
-|---|---|
-| `input()` / `input(prompt)` | SKILL.md 在 Claude 对话层发起交互,拍板结果通过参数传入 |
-| `sys.stdin.read()` / `sys.stdin.readline()` | 同上 |
-| `getpass.getpass()` | 完全禁 |
-| `select.select([sys.stdin], ...)` 等 stdin 阻塞 | 同上 |
+| 禁止调用                                          | 替代方案                                               |
+| ------------------------------------------------- | ------------------------------------------------------ |
+| `input()` / `input(prompt)`                   | SKILL.md 在 Claude 对话层发起交互,拍板结果通过参数传入 |
+| `sys.stdin.read()` / `sys.stdin.readline()`   | 同上                                                   |
+| `getpass.getpass()`                             | 完全禁                                                 |
+| `select.select([sys.stdin], ...)` 等 stdin 阻塞 | 同上                                                   |
 
 **输入约定**:所有流程控制(`--batch` / `--apply-plan` / `--project-dir`)一律通过**命令行参数**或 **JSON / YAML 配置文件**传入,严禁依赖 stdin / TTY / 环境变量隐式传入。
 
@@ -387,12 +387,12 @@ python3 ./scripts/convert-to-md.py --batch ...       # 不显式 timeout(PaddleO
 
 #### Sync 策略(plugin 升级时)
 
-| 情况                                                     | 行为                                                                                 |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| plugin 新版**新增**脚本                            | 拷贝到 user-project`scripts/`                                                      |
-| plugin 新版**修改了**脚本                          | **直接覆盖** user-project 副本(plugin 自带脚本以 plugin 本体为权威,升级时跟随) |
+| 情况                                                    | 行为                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| plugin 新版**新增**脚本                           | 拷贝到 user-project`scripts/`                                                      |
+| plugin 新版**修改了**脚本                         | **直接覆盖** user-project 副本(plugin 自带脚本以 plugin 本体为权威,升级时跟随) |
 | 用户本地**新增**了脚本(如 `my-custom-check.py`) | **保留**,plugin 不动                                                           |
-| 用户本地**删了** plugin 自带的脚本                 | 不补回,lint 提示"plugin 新版有 X 你本地没有"                                         |
+| 用户本地**删了** plugin 自带的脚本                | 不补回,lint 提示"plugin 新版有 X 你本地没有"                                         |
 
 **为什么用户本地修改不自动覆盖**:用户可能在 scripts/ 里写了自定义 helper,plugin 升级不能覆盖用户资产。
 
@@ -409,19 +409,20 @@ scripts 是**单次执行就退**(`agent 调一次,跑完退,产出结果或修�
 #### scripts/ 严禁交互硬契约(NFR-1 加严,Q10)
 
 **问题根源澄清**:scripts/ 当前是空设计(M3 才落地),不存在"挂起卡死"的现实现状;但设计若**不**明确禁止交互式调用,未来实现者(图省事)很容易在脚本里写 `input()` 或 `sys.stdin.read()`,导致:
+
 - 无交互终端调用时挂死(如 CI / git hook / 用户手动命令行)
 - Claude Skill 调用时若脚本自己抓 stdin,会与 Claude 的 tool use 流抢输入、状态不可预测
 - 单测无法跑(测试环境无 stdin)
 
 **硬契约(NFR-1 加严)**:`scripts/*.py` 严禁任何形式的运行时交互,**纯函数工具**:
 
-| 禁止调用 | 替代方案 |
-|---|---|
-| `input()` / `input(prompt)` | 由 SKILL.md 在 Claude 对话层发起交互,拍板结果通过参数传入 |
-| `sys.stdin.read()` / `sys.stdin.readline()` | 同上 |
-| `getpass.getpass()` | 完全禁 |
-| `select.select([sys.stdin], ...)` 等待 stdin | 同上 |
-| 任何阻塞事件循环(`while True: pass` 等) | 同 §1.4 NFR-1 单次运行即退约束 |
+| 禁止调用                                        | 替代方案                                                  |
+| ----------------------------------------------- | --------------------------------------------------------- |
+| `input()` / `input(prompt)`                 | 由 SKILL.md 在 Claude 对话层发起交互,拍板结果通过参数传入 |
+| `sys.stdin.read()` / `sys.stdin.readline()` | 同上                                                      |
+| `getpass.getpass()`                           | 完全禁                                                    |
+| `select.select([sys.stdin], ...)` 等待 stdin  | 同上                                                      |
+| 任何阻塞事件循环(`while True: pass` 等)       | 同 §1.4 NFR-1 单次运行即退约束                           |
 
 **scripts/ 边界**:scripts 是**机械执行器**(IO / 校验 / OCR / qmd / 命名飘检测),决策永远在 Claude 对话层(SKILL.md prompt)。scripts 接受**确定参数 + 配置文件**(如 `--apply temp/decision-<hash>.json`),按参数执行,不发起任何 prompt。
 
@@ -429,14 +430,14 @@ scripts 是**单次执行就退**(`agent 调一次,跑完退,产出结果或修�
 
 **scripts/ 与 SKILL.md 责任分工**:
 
-| 职责 | 谁负责 |
-|---|---|
-| 读 inbox 文件 / 提取文本 / OCR | scripts (`convert-to-md.py`) |
-| LLM 提议 raw 子目录 / entity / concept 抽取 | SKILL.md (Claude LLM) |
-| 拍板门(目标目录不存在 / 命名飘仲裁) | SKILL.md (Claude 对话问用户) |
-| mv / mkdir / 写 log | scripts (`safe-mv.py` / `ensure-dirs.py` / `append-log.py`) |
-| 提案 / 拍板落档(详见 §4.2.x) | SKILL.md 写 `temp/decision-<hash>.json`(阶段 2 subagent 写 `temp/proposal-<doc-id>.json`) |
-| 读 plan 文件应用 | scripts (CLI 参数 `--apply temp/decision-<hash>.json`) |
+| 职责                                        | 谁负责                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 读 inbox 文件 / 提取文本 / OCR              | scripts (`convert-to-md.py`)                                                               |
+| LLM 提议 raw 子目录 / entity / concept 抽取 | SKILL.md (Claude LLM)                                                                        |
+| 拍板门(目标目录不存在 / 命名飘仲裁)         | SKILL.md (Claude 对话问用户)                                                                 |
+| mv / mkdir / 写 log                         | scripts (`safe-mv.py` / `ensure-dirs.py` / `append-log.py`)                            |
+| 提案 / 拍板落档(详见 §4.2.x)               | SKILL.md 写`temp/decision-<hash>.json`(阶段 2 subagent 写 `temp/proposal-<doc-id>.json`) |
+| 读 plan 文件应用                            | scripts (CLI 参数`--apply temp/decision-<hash>.json`)                                      |
 
 #### `_meta.json` 字段定义
 
@@ -473,11 +474,11 @@ init / re-run init 时,`<project>/scripts/_meta.json` 记录"这次 scripts/ 来
 
 三类文件切分:
 
-| 类别                                             | 放在 user-project 哪                       | 谁读              | 例子                                                                                 |
-| ------------------------------------------------ | ------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------ |
+| 类别                                             | 放在 user-project 哪                       | 谁读             | 例子                                                                                 |
+| ------------------------------------------------ | ------------------------------------------ | ---------------- | ------------------------------------------------------------------------------------ |
 | **页生成模板**(scripts 用)                 | `<project>/templates/`(B 简化版,新增)    | scripts(`.py`) | `source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md` |
-| **全栈字典**(人 + LLM 读)                  | `<project>/templates/`(与页生成模板同层) | LLM agent + 用户  | `concept-entities-readme.md` / `tag-template.md`                                 |
-| **子目录专属字典 / 操作手册**(人 + LLM 读) | 分散落到对应子目录顶层                     | LLM agent + 用户  | `knowledge/SCHEMA.md` / `raw/README.md` / `inbox/README.md`                    |
+| **全栈字典**(人 + LLM 读)                  | `<project>/templates/`(与页生成模板同层) | LLM agent + 用户 | `concept-entities-readme.md` / `tag-template.md`                                 |
+| **子目录专属字典 / 操作手册**(人 + LLM 读) | 分散落到对应子目录顶层                     | LLM agent + 用户 | `knowledge/SCHEMA.md` / `raw/README.md` / `inbox/README.md`                    |
 
 **判定规则**:横跨 ≥ 2 个 user-project 子目录的字典 → `templates/`;只与一个子目录相关的字典 / 操作手册 → 该子目录顶层。详见 §2.5.1 路由规则。
 
@@ -850,53 +851,70 @@ g10_links_mirror:
 ```
 
 # lint C15: analysis 页专属骨架 + sources_used 必填(详见 prd §4.3 G11 M1+M2 + templates/analysis-page.md)
+
 g11_analysis_skeleton:
-  # type: analysis 页必须有专属 3 节骨架(M1 结构断层修复)
-  # 缺任何一节 → FAIL
-  - when: {type: analysis}
-    required_h2:
-      - '## 方案推演 / 架构分析'      # 替代 sources 的 `## 重点摘录`(语义对齐 LLM 综合推演)
-      - '## 关联溯源'                # 替代 sources 的 `## 我的思考`(语义对齐引用链 + 推演依据)
-      - '## 总结:最有收获的一句话'    # 一句话 Core Verdict,与 sources 同名但语义独立
+
+# type: analysis 页必须有专属 3 节骨架(M1 结构断层修复)
+
+# 缺任何一节 → FAIL
+
+- when: {type: analysis}
+  required_h2:
+  - '## 方案推演 / 架构分析'      # 替代 sources 的 `## 重点摘录`(语义对齐 LLM 综合推演)
+  - '## 关联溯源'                # 替代 sources 的 `## 我的思考`(语义对齐引用链 + 推演依据)
+  - '## 总结:最有收获的一句话'    # 一句话 Core Verdict,与 sources 同名但语义独立
     forbidden_h2:
-      - '## 重点摘录'                # sources 风格,与 analysis 语义不符
-      - '## 我的思考'                # sources 风格
-      - '## 摘要'                    # 长摘要走 frontmatter summary 字段(沿用 §3.1 §C 纪律)
-      - '## Summary'                 # 同上
+  - '## 重点摘录'                # sources 风格,与 analysis 语义不符
+  - '## 我的思考'                # sources 风格
+  - '## 摘要'                    # 长摘要走 frontmatter summary 字段(沿用 §3.1 §C 纪律)
+  - '## Summary'                 # 同上
 
 # lint C15.2: type: analysis 页 sources_used 必填 + 每条路径必须解析到真实存在
+
 g11_sources_used_required:
-  - when: {type: analysis}
-    then:
-      sources_used: 'non-empty array of relative paths under knowledge/'
-    # 验证规则:每条字符串形如 `sources/<basename>.md` / `entities/<子类>/<slug>.md` / `concepts/<子类>/<slug>.md` / `syntheses/<slug>.md` / `comparisons/<a>-vs-<b>.md`,且相对 knowledge/ 路径存在
-    # Q7 死循环防护:lint 重写 sources_used 时不动 updated + mtime(同 G10)
-    # 派生来源:仅从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段实际引用路径抓,禁止从全文 grep 抽
+
+- when: {type: analysis}
+  then:
+  sources_used: 'non-empty array of relative paths under knowledge/'# 验证规则:每条字符串形如 `sources/<basename>.md` / `entities/<子类>/<slug>.md` / `concepts/<子类>/<slug>.md` / `syntheses/<slug>.md` / `comparisons/<a>-vs-<b>.md`,且相对 knowledge/ 路径存在
+
+  # Q7 死循环防护:lint 重写 sources_used 时不动 updated + mtime(同 G10)
+
+  # 派生来源:仅从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段实际引用路径抓,禁止从全文 grep 抽
 
 # lint C15.3: query 落档 gating 输出(M3 Over-prompting 修复,详见 prd §4.3 G11 + design §4.3)
+
 # 验证规则:query skill 输出末尾必须含 prompt 或 skip 标记,二者必居其一
+
 g11_query_gating:
-  # 触发条件(任一命中即问):
+
+# 触发条件(任一命中即问):
+
   triggers_or:
     - intent_eq: 'overview'         # 跨领域综述
     - intent_eq: 'comparison'       # 对比分析
     - sources_count_ge: 2           # 命中 ≥ 2 个不同 wiki 子目录的源
     - answer_length_ge: 200         # 回答字数 ≥ 200
-  # 不触发条件(任一命中即跳过):
+
+# 不触发条件(任一命中即跳过):
+
   triggers_not:
     - intent_eq: 'exact'            # 纯事实查证
     - answer_length_lt: 200         # 短答
     - sources_count_lt: 2           # 命中源 < 2
     - answer_contains: 'Wiki 未覆盖'  # LLM 诚实声明
-  # 输出契约:触发 → 末尾含 `❓ ... 是否落档为 analyses/<...>.md ?[Y/n]`;不触发 → 末尾含 `💡 ... 跳过落档询问。`
+
+# 输出契约:触发 → 末尾含 `❓ ... 是否落档为 analyses/<...>.md ?[Y/n]`;不触发 → 末尾含 `💡 ... 跳过落档询问。`
 
 # lint C15.4: type: analysis 页 `## 关联溯源` 末尾 `> 引用:` 行与 sources_used Set 比对
+
 g11_analysis_sources_mirror:
-  - when: {type: analysis}
-    reference_line_pattern: '^> 引用:'
-    # 规则:`> 引用:` 行逗号分隔的路径集合与 frontmatter sources_used 走 Set 比对(Q7 死循环防护)
-    # 不一致 → WARN(不 FAIL,允许 LLM 后期补充,但 lint 给出 diff)
-    # Q7:重写不动 updated + mtime
+
+- when: {type: analysis}
+  reference_line_pattern: '^> 引用:'# 规则:`> 引用:` 行逗号分隔的路径集合与 frontmatter sources_used 走 Set 比对(Q7 死循环防护)
+
+  # 不一致 → WARN(不 FAIL,允许 LLM 后期补充,但 lint 给出 diff)
+
+  # Q7:重写不动 updated + mtime
 
 ### 3.2.1 扩展工作流(US-6:加新实体/概念类型)
 
@@ -964,6 +982,7 @@ g11_analysis_sources_mirror:
   ```
   **Creation**: query "<原问句>" → [analysis.md](analyses/<timestamp>-<slug>.md) by agent: producer/aeps-llm-wiki-plugin/<version>
   ```
+
   - 走 `**Creation**`(新建页,不是 `**Update`** —— 因为 analysis 页是新建)
   - description **必须**含 query 原问句 + `query "..."` 标记,便于 prd §4.6 路径 B 正则 `**Creation**: ... query "X.*Y"` 命中
   - 高频检索触发路径 B 才不会成为死代码(若用 `**Update**` 正则永远命中 0 次)
@@ -984,26 +1003,26 @@ g11_analysis_sources_mirror:
 
 子目录与 `type` 1:1:1 绑死 —— `type: person` 必在 `entities/person/`,`type: theory` 必在 `concepts/theory/`,等等(违规由 lint FAIL)。完整 type ↔ 目录 ↔ 含义 三联表见 §3.1 §A。
 
-| 子目录                     | OKF`type`      | 模板要锁什么                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sources/`               | `source`       | ✅**frontmatter + 正文骨架都锁死**。frontmatter type-specific 必填字段:`source_file`(指向 `raw/<subdir>/<file>`)+ `summary`(≤ 280 字符,长摘要走 `summary` 字段纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**(纪律见 §3.1 §C)。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。`## 我的思考` 用第一人称。**raw_category 派生字段**:不在 frontmatter 写死,而是从 `sources[0].resource` 路径解析得到,例 `resource: raw/12_法规_标准_政策/okf-spec.md` → `raw_category: 12_法规_标准_政策`。lint 报告支持按 `raw_category` group by,便于扫"法规相关的源页"。详见 §3.6.1。字段完整集合与 SCHEMA.md §2.2 一致。 |
-| `entities/person/`       | `person`       | ⚠️**frontmatter 锁**(`type: person` + `aliases:[]` + `summary`,字段完整集合见 SCHEMA.md §2.2 entity/concept 必填项),**正文自由发挥**(人物页通常包含:身份、关键贡献、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `entities/organization/` | `organization` | ⚠️**frontmatter 锁**;**正文自由发挥**(组织页通常包含:领域定位、代表产品/项目、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `entities/project/`      | `project`      | ⚠️**frontmatter 锁**;**正文自由发挥**(项目页通常包含:范围、时间线、关键里程碑、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `entities/product/`      | `product`      | ⚠️**frontmatter 锁**;**正文自由发挥**(产品页通常包含:定位、关键参数、典型应用、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `entities/event/`        | `event`        | ⚠️**frontmatter 锁**;**正文自由发挥**(事件页通常包含:时间、地点、参与者、产出)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `entities/place/`        | `place`        | ⚠️**frontmatter 锁**;**正文自由发挥**(地点页通常包含:地理位置、相关活动/组织)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `entities/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `concepts/theory/`       | `theory`       | ⚠️**frontmatter 锁**;**正文自由发挥**(理论页通常包含:核心命题、推导过程、适用边界)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `concepts/method/`       | `method`       | ⚠️**frontmatter 锁**;**正文自由发挥**(方法页通常包含:适用场景、步骤、工具链、对比其他方法)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `concepts/field/`        | `field`        | ⚠️**frontmatter 锁**;**正文自由发挥**(领域页通常包含:范畴、关键问题、与相邻领域关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `concepts/phenomenon/`   | `phenomenon`   | ⚠️**frontmatter 锁**;**正文自由发挥**(现象页通常包含:现象描述、根因分析、影响、应对)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `concepts/standard/`     | `standard`     | ⚠️**frontmatter 锁**;**正文自由发挥**(标准页通常包含:发布机构、版本、约束范围、与相邻标准关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `concepts/term/`         | `term`         | ⚠️**frontmatter 锁**;**正文自由发挥**(术语页通常包含:定义、起源、典型用例、相邻术语)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `concepts/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 子目录                     | OKF`type`      | 模板要锁什么                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sources/`               | `source`       | ✅**frontmatter + 正文骨架都锁死**。frontmatter type-specific 必填字段:`source_file`(指向 `raw/<subdir>/<file>`)+ `summary`(≤ 280 字符,长摘要走 `summary` 字段纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**(纪律见 §3.1 §C)。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。`## 我的思考` 用第一人称。**raw_category 派生字段**:不在 frontmatter 写死,而是从 `sources[0].resource` 路径解析得到,例 `resource: raw/12_法规_标准_政策/okf-spec.md` → `raw_category: 12_法规_标准_政策`。lint 报告支持按 `raw_category` group by,便于扫"法规相关的源页"。详见 §3.6.1。字段完整集合与 SCHEMA.md §2.2 一致。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `entities/person/`       | `person`       | ⚠️**frontmatter 锁**(`type: person` + `aliases:[]` + `summary`,字段完整集合见 SCHEMA.md §2.2 entity/concept 必填项),**正文自由发挥**(人物页通常包含:身份、关键贡献、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `entities/organization/` | `organization` | ⚠️**frontmatter 锁**;**正文自由发挥**(组织页通常包含:领域定位、代表产品/项目、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `entities/project/`      | `project`      | ⚠️**frontmatter 锁**;**正文自由发挥**(项目页通常包含:范围、时间线、关键里程碑、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `entities/product/`      | `product`      | ⚠️**frontmatter 锁**;**正文自由发挥**(产品页通常包含:定位、关键参数、典型应用、引用源)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `entities/event/`        | `event`        | ⚠️**frontmatter 锁**;**正文自由发挥**(事件页通常包含:时间、地点、参与者、产出)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `entities/place/`        | `place`        | ⚠️**frontmatter 锁**;**正文自由发挥**(地点页通常包含:地理位置、相关活动/组织)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `entities/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `concepts/theory/`       | `theory`       | ⚠️**frontmatter 锁**;**正文自由发挥**(理论页通常包含:核心命题、推导过程、适用边界)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `concepts/method/`       | `method`       | ⚠️**frontmatter 锁**;**正文自由发挥**(方法页通常包含:适用场景、步骤、工具链、对比其他方法)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `concepts/field/`        | `field`        | ⚠️**frontmatter 锁**;**正文自由发挥**(领域页通常包含:范畴、关键问题、与相邻领域关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `concepts/phenomenon/`   | `phenomenon`   | ⚠️**frontmatter 锁**;**正文自由发挥**(现象页通常包含:现象描述、根因分析、影响、应对)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `concepts/standard/`     | `standard`     | ⚠️**frontmatter 锁**;**正文自由发挥**(标准页通常包含:发布机构、版本、约束范围、与相邻标准关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `concepts/term/`         | `term`         | ⚠️**frontmatter 锁**;**正文自由发挥**(术语页通常包含:定义、起源、典型用例、相邻术语)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `concepts/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `analyses/`              | `analysis`     | ✅**frontmatter + 正文骨架都锁死**(query 落档强制套,G11 v0.5.0 升级为**分析专属骨架**,与 `sources/` 不再共用)。frontmatter type-specific 必填:`answer_to`(原问题)+ `generated_by: agent: producer/aeps-llm-wiki-plugin/<version>` + **`sources_used`**(G11 M2 溯源丢失修复:string[],本次回答参考的 wiki 页相对路径列表,lint C15.2 必填且每条必须解析到真实存在的 `knowledge/**/*.md`,Q7 死循环防护:重写不动 `updated` + 文件 mtime)+ 长摘要走 `summary` 字段(必须**首行保留 query 原问句** `**问题**: <原问句>`,纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**。**正文 3 节专属骨架硬约束**(G11 M1 结构断层修复,任何缺失 = lint FAIL,详见 lint C15.1 + `templates/analysis-page.md`):`## 方案推演 / 架构分析`(替代 sources 的 `## 重点摘录`,语义对齐"LLM 综合推演")+ `## 关联溯源`(替代 sources 的 `## 我的思考`,语义对齐"引用链 + 推演依据",末尾追加 `> 引用:` 行列源路径,与 frontmatter `sources_used` Set 比对,lint C15.4)+ `## 总结:最有收获的一句话`(一句话 Core Verdict)。**禁止**含 `## 重点摘录` / `## 我的思考`(sources 风格,语义不符)+ `## 摘要` / `## Summary`(沿用 §3.1 §C 纪律)。**落档询问受 gating 控制**(G11 M3,详见 §4.3 + lint C15.3):4 触发(Overview / Comparison / ≥2 子目录源 / ≥200 字)任一命中即问,4 不触发(Exact / <200 字 / <2 源 / "Wiki 未覆盖")任一命中即跳过。字段完整集合与 SCHEMA.md §2.2 一致。 |
-| `comparisons/`           | `comparison`   | ⚠️**frontmatter 锁**(`type: comparison` + `sources:` ≥ 2 条 `[[wikilink]]` 链接到对比的 entity/concept 页 + `last_updated`);**正文自由发挥**,但典型结构:多栏对照表 + 维度差异 + 各自适用场景                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `syntheses/`             | `synthesis`    | ⚠️**frontmatter 锁**(`type: synthesis` + `topic:` + `sources_count` 引用了多少页 + `last_updated`);**正文自由发挥**,但典型结构:主题脉络梳理 + 多观点融合 + 个人判断                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `comparisons/`           | `comparison`   | ⚠️**frontmatter 锁**(`type: comparison` + `sources:` ≥ 2 条 `[[wikilink]]` 链接到对比的 entity/concept 页 + `last_updated`);**正文自由发挥**,但典型结构:多栏对照表 + 维度差异 + 各自适用场景                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `syntheses/`             | `synthesis`    | ⚠️**frontmatter 锁**(`type: synthesis` + `topic:` + `sources_count` 引用了多少页 + `last_updated`);**正文自由发挥**,但典型结构:主题脉络梳理 + 多观点融合 + 个人判断                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 **为什么 `sources/` 和 `analyses/` 要锁死正文而其他 type 不锁**(G11 升级注解):
 
@@ -1093,10 +1112,10 @@ $ /aeps-llm-wiki-lint --by raw_category
 
 **新方案**:`type: source` 页 frontmatter 同时含两个字段,值同源:
 
-| 字段 | 类型 | 谁读 | 作用 |
-|---|---|---|---|
-| `source_file:` | 顶层字符串 | **Obsidian UI**(笔记属性面板) | Obsidian 识别 `source_file` 字段为可点击链接,用户点这个字段值就能跳转 / 打开原始文件 |
-| `sources[0].resource` | OKF §5.1 数组元素 | **OKF reader / lint / 外部工具** | OKF v0.2 spec 必填,机器可读 + 带 id / title / author / last_modified provenance |
+| 字段                    | 类型               | 谁读                                   | 作用                                                                                  |
+| ----------------------- | ------------------ | -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `source_file:`        | 顶层字符串         | **Obsidian UI**(笔记属性面板)    | Obsidian 识别`source_file` 字段为可点击链接,用户点这个字段值就能跳转 / 打开原始文件 |
+| `sources[0].resource` | OKF §5.1 数组元素 | **OKF reader / lint / 外部工具** | OKF v0.2 spec 必填,机器可读 + 带 id / title / author / last_modified provenance       |
 
 **为什么不只留一个**:
 
@@ -1295,25 +1314,25 @@ links:
 
 **`knowledge/` 叶子存储目录清单(权威源)** — 共 **18 个**(init 时全部预建 + .gitkeep):
 
-| 类别 | 子目录(7 + 7 + 4) |
-|---|---|
-| 源页 | `sources/` |
-| 实体 7 子类 | `entities/person/` `entities/organization/` `entities/project/` `entities/product/` `entities/event/` `entities/place/` `entities/other/` |
-| 概念 7 子类 | `concepts/theory/` `concepts/method/` `concepts/field/` `concepts/phenomenon/` `concepts/standard/` `concepts/term/` `concepts/other/` |
-| 分析 / 综合 / 对比 | `analyses/` `syntheses/` `comparisons/` |
+| 类别               | 子目录(7 + 7 + 4)                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 源页               | `sources/`                                                                                                                                            |
+| 实体 7 子类        | `entities/person/` `entities/organization/` `entities/project/` `entities/product/` `entities/event/` `entities/place/` `entities/other/` |
+| 概念 7 子类        | `concepts/theory/` `concepts/method/` `concepts/field/` `concepts/phenomenon/` `concepts/standard/` `concepts/term/` `concepts/other/`    |
+| 分析 / 综合 / 对比 | `analyses/` `syntheses/` `comparisons/`                                                                                                           |
 
 **算术校验**:`1(sources) + 7(entities) + 7(concepts) + 1(analyses) + 1(comparisons) + 1(syntheses) = 18` —— **任何文档引用此数字时一律以本清单为准**(若字典变更 → 改本表 + 同步 §3.2 / §4.1 init 步骤 5)。
 
 **scripts/ sync 策略**(详见 §2.4):
 
-| 情况                                                     | 行为                                                                                  |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| plugin 新版**新增**脚本                            | 拷贝到 user-project`scripts/`                                                       |
-| plugin 新版**修改了**脚本                          | **直接覆盖** user-project 副本(plugin 自带脚本以 plugin 本体为权威,升级时跟随)  |
+| 情况                                                    | 行为                                                                                  |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| plugin 新版**新增**脚本                           | 拷贝到 user-project`scripts/`                                                       |
+| plugin 新版**修改了**脚本                         | **直接覆盖** user-project 副本(plugin 自带脚本以 plugin 本体为权威,升级时跟随)  |
 | 用户本地**新增**了脚本(如 `my-custom-check.py`) | **保留**,plugin 不动                                                            |
-| 用户本地**删了** plugin 自带脚本                   | 不补回,lint 提示"plugin 新版有 X 你本地没有"                                          |
-| `scripts/` 整个目录缺失                                | 重建 + 拷贝 plugin 自带脚本 + 写`_meta.json`                                        |
-| `_meta.json`                                           | **总是覆盖**(只记录 plugin 来源 + 版本 + 时间,无用户价值,plugin 升级时正确反映) |
+| 用户本地**删了** plugin 自带脚本                  | 不补回,lint 提示"plugin 新版有 X 你本地没有"                                          |
+| `scripts/` 整个目录缺失                               | 重建 + 拷贝 plugin 自带脚本 + 写`_meta.json`                                        |
+| `_meta.json`                                          | **总是覆盖**(只记录 plugin 来源 + 版本 + 时间,无用户价值,plugin 升级时正确反映) |
 
 **templates/ sync 策略**(详见 §2.5):同 scripts/ —— plugin 修改的页生成模板(`source-page.md` / `analysis-page.md` / `entity-page.md` / `concept-page.md`)**直接覆盖** user-project 副本(plugin 自带页模板以 plugin 本体为权威,升级时跟随);**全栈字典**(`concept-entities-readme.md` / `tag-template.md`)仍走 append 策略(用户本地可能自定义子类/标签,见 §4.1.1 字典 sync 细则)。
 
@@ -1382,17 +1401,18 @@ Init re-run 完成。sync 摘要:
 
    **G10 — 转换产物落盘**(G10 M1,详见 prd §2.1 G10 + §4.2 M1):
 
-   | 扩展名类 | 处理路径 | 是否生成 `.converted.md` 副本 |
-   |---|---|---|
-   | 纯文本(`.md`/`.txt`/`.json`/...) | 直接读 | ❌ 不生成(native_text: true) |
-   | 走转换(`.pptx`/`.docx`/`.xlsx`/`.pdf`/`.png`/`.jpg`/...) | 转 md 文本 | ✅ **必须生成**,命名 `<basename>.<ext>.converted.md`,与原文件**同一 raw/ 子目录共存** |
+   | 扩展名类                                                             | 处理路径   | 是否生成`.converted.md` 副本                                                                     |
+   | -------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+   | 纯文本(`.md`/`.txt`/`.json`/...)                               | 直接读     | ❌ 不生成(native_text: true)                                                                       |
+   | 走转换(`.pptx`/`.docx`/`.xlsx`/`.pdf`/`.png`/`.jpg`/...) | 转 md 文本 | ✅**必须生成**,命名 `<basename>.<ext>.converted.md`,与原文件**同一 raw/ 子目录共存** |
 
    **入口扩展**:`scripts/convert-to-md.py` 新增 `--emit-to <subdir>` 参数(G10 M4):
+
+
    - **batch 模式**(`--batch temp/inbox-batch.json --emit-to temp/`)—— 把 N 份转换产物统一落到 `<subdir>/<basename>.<ext>.converted.md`(供 §4.2 step3 safe-mv 一次性双文件迁移)
    - **单文件模式保留现有行为**(stdout 输出 md 文本,**不变**;向后兼容纯文本走读 LLM 上下文的场景)
    - 命名规则:**保留原扩展名**(`iso26262.pdf.converted.md`,**不**简化成 `iso26262.converted.md`)—— 视觉关联原文件 + Obsidian wikilink 目标唯一
    - 转换失败 → **不**生成空副本,FAIL 退出
-
 3. **路径来自 `inbox/`** + **G10 双文件迁移**:
 
    - LLM **提议**一个 raw 子目录分类 + 短理由(参考 `<project>/raw/raw-readme.md` 的 15 类清单和边界规则)
@@ -1408,6 +1428,17 @@ Init re-run 完成。sync 摘要:
    - **G10 双文件迁移**(G10 M1):`scripts/safe-mv.py --apply temp/decision-*.json` 时,**同时迁移两个文件**(若 G10 适用):
      - `inbox/<file>` → `raw/<subdir>/<file>`(原文件)
      - `<emit-to>/<file>.converted.md`(纯文本场景下 `<file>.converted.md` 不存在,**跳过** md 副本迁移)
+   - **G10 v0.5.2 PATCH 修复缺陷 2 — 重 ingest 同名文件的覆盖策略**:
+     - **场景**:用户重新跑 ingest`,raw/<subdir>/<file>` 与 `raw/<subdir>/<file>.converted.md` **已存在**(原文件更新 / 转换器升级 / 修正重转)
+     - **SKILL.md 检测 → 强制拍板询问**(即使是用户主动重 ingest):
+       - 拍板选项:`[y]` 覆盖 / `[n]` 跳过(保留旧文件,exit 0)/ `[d]` 仅删除旧副本并跳过 ingest(用户手动处理)
+       - decision JSON 写 `action: "overwrite"` 或 `"skip"` 或 `"delete-only"`
+     - **`safe-mv.py --apply`** 收到 `action: "overwrite"` → **atomic overwrite 行为**:
+       1. **先备份**旧文件到 `temp/raw_backup_<hash>/<file>` + `<file>.converted.md`(Q7 防护,可回滚)
+       2. **再 atomic 替换**两个文件:`os.replace(temp/<file>.converted.md, raw/<subdir>/<file>.converted.md)` + `os.replace(<new>, raw/<subdir>/<file>)`,**保证写盘要么全部成功要么全失败**
+       3. **覆盖范围**:仅 `<file>` + `<file>.converted.md` 两个目标,**不动**同 subdir 其他文件;**不动** frontmatter `updated` 字段 + 文件 mtime(Q7 死循环防护延续)
+       4. log.md 追加 `**Migration**(overwrite): inbox/<file> → raw/<subdir>/<file>` + `**Converted**(overwrite): raw/<subdir>/<file>.converted.md (via <converter>)` + 备份路径
+     - **不开"重转 skill"**:不对历史所有 .converted.md 提供批量重转入口(对齐 v0.4.0 G10 拍板);用户需批量时自己写脚本 loop 此流程
    - mv 文件后从 inbox 删除
    - 在 `knowledge/log.md` 记两条(G10 增量):
      - `**Migration**: inbox/<file> → raw/<subdir>/<file>`
@@ -1434,12 +1465,12 @@ Init re-run 完成。sync 摘要:
 
 **G10 源页 frontmatter 增字段**(G10 M2,详见 prd §4.2 M2):
 
-| 字段 | 类型 | 含义 | 例 |
-|---|---|---|---|
-| `format` | string | 原文件扩展名(OKF 风格,小写) | `pdf` / `pptx` / `md` |
-| `converter` | string \| null | 实际走过的转换器;`null` 表示纯文本 | `anydoc` / `paddleocr` / `claude-native` / `null` |
-| `native_text` | bool | 是否原生纯文本 | `false`(走过转换) / `true`(纯文本) |
-| `converted_path` | string \| null | md 副本相对 raw/ 的路径;`null` 表示纯文本 | `raw/06_功能安全/iso26262.pdf.converted.md` / `null` |
+| 字段               | 类型          | 含义                                        | 例                                                        |
+| ------------------ | ------------- | ------------------------------------------- | --------------------------------------------------------- |
+| `format`         | string        | 原文件扩展名(OKF 风格,小写)                 | `pdf` / `pptx` / `md`                               |
+| `converter`      | string\| null | 实际走过的转换器;`null` 表示纯文本        | `anydoc` / `paddleocr` / `claude-native` / `null` |
+| `native_text`    | bool          | 是否原生纯文本                              | `false`(走过转换) / `true`(纯文本)                    |
+| `converted_path` | string\| null | md 副本相对 raw/ 的路径;`null` 表示纯文本 | `raw/06_功能安全/iso26262.pdf.converted.md` / `null`  |
 
 - `source_file:` 与 `sources[].resource` **仍指原文件**(不变,与 v0.2 Q9 兼容)
 - `converted_path` 与 `links:` 指 md 副本(供 query 阶段 LLM 直接读)
@@ -1527,28 +1558,29 @@ Init re-run 完成。sync 摘要:
 #### 写权矩阵(并发安全硬约束,Q11)
 
 **问题根源**:多个 subagent 并发处理 inbox 多份文档,LLM 抽取的 entity / concept 经常有重叠(如"ISO 26262"和"功能安全"两个 subagent 都可能抽到)。若允许 subagent 直接写 `knowledge/`,会触发竞争条件:
+
 - index.md / glossary.md / log.md / overview.md 这类全局索引被多 subagent 并发改写 → 丢失条目 / 顺序错乱
 - 同名 entity/concept 被多 subagent 重复建页 → 漂移目录 / 重复内容
 - inbox mv 操作并发触发 → 文件名冲突 / raw/ 不一致
 
 **硬约束(写权矩阵)**:
 
-| 路径/操作 | 阶段 1 batch | 阶段 2 subagent | 阶段 3 主 agent |
-|---|---|---|---|
-| 读 `inbox/<file>` | ✅(convert-to-md.py 读) | ❌(只读 temp/<basename>.md) | ❌ |
-| 写 `temp/<basename>.md` | ✅ | ❌ | ❌ |
-| 写 `temp/<id>-proposal.json` | ❌ | ✅(**唯一**允许 subagent 写的路径) | ❌ |
-| 读 `temp/<id>-proposal.json` | ❌ | ❌(自己那份写完即退) | ✅ |
-| 读 `raw/`(字典比对) | ❌ | ✅(只读,做命名飘检查) | ✅ |
-| **写** `raw/<subdir>/<file>`(mv) | ❌ | ❌(**绝对禁**) | ✅(串行,拍板后) |
-| 写 `knowledge/sources/<basename>.md` | ❌ | ❌(**绝对禁**) | ✅ |
-| 写 `knowledge/entities/<子类>/*.md` | ❌ | ❌(**绝对禁**) | ✅ |
-| 写 `knowledge/concepts/<子类>/*.md` | ❌ | ❌(**绝对禁**) | ✅ |
-| 写 `knowledge/comparisons/*.md` | ❌ | ❌(**绝对禁**) | ✅(用户拍板后) |
-| **改** `knowledge/index.md`(全局索引) | ❌ | ❌(**绝对禁**) | ✅(最后一次合并写) |
-| **改** `knowledge/glossary.md`(常驻,append-only) | ❌ | ❌(**绝对禁**) | ✅(append 收集到的术语) |
-| **改** `knowledge/log.md`(append-only) | ❌ | ❌(**绝对禁**) | ✅(追加所有迁移条目) |
-| **改** `knowledge/overview.md`(大图) | ❌ | ❌(**绝对禁**) | ✅(总结后整体改写) |
+| 路径/操作                                                | 阶段 1 batch            | 阶段 2 subagent                          | 阶段 3 主 agent         |
+| -------------------------------------------------------- | ----------------------- | ---------------------------------------- | ----------------------- |
+| 读`inbox/<file>`                                       | ✅(convert-to-md.py 读) | ❌(只读 temp/<basename></basename>.md)   | ❌                      |
+| 写`temp/<basename>.md`                                 | ✅                      | ❌                                       | ❌                      |
+| 写`temp/<id>-proposal.json`                            | ❌                      | ✅(**唯一**允许 subagent 写的路径) | ❌                      |
+| 读`temp/<id>-proposal.json`                            | ❌                      | ❌(自己那份写完即退)                     | ✅                      |
+| 读`raw/`(字典比对)                                     | ❌                      | ✅(只读,做命名飘检查)                    | ✅                      |
+| **写** `raw/<subdir>/<file>`(mv)                 | ❌                      | ❌(**绝对禁**)                     | ✅(串行,拍板后)         |
+| 写`knowledge/sources/<basename>.md`                    | ❌                      | ❌(**绝对禁**)                     | ✅                      |
+| 写`knowledge/entities/<子类>/*.md`                     | ❌                      | ❌(**绝对禁**)                     | ✅                      |
+| 写`knowledge/concepts/<子类>/*.md`                     | ❌                      | ❌(**绝对禁**)                     | ✅                      |
+| 写`knowledge/comparisons/*.md`                         | ❌                      | ❌(**绝对禁**)                     | ✅(用户拍板后)          |
+| **改** `knowledge/index.md`(全局索引)            | ❌                      | ❌(**绝对禁**)                     | ✅(最后一次合并写)      |
+| **改** `knowledge/glossary.md`(常驻,append-only) | ❌                      | ❌(**绝对禁**)                     | ✅(append 收集到的术语) |
+| **改** `knowledge/log.md`(append-only)           | ❌                      | ❌(**绝对禁**)                     | ✅(追加所有迁移条目)    |
+| **改** `knowledge/overview.md`(大图)             | ❌                      | ❌(**绝对禁**)                     | ✅(总结后整体改写)      |
 
 **子代理 prompt 硬约束**(M3 SKILL.md 落地时嵌入 subagent prompt):
 
@@ -1652,16 +1684,16 @@ Init re-run 完成。sync 摘要:
 
 **写权矩阵总览**(详见上面"写权矩阵"段):
 
-| 路径 / 操作 | 阶段 1 batch | 阶段 2 subagent | 阶段 3 主 agent |
-|---|---|---|---|
-| `inbox/<f>` | 只读 | 只读 | 串行 mv |
-| `temp/<basename>.md` | 写 | 只读 | 只读 |
-| `temp/proposal-<id>.json` | — | 写(独占) | 只读 + 合并 |
-| `temp/decision-<hash>.json` | — | — | 写 |
-| `raw/<subdir>/` | 只读 | 只读 | mkdir + 串行 mv |
-| `knowledge/sources/` | 只读 | **严禁写** | 串行写 |
-| `knowledge/entities/` `concepts/` | 只读 | **严禁写** | 串行写 |
-| `knowledge/log.md` `glossary.md` `index.md` `overview.md` | 只读 | **严禁写** | 最后一步写 |
+| 路径 / 操作                                                       | 阶段 1 batch | 阶段 2 subagent  | 阶段 3 主 agent |
+| ----------------------------------------------------------------- | ------------ | ---------------- | --------------- |
+| `inbox/<f>`                                                     | 只读         | 只读             | 串行 mv         |
+| `temp/<basename>.md`                                            | 写           | 只读             | 只读            |
+| `temp/proposal-<id>.json`                                       | —           | 写(独占)         | 只读 + 合并     |
+| `temp/decision-<hash>.json`                                     | —           | —               | 写              |
+| `raw/<subdir>/`                                                 | 只读         | 只读             | mkdir + 串行 mv |
+| `knowledge/sources/`                                            | 只读         | **严禁写** | 串行写          |
+| `knowledge/entities/` `concepts/`                             | 只读         | **严禁写** | 串行写          |
+| `knowledge/log.md` `glossary.md` `index.md` `overview.md` | 只读         | **严禁写** | 最后一步写      |
 
 **并发安全保证**:
 
@@ -1765,13 +1797,23 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
 **判定算法**(伪代码,SKILL.md 提示词驱动,scripts 层面无强制实现):
 
 ```python
-# G11 v0.5.0 新增(详见 prd §4.3 G11 M3)
+# G11 v0.5.0 新增,v0.5.2 PATCH 扩展 ambiguous 档(修复缺陷 1)
 def should_prompt_save(intent, answer_length, sources_by_subdir, answer_body):
-    """落档询问 gating 判定。返回 (bool, reason)。"""
+    """落档询问 gating 判定。返回 (bool, reason)。
+
+    v0.5.2 PATCH: intent 显式分 3 档
+    - "exact": 纯事实查证(例 "S32G PCIe 几个接口")
+    - "ambiguous": 语义模糊(例 "这篇芯片文档和上一篇有什么异同?" 含对比倾向词 + 指代模糊)
+    - 其他("overview" / "comparison" / "other"): 走触发路径
+    """
 
     # --- 不触发条件(任一命中即跳过) ---
     if intent == "exact":
         return False, "intent=exact(纯事实查证)"
+    if intent == "ambiguous":
+        # v0.5.2 PATCH: 语义模糊时默认低扰动,fallback 不触发
+        # 路径 C 触发词清单(vs/对比/区别/异同/优缺点/X vs Y)不覆盖此 fallback
+        return False, "intent=ambiguous(语义模糊,fallback 低扰动 skip)"
     if answer_length < 200:
         return False, f"answer_length={answer_length}<200(短答)"
     if len(sources_by_subdir) < 2:
@@ -1789,7 +1831,7 @@ def should_prompt_save(intent, answer_length, sources_by_subdir, answer_body):
     if answer_length >= 200:
         return True, f"answer_length={answer_length}≥200(深度回答)"
 
-    # 兜底:不命中 → 不问
+    # 兜底:不命中 → 不问(覆盖 intent=other 的场景)
     return False, "fallthrough(不命中触发)"
 ```
 
@@ -1803,7 +1845,7 @@ def should_prompt_save(intent, answer_length, sources_by_subdir, answer_body):
 
 **SKILL.md 输出契约**:
 
-- **触发**:`❓ 本次回答命中 ≥2 个 Wiki 源、深度 ≥200 字,符合 analysis 落档门槛。是否落档为 \`knowledge/analyses/<时间戳>-<slug>.md\`?[Y/n]`
+- **触发**:`❓ 本次回答命中 ≥2 个 Wiki 源、深度 ≥200 字,符合 analysis 落档门槛。是否落档为 \`knowledge/analyses/<时间戳>-<slug></slug>.md\`?[Y/n]`
 - **不触发**:`💡 本次回答为单点查证 / 短答 / Wiki 未覆盖,跳过落档询问。`
 - lint C15.3 校验:`grep` query 输出末尾必须含 `❓` 或 `💡` 标记,二者必居其一
 
@@ -2006,6 +2048,7 @@ ingest skill 无参数 —— 扫 `inbox/` 全部文件。`--raw-subdir=<name>` 
 #### §4.2.x ingest 提案 / 拍板 / 应用 三段落档(audit trail,Q10)
 
 **目的**:ingest 涉及 LLM 提议 → 用户拍板 → 脚本机械执行三阶段,需要**显式中间文件**作为 audit trail,便于:
+
 - 拍板后 `log.md` 引用 plan 文件追溯决策(谁拍的 / 何时拍 / 改了啥)
 - 多 subagent 并发 ingest(§4.2.1)各产 proposal → 主 agent 阶段 3 仲裁 → 应用,需共享 plan 介质
 - 用户事后可读 `temp/decision-<hash>.json`(拍板结果) / `temp/proposal-<doc-id>.json`(LLM 提议)复核决策
@@ -2097,6 +2140,7 @@ python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.json
 ```
 
 **scripts 不发起任何 prompt**(NFR-1 + §2.4.1 硬契约)。SKILL.md 负责:
+
 - 把 proposal JSON 渲染为人类可读文本在 Claude 对话展示(LLM 自己解释,scripts 不参与)
 - 接收用户回复(yes/no/改建议)
 - 把结果按 decision schema 写入 decision JSON 文件
@@ -2138,17 +2182,17 @@ python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.json
 
 ### 5.4 异常处理
 
-| 场景                                      | 行为                                       |
-| ----------------------------------------- | ------------------------------------------ |
-| inbox 文件已迁移过(inbox 不存在)          | 报错,提示文件位置                          |
-| 用户拍板的子目录名含非法字符(空格、`/`) | 报错,要求重命名                            |
-| 同一文件已被 ingest 过(sources/ 已有名)   | 警告 + 问用户是覆盖还是新版本              |
-| LLM 抽取生成 0 个概念页                   | 不报错,只生成 source 页 + 警告"没抽到概念" |
-| frontmatter schema 校验失败               | 不写盘,要求 LLM 重写 frontmatter           |
-| **G11** `analyses/*.md` 用 sources 风格 3 节骨架(`## 重点摘录` + `## 我的思考`)| FAIL,提示跑 `migrate-analysis-skeleton.py`(详见 §4.3.2) |
-| **G11** `analyses/*.md` 缺 `sources_used` 或路径不存在 | FAIL(确定性结构修复:`--fix` 自动从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段引用路径推断;Q7 死循环防护:重写不动 `updated` + mtime)|
-| **G11** `analyses/*.md` `## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` Set 比对不一致 | WARN(允许 LLM 后期补充,但 lint 给出 diff;Q7 不动 updated + mtime)|
-| **G11** query skill 输出末尾既无 `❓` 也无 `💡` 标记 | FAIL(确定性结构修复:report-only,让 SKILL.md 重生成输出) |
+| 场景                                                                                                  | 行为                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| inbox 文件已迁移过(inbox 不存在)                                                                      | 报错,提示文件位置                                                                                                                             |
+| 用户拍板的子目录名含非法字符(空格、`/`)                                                             | 报错,要求重命名                                                                                                                               |
+| 同一文件已被 ingest 过(sources/ 已有名)                                                               | 警告 + 问用户是覆盖还是新版本                                                                                                                 |
+| LLM 抽取生成 0 个概念页                                                                               | 不报错,只生成 source 页 + 警告"没抽到概念"                                                                                                    |
+| frontmatter schema 校验失败                                                                           | 不写盘,要求 LLM 重写 frontmatter                                                                                                              |
+| **G11** `analyses/*.md` 用 sources 风格 3 节骨架(`## 重点摘录` + `## 我的思考`)           | FAIL,提示跑`migrate-analysis-skeleton.py`(详见 §4.3.2)                                                                                     |
+| **G11** `analyses/*.md` 缺 `sources_used` 或路径不存在                                      | FAIL(确定性结构修复:`--fix` 自动从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段引用路径推断;Q7 死循环防护:重写不动 `updated` + mtime) |
+| **G11** `analyses/*.md` `## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` Set 比对不一致 | WARN(允许 LLM 后期补充,但 lint 给出 diff;Q7 不动 updated + mtime)                                                                             |
+| **G11** query skill 输出末尾既无 `❓` 也无 `💡` 标记                                        | FAIL(确定性结构修复:report-only,让 SKILL.md 重生成输出)                                                                                       |
 
 #### Lint C15 详解(G11 v0.5.0 新增,详见 prd §4.3 + §3.6 + templates/analysis-page.md)
 
@@ -2187,22 +2231,24 @@ python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.json
 `--fix` 是**批量写文件**的操作,任一中断都会导致 frontmatter 已更新 / 正文未更新 / 索引未同步 的不一致状态。安全锁定义 3 条硬约束 —— **不允许 plugin 写作者自行取舍**:
 
 1. **默认 dry-run(`--fix` ≠ `--apply`)**
+
    - `python3 ./scripts/lint.py --fix` 默认**只输出修复提案 + diff**,**不写盘**
    - 真正写盘必须显式 `python3 ./scripts/lint.py --fix --apply`(双开关,**任何单开关都不触发磁盘写入**)
    - 提案报告包含每个文件的预期改动(diff 形式)+ 整体图结构校验摘要
-
 2. **事务原子写入**
+
    - 全部 frontmatter 改写**先在内存中**预先生成(N 个文件的 in-memory 模型),**禁止**边扫边写
    - 内存模型生成完后,跑整体图结构预检 —— 孤立节点(无任何出链/入链)、循环引用(`A → B → A`)、links 反向链接不一致;任一校验失败 → **全部回滚**,不写盘
    - 校验通过后,**一次性原子写入**(用临时文件 `mv` / `os.replace` 替换,确保写盘要么全部成功、要么全部失败;**禁止** `for f in files: f.write_text()` 逐文件写)
-
 3. **Git 脏状态前置检查**
+
    - 批量写入前,跑 `git rev-parse --is-inside-work-tree` 确认在 git 仓库;再跑 `git status --porcelain` 检脏状态
    - **不在 git 仓库** → 不阻断(用户可能用 Obsidian Sync / 自管版本控制,不强求 git),仅在报告中注明"未检测到 git,无法回滚兜底"
    - **在 git 仓库且有脏状态**(未提交改动 / 未跟踪文件)→ **直接退出**,提示"工作区有未提交改动,请先 commit 或 stash 后再跑 --apply";**仅**显式传 `--allow-dirty` 才放行(并在报告中记录"已忽略脏状态检查,变更不可回滚")
    - **在 git 仓库且干净** → 写入前自动 `git stash push -u -m "lint-fix-pre-snapshot"` 创快照,写入后提示用户"已创建 stash,可手动 `git stash pop` 回滚"
 
 **安全锁与 Q7 / Normalizer 的关系**:
+
 - Q7(`§3.6.2` 死循环防护)管"单个文件写入无副作用":不动 `updated`、保留 mtime、Set 比对
 - Normalizer(`§3.6.2`)管"统一解析 → 标准键",避免 drift 假阳性
 - **安全锁管"批量写入不破坏整体一致性"**:dry-run + 事务 + git 兜底
@@ -2356,6 +2402,40 @@ git ls-remote --tags --refs origin \
 ---
 
 ## 9. Change History
+
+### v0.5.2(2026-09-03) — Round 12 PATCH 修复 2 个 PRD 缺陷(Intent ambiguous fallback + G10 atomic overwrite)
+
+**§4.3.2 `should_prompt_save()` 伪代码扩展**(修复缺陷 1):intent 显式分 3 档:
+
+- `exact`:纯事实查证 → 不触发
+- `ambiguous`:语义模糊 → 不触发(v0.5.2 PATCH 新增,fallback 低扰动;**路径 C 触发词不覆盖此 fallback**,冲突时 ambiguous 胜)
+- `{overview, comparison, other}`:走触发路径(命中任一触发条件即问)
+
+**关键设计点**(v0.5.2 增补):
+
+- ambiguous 是"早返回"分支,优先级 > 不触发条件其他项(sources<2 / answer_length<200 / Wiki 未覆盖),先判 ambiguous 再判其他
+- 例:"这篇芯片文档和上一篇有什么异同?" —— 路径 C 触发词命中"异同",但 LLM 阶段3 推断 intent=ambiguous("上一篇"指代模糊)→ 走 ambiguous 跳过,**不**被路径 C 词命中覆盖
+- 例:intent=other(无法归入 overview/comparison/exact/ambiguous)+ 命中 2 子目录源 + ≥200 字 → 走触发条件(sources_count_ge:2 / answer_length_ge:200)→ 触发 ❓
+
+**§4.2 step 3 G10 重 ingest atomic overwrite**(修复缺陷 2):
+
+- **场景**:用户重新跑 ingest,`raw/<subdir>/<file>` + `<file>.converted.md` 已存在
+- **SKILL.md 强制拍板**:`[y]` 覆盖 / `[n]` 跳过(保留旧,exit 0)/ `[d]` 仅删旧副本
+- **`safe-mv.py --apply` action: "overwrite" 行为**:备份到 `temp/raw_backup_<hash>/` → `os.replace()` 一次性替换两文件 → 覆盖范围仅 `<file>` + `<file>.converted.md` → **不动**同 subdir 其他文件 + frontmatter `updated` + 文件 mtime(Q7 死循环防护延续)
+- **不开"重转 skill"**(对齐 v0.4.0 G10 拍板):不对历史所有 .converted.md 提供批量重转入口
+
+**不动**:
+
+- lint C15(analysis 骨架 / sources_used / gating):已冻结
+- frontmatter schema + extensions.plugin 白名单:无新字段
+- §3.6.2 `links:` 镜像同步机制(Q6/Q7):已冻结
+- G10 转换副本入 raw + 源页 link 指副本(原版不动)
+- v0.3.2 Normalizer + Lint --fix 安全锁:已冻结
+- Q11 subagent 写权矩阵:已冻结
+- §4.3.1 qmd 阈值常量:已冻结
+- v0.5.1 路径 C / 跳 3 权重 / 跳 4 累积触发:已冻结
+
+**兼容性**:**v0.5.2 PATCH bump**(MINOR bump 内小补丁)。本次**不引入**新 frontmatter 字段 / 不新正文骨架 / 不新 scripts 入口;只扩 intent 档位 + 扩 safe-mv.py --apply decision JSON `action` 字段(新增 `"overwrite"` 值)。OKF v0.2 schema 无 breaking change;既有 v0.5.1 wiki 升级到 v0.5.2 plugin **无需**重跑 init,无需跑迁移脚本,SKILL.md 内部行为升级即可。
 
 ### v0.5.1(2026-09-03) — Round 11 PATCH query skill 路径 C + 跳 3 权重降权 + 跳 4 累积触发显式化
 
