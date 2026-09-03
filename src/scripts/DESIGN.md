@@ -525,6 +525,26 @@ DESIGN.md 内部一致性自检:
 
 ## 9. Change History
 
+### v0.5.5(2026-09-03)— 阶段 C-1.4 lint 组落地
+
+- **新增 3 个 .py 顶层**:
+  - `lint.py`(1215 行 / ~38 KB)— 11 类检查主入口(orphan / contradiction / stale / name_drift / missing_link / frontmatter / links_mirror / raw_category / skeleton / comparison / synthesis);`--fix --apply` 双开关;事务原子写盘;git 脏检查 + `--allow-dirty` 放行;`--by {raw_category,type,maturity,docform}` 四轴 group by;Q7 atomic_write_preserving_mtime 全程保留 mtime
+  - `lint-orphans.py`(288 行 / ~8 KB)— 扫 `knowledge/**/*.md` 找孤儿;inbound_map 反向索引(frontmatter `sources[]` + `sources_used[]` + 正文 `[[wikilink]]` + markdown link);豁免名单 = `index.md / overview.md / glossary.md / log.md / SCHEMA.md`;输出 `{orphans:[{path, has_no_inbound_link, exempt, reason}], total, scanned}`
+  - `okf-lint.py`(356 行 / ~11 KB)— OKF v0.2 合规 + frontmatter `links:` 镜像同步;Set 比对(顺序无关);`--apply` 走 Q7 4 步流程(atime + mtime 双还原);不动 frontmatter `updated` 字段;默认 dry-run;`_replace_links_block` 容忍 flow / block / 缺失 3 种形态
+- **新增 tests/test_lint_group.py**(921 行)— **32 个测试用例**,覆盖:11 类检查触发 / 陈旧判定优先级(Q7 / deprecated 豁免)/ Q5 命名飘 Levenshtein ≤ 2 / sources/analyses 3 H2 骨架 / `## 摘要` 残留 / comparison ≥ 2 / synthesis < 3 WARN / 双开关写盘 / 单 `--fix` 不写盘 / git 脏阻断 / `--allow-dirty` 放行 / 事务原子回滚 / `--by raw_category/type` group by / **LintFix** log 前缀 / Q7 atime+mtime 双还原 / 孤儿豁免 / 孤儿入链 / Set 比对 / alias 归一 / anchor 归一 / path prefix 归一 / links 优先级 / ghost / missing / 无 drift / apply 幂等
+- **pytest 结果**:98 旧 + 32 新 + 8 no_daemon 扩展 = **138 passed in 29.85s**(0 failed)
+- **修改 test_no_daemon.py**:参数化列表新增 `lint.py` / `lint-orphans.py` / `okf-lint.py` + 阶段 C-1.3 query 组 5 个 .py
+- **DESIGN.md 落地注脚**:
+  - **lint.py 事务原子**:`_apply_fix()` 内部走 `atomic_write_preserving_mtime`(Q7 4 步流程),单文件级写盘不在外层批量拼接 — 配合 `git_dirty_check` 在 `--fix --apply` 入口处先做脏检查,阻断时整体 skip(后续文件不写盘);stub 化测试 `_apply_fix` 抛错验证事务失败 → `skipped` 列表非空、文件 mtime 不变
+  - **lint.py 双开关**:`args.fix and args.apply` 双开关才走 git 脏检查 + 写盘;单 `--fix` 时所有 issues 仍 emit 到 stdout 但 `written=[]` + `report_only=true` + `fix_proposed=true`
+  - **lint-orphans.py 豁免名单**:`EXEMPT_PATHS = {index, overview, glossary, log, SCHEMA}.md` 5 项 — log.md 是 append-only 变更日志,SCHEMA.md 是 plugin 维护操作手册,这两类不需要入链接
+  - **okf-lint.py Set 比对顺序无关**:`scanned ↔ current` 用 `set` 差集算 `added`/`removed`;输出列表用 `sorted()` 保证 deterministic;`reordered` 标志仅在 set 相等但 list 顺序不同时触发,便于人读 frontmatter diff
+  - **okf-lint.py Q7 atime+mtime 双还原**:`atomic_write_preserving_mtime` 在 `okf-lint.py` 的 `_apply` 路径被复用;测试 `test_okf_lint_apply_writes_atomic_preserve_mtime` 断言 `st_mtime` + `st_atime` 两次 `os.stat()` 完全相等
+  - **lint.py 陈旧判定**:fallback 优先级严格按 lint SKILL.md §1.3(stale_after 显式 > updated > 180 天 + log.md 无提及 > status: deprecated 豁免);`status: draft` 不豁免,符合 design
+  - **lint.py name_drift 逻辑修正**:派生 `raw_category` 即使在 `raw_subdirs` 中,只要与某 subdir Levenshtein ≤ 2 → 触发(原 `_list_raw_subdirs` 内 cat 自身会被 `cat in raw_subdirs` 短路跳过,本次 PATCH 改为 `existing == cat: continue`)
+- **不 bump 版本号**:仍是 v0.5.5 MINOR 修订
+- **commit**:不 bump v0.5.5,MINOR 修订;commit 前询问用户是否更新版本号
+
 ### v0.5.5(2026-09-03)— 阶段 C-1.3 query 组落地
 
 - **新增 5 个 .py 顶层**:

@@ -66,6 +66,11 @@ def _target_scripts(scripts_dir: Path) -> list[Path]:
         # 阶段 C-1.2.1 ingest 组骨架(6 个 .py,2026-09-03 落地)
         "append-log.py", "ensure-dirs.py", "convert-to-md.py",
         "safe-mv.py", "validate-frontmatter.py", "validate-proposal.py",
+        # 阶段 C-1.3 query 组(9 个 .py,2026-09-03 落地)
+        "check-qmd.py", "generate-analysis-page.py",
+        "lint-query-output.py", "migrate-analysis-skeleton.py", "okf-reader.py",
+        # 阶段 C-1.4 lint 组(3 个 .py,2026-09-03 落地)
+        "lint.py", "lint-orphans.py", "okf-lint.py",
     ],
 )
 def test_no_input_calls_in_scripts(scripts_dir: Path, script_name: str) -> None:
