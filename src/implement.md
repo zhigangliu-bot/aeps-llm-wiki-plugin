@@ -399,6 +399,63 @@ plugin 上架资产                          ❌ 待新建
   - 包含 `pytest`(单测时需要;运行时不需要)
 - [ ] 不强制 `qmd`(可选依赖,对应 §4.3 wiki 规模较大时降级),但若有 `qmd` 引用应在 README.md 单独标注"可选,`npm install -g @tobilu/qmd`"
 
+#### C15:G11 query 落档分析专属骨架 + sources_used 必填 + gating(详见 prd §4.3 + design §3.6 + §4.3.2 + §5.4 C15)
+
+- [ ] **C15.1 `tests/test_analysis_dedicated_skeleton.py`** —— M1 结构断层修复:
+  - [ ] fixture 1:正确骨架(3 节齐全 `## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`,不含 sources 风格 / `## 摘要` / `## Summary`)→ lint C15.1 PASS
+  - [ ] fixture 2:缺 `## 关联溯源` → FAIL,lint 报告 `missing H2: ## 关联溯源`
+  - [ ] fixture 3:含 `## 重点摘录`(sources 风格)→ FAIL,lint 报告 `forbidden H2: ## 重点摘录 (sources-style, use ## 方案推演 / 架构分析)`
+  - [ ] fixture 4:含 `## 我的思考`(sources 风格)→ FAIL,lint 报告 `forbidden H2: ## 我的思考`
+  - [ ] fixture 5:含 `## 摘要` → FAIL,lint 报告 `forbidden H2: ## 摘要 (use frontmatter summary)`
+  - [ ] fixture 6:含 `## Summary` → FAIL,lint 报告 `forbidden H2: ## Summary`
+  - [ ] fixture 7:`--fix --apply` 跑 fixture 2 → 自动追加占位 H2(空内容),`log.md` 含 `**LintFix**: lint-C15.1 on analyses/<file>.md — added placeholder H2`
+- [ ] **C15.2 `tests/test_analysis_sources_used_required.py`** —— M2 溯源丢失修复:
+  - [ ] fixture 1:`sources_used` 含 3 条已存在路径(`sources/foo.md` / `entities/person/bar.md` / `syntheses/topic.md`,fixture 预建)→ PASS
+  - [ ] fixture 2:`sources_used` 字段缺失 → FAIL,lint 报告 `missing required field: sources_used`
+  - [ ] fixture 3:`sources_used` 空数组 → FAIL,lint 报告 `sources_used must be non-empty array`
+  - [ ] fixture 4:`sources_used` 含 1 条不存在的路径 `sources/missing.md` → FAIL,lint 报告 `path not found: sources/missing.md`
+  - [ ] fixture 5:`sources_used` 含 `https://...` 或 `raw/...`(非 wiki 路径)→ FAIL,lint 报告 `path must be relative to knowledge/, got: <path>`
+  - [ ] fixture 6:`--fix --apply` 跑 fixture 4(自动从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段引用路径派生)→ `sources_used` 自动补正确路径,Q7 死循环防护断言:`updated` 字段值不变 + 文件 mtime 不变(stat 前后对比)
+  - [ ] fixture 7:`--fix --apply` 跑 fixture 2 → `sources_used` 自动派生后,**断言** `updated` 字段值与 mtime 均未变
+  - [ ] fixture 8:派生来源严格性断言:故意把 `## 关联溯源` 段正文里出现 `[[sources/unrelated.md]]` 但 `> 引用:` 行没有 → `--fix --apply` 后,**断言** `sources_used` 不含 `sources/unrelated.md`(禁止全文 grep 抽)
+- [ ] **C15.3 `tests/test_query_gating_logic.py`** —— M3 Over-prompting 修复:
+  - [ ] fixture 1:query 走 intent=overview(跨领域综述)+ 命中 ≥ 2 子目录源 + 回答 350 字 → query 输出末尾必须含 `❓` 触发 prompt + 字面 `是否落档为 analyses/<...>.md ?[Y/n]`
+  - [ ] fixture 2:query 走 intent=comparison + 命中 ≥ 2 子目录源 + 回答 280 字 → 末尾必须含 `❓` 触发 prompt
+  - [ ] fixture 3:query 走 intent=exact(单点查证)+ 命中 1 子目录 + 回答 80 字 → 末尾必须含 `💡` 跳过标记 + 字面 `跳过落档询问`
+  - [ ] fixture 4:query 回答含 `Wiki 未覆盖此问题` → 末尾必须含 `💡` 跳过标记
+  - [ ] fixture 5:query 走 intent=overview + 回答 50 字(< 200) → 末尾必须含 `💡` 跳过标记(不触发优先级 > 触发)
+  - [ ] fixture 6:query 输出末尾既无 `❓` 也无 `💡` → lint C15.3 FAIL,report-only(语义级)
+  - [ ] fixture 7:e2e 端到端:模拟同一 wiki 跑三种 query 类型(Exact 单点 / Overview 多源 / Comparison 对比),**断言** 落档询问输出与 gating 规则一致(Exact 无 prompt / Overview 必有 / Comparison 必有)
+- [ ] **C15.4 `tests/test_analysis_sources_used_mirror.py`** —— `## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` Set 比对:
+  - [ ] fixture 1:一致(>` 引用:` 行 3 条 + `sources_used` 3 条完全相同)→ WARN 不触发
+  - [ ] fixture 2:`sources_used` 多 1 条(`sources/extra.md`,fixture 预建) → WARN,lint diff 输出 `sources_used 中有但 > 引用行没有 = [sources/extra.md]`
+  - [ ] fixture 3:`> 引用:` 行多 1 条(`sources/extra.md`) → WARN,lint diff 输出 `> 引用行中有但 sources_used 没有 = [sources/extra.md]`
+  - [ ] fixture 4:`--fix --apply` 跑 fixture 3 → 自动把 `sources/extra.md` 补进 `sources_used`,**断言** `updated` 字段值与文件 mtime 均未变(Q7 死循环防护)
+
+#### C15 派生脚本(必备)
+
+- [ ] `scripts/migrate-analysis-skeleton.py` —— G11 v0.5.0 升级迁移脚本:
+  - 入口:`python ./scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0 [--project-dir <path>] [--dry-run]`
+  - 扫描 `knowledge/analyses/*.md`,识别旧骨架(`## 重点摘录` + `## 我的思考`)
+  - 映射规则:
+    - `## 重点摘录` → `## 方案推演 / 架构分析`(保留正文)
+    - `## 我的思考` → `## 关联溯源`(保留正文;**若**正文末尾已有 `> 引用:` 行,保留;**否则**自动从正文 wikilink 抽取生成 `> 引用:` 行)
+    - `## 总结:最有收获的一句话` → 保留(同名 G11 兼容)
+  - frontmatter:
+    - 补 `sources_used`(从正文 wikilink 抽取 + `## 关联溯源` 末尾 `> 引用:` 行,推断去重)
+    - 补 `answer_to`(若缺失,从 summary 首行 `**问题**: ` 前缀反向提取;若仍缺 → 抛错)
+    - 补 `generated_by` = `agent: producer/aeps-llm-wiki-plugin/<version>`
+  - 写入策略(Q7 死循环防护):**不动 `updated` 字段 + 文件 mtime**(即使迁移内容变了也保留原值;若用户想刷 `updated`,手动)
+  - 原子写入:用临时文件 + `os.replace`(同 lint --fix 安全锁)
+  - git 脏状态检查:同 lint --fix
+  - 干跑:`--dry-run` 输出每个文件的预期改动(diff),不写盘
+  - log:`log.md` 追加 `**Migration**: analyse-skeleton <basename>.md from v0.4.0 to v0.5.0 — sources_used auto-filled (n=<k> paths)`
+  - **测试**:`tests/test_migrate_analysis_skeleton.py`:
+    - fixture 1:旧骨架(`## 重点摘录` + `## 我的思考` + `## 总结:...`) → 迁移后新骨架(3 节齐全 + sources_used + answer_to + generated_by + `updated` 不变 + mtime 不变)
+    - fixture 2:无 `## 我的思考`(v0.4.0 异常页) → 迁移时**仅**追加占位 `## 关联溯源` + 派生 sources_used,lint C15.1 后续校验 PASS
+    - fixture 3:`--dry-run` 模式不写盘(原文件 mtime 不变,内容不变)
+    - fixture 4:迁移后跑 `lint C15.1-C15.4` 全部 PASS
+
 ### 手动验证清单(自动测试难以覆盖的项目)
 
 > **范围**:COMPAT-3(SCHEMA.md zero-shot)+ hooks `SessionStart` 行为。两者**难自动化**,走"LLM 阅读 + 人工评估"或"本地手动跑 + 现象记录"路径。CLAUDE.md "写完代码必须要做你所能做的测试"硬约束下,作为自动测试的**降级方案**记录在案,M5 自测阶段逐项跑一遍。
@@ -616,6 +673,33 @@ git tag -l "v*" | sort -V | tail -5
 - scripts/ 严禁交互硬契约(NFR-1 加严,本轮 stdin 全禁):v0.3.1 PATCH 已冻结
 
 **兼容性**:**v0.3.2 PATCH bump**。本次是**新增设计契约**(Normalizer + 安全锁两条全新约束),不是已有规则的加严;OKF v0.2 schema 无 breaking change;既有 v0.3.1 wiki 升级到 v0.3.2 plugin **无需**重跑 init,但需要新 fixture 测试通过验证。lint `--fix` 命令行行为有用户可见变化(从单开关 → 双开关),需要在 plugin manifest / README 注明迁移提示。
+
+### v0.5.0(2026-09-03) — Round 10 G11 query 落档 3 隐患(分析专属骨架 + sources_used + gating)
+
+**新增 §C15**:`tests/test_analysis_dedicated_skeleton.py` / `test_analysis_sources_used_required.py` / `test_query_gating_logic.py` / `test_analysis_sources_used_mirror.py` / `test_migrate_analysis_skeleton.py`(共 5 个 fixture 脚本,覆盖 G11 M1-M3 全部 + 迁移兼容)。
+
+**关键边界测试用例**:
+
+- C15.1 骨架校验(7 个 fixture):3 节齐全 / 缺 1 节 / 含 `## 重点摘录` / 含 `## 我的思考` / 含 `## 摘要` / 含 `## Summary` / `--fix` 自动追加占位
+- C15.2 sources_used 校验(8 个 fixture):3 条已存在 / 字段缺失 / 空数组 / 1 条不存在 / 含非 wiki 路径 / `--fix` 自动派生 + Q7 死循环防护(updated + mtime 不变) / `--fix` 补全 + Q7 / 派生来源严格性(禁止全文 grep,`## 关联溯源` 段正文 wikilink 不在 `> 引用:` 行的不被收)
+- C15.3 gating 校验(7 个 fixture):Overview + ≥2 子目录 + ≥200 字 / Comparison / Exact + <200 字 / "Wiki 未覆盖" / intent=overview 但短答(不触发优先级) / 输出末尾无标记 → FAIL / e2e 三种 query 类型断言
+- C15.4 `> 引用:` 行与 sources_used Set 比对(4 个 fixture):一致 / sources_used 多 1 条 / `> 引用:` 行多 1 条 / `--fix` 自动同步 + Q7 不动 updated + mtime
+- C15 派生脚本 `migrate-analysis-skeleton.py`(4 个 fixture):旧骨架 → 新骨架 / 无 `## 我的思考` 异常页 → 仅追加占位 / `--dry-run` 不写盘 / 迁移后 lint C15.1-C15.4 全 PASS
+
+**新增 frontmatter 字段**:`sources_used` + `answer_to` + `generated_by`(均为 plugin 扩展字段,OKF v0.2 §9 "consumers MUST NOT reject bundle because of missing optional frontmatter fields" 兼容)。
+
+**新增正文骨架**:G11 v0.5.0 起 `analyses/*.md` **不再复用** sources 的 3 节骨架,改用**分析专属骨架**(`## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`)。M1 结构断层修复:硬塞 sources 骨架 = 把"综合推演"伪装成"摘录",失真。
+
+**不动**:
+- Q6 wikilink 一等公民 / Q7 死循环防护 / Q9 source_file + sources[] 双字段 / Q10 scripts 严禁交互 / Q11 subagent 写权矩阵:已冻结
+- design §3.6.2 / §4.4 / §C4.1 lint 行为边界(确定性 vs 语义分流):已冻结
+- v0.3.2 Normalizer + Lint --fix 安全锁:已冻结
+- G10 转换副本入 raw + 源页 link 指副本:已冻结(G11 是 G10 之后的查询侧修复)
+
+**兼容性**:**v0.5.0 MINOR bump**。本次新增 G 级目标(G11)+ 3 个 frontmatter 字段(`sources_used` / `answer_to` / `generated_by`),均属 plugin 扩展字段,OKF v0.2 §9 兼容。**唯一强约束**:**v0.4.0 及以前落档的 analysis 页在 v0.5.0 lint 上会 FAIL**(骨架语义变化),用户必须跑一次 `python ./scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0`。既有 v0.4.0 wiki 升级到 v0.5.0 plugin:
+1. 升级 plugin → 跑 `/aeps-llm-wiki-init`(幂等再入,新加 `templates/analysis-page.md` + `scripts/migrate-analysis-skeleton.py`)
+2. **跑 `migrate-analysis-skeleton.py`**:`analyses/` 下旧骨架页批量转新骨架 + 补 sources_used
+3. 跑 `/aeps-llm-wiki-lint --fix --apply` 二次确认所有 FAIL 已清零
 
 ### v0.4.0(2026-09-03) — Round 9 G10 外部转换副本入 raw + 源页 link 指副本
 

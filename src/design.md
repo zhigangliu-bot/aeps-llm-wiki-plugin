@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — design.md
 
-> **状态**:v0.4.0 已冻结(2026-09-03)
+> **状态**:v0.5.0 待冻结(2026-09-03) — Round 10 G11 query 落档 3 隐患
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:本文件承接 [prd.md](prd.md) 里抽出 / 简化的实现细节;具体任务拆分见 [implement.md](implement.md)
@@ -774,6 +774,11 @@ extensions:                             # 允许的扩展键(白名单),其它 l
     - converted_path     # md 副本相对 raw/ 的路径;纯文本 = null
     - source_file        # v0.2 Q9 已有;在此显式列出便于 grep
 
+    # G11 v0.5.0 增量 — analysis 页溯源链(详见 prd §4.3 + templates/analysis-page.md + lint §5.4 C15)
+    - sources_used       # string[];仅 type: analysis 必填;本次回答参考的 wiki 页相对路径列表(相对 knowledge/)
+    - answer_to          # string;仅 type: analysis 必填;原 query 问句(便于 LLM 检索上下文)
+    - generated_by       # string;plugin 写入统一格式 `agent: producer/aeps-llm-wiki-plugin/<version>`
+
 # type 合法值(与 §3.1 表对齐,entities/concepts 14 子类由 templates/concept-entities-readme.md 字典为权威;另含 `source` `analysis` `comparison` `synthesis` 共 4 个非子类类型;`knowledge/` 顶层合计 **18 个叶子存储目录** = sources + 7 entities + 7 concepts + analyses + comparisons + syntheses;权威清单见 §4.1.1 知识库初始化子目录清单)
 type_enum:
   # 资料与分析
@@ -843,6 +848,55 @@ g10_links_mirror:
   - when: {native_text: true}
     links_pattern: '^\\[\\[[^.]+\\]\\]$'        # 无 `.converted` 后缀;无扩展名
 ```
+
+# lint C15: analysis 页专属骨架 + sources_used 必填(详见 prd §4.3 G11 M1+M2 + templates/analysis-page.md)
+g11_analysis_skeleton:
+  # type: analysis 页必须有专属 3 节骨架(M1 结构断层修复)
+  # 缺任何一节 → FAIL
+  - when: {type: analysis}
+    required_h2:
+      - '## 方案推演 / 架构分析'      # 替代 sources 的 `## 重点摘录`(语义对齐 LLM 综合推演)
+      - '## 关联溯源'                # 替代 sources 的 `## 我的思考`(语义对齐引用链 + 推演依据)
+      - '## 总结:最有收获的一句话'    # 一句话 Core Verdict,与 sources 同名但语义独立
+    forbidden_h2:
+      - '## 重点摘录'                # sources 风格,与 analysis 语义不符
+      - '## 我的思考'                # sources 风格
+      - '## 摘要'                    # 长摘要走 frontmatter summary 字段(沿用 §3.1 §C 纪律)
+      - '## Summary'                 # 同上
+
+# lint C15.2: type: analysis 页 sources_used 必填 + 每条路径必须解析到真实存在
+g11_sources_used_required:
+  - when: {type: analysis}
+    then:
+      sources_used: 'non-empty array of relative paths under knowledge/'
+    # 验证规则:每条字符串形如 `sources/<basename>.md` / `entities/<子类>/<slug>.md` / `concepts/<子类>/<slug>.md` / `syntheses/<slug>.md` / `comparisons/<a>-vs-<b>.md`,且相对 knowledge/ 路径存在
+    # Q7 死循环防护:lint 重写 sources_used 时不动 updated + mtime(同 G10)
+    # 派生来源:仅从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段实际引用路径抓,禁止从全文 grep 抽
+
+# lint C15.3: query 落档 gating 输出(M3 Over-prompting 修复,详见 prd §4.3 G11 + design §4.3)
+# 验证规则:query skill 输出末尾必须含 prompt 或 skip 标记,二者必居其一
+g11_query_gating:
+  # 触发条件(任一命中即问):
+  triggers_or:
+    - intent_eq: 'overview'         # 跨领域综述
+    - intent_eq: 'comparison'       # 对比分析
+    - sources_count_ge: 2           # 命中 ≥ 2 个不同 wiki 子目录的源
+    - answer_length_ge: 200         # 回答字数 ≥ 200
+  # 不触发条件(任一命中即跳过):
+  triggers_not:
+    - intent_eq: 'exact'            # 纯事实查证
+    - answer_length_lt: 200         # 短答
+    - sources_count_lt: 2           # 命中源 < 2
+    - answer_contains: 'Wiki 未覆盖'  # LLM 诚实声明
+  # 输出契约:触发 → 末尾含 `❓ ... 是否落档为 analyses/<...>.md ?[Y/n]`;不触发 → 末尾含 `💡 ... 跳过落档询问。`
+
+# lint C15.4: type: analysis 页 `## 关联溯源` 末尾 `> 引用:` 行与 sources_used Set 比对
+g11_analysis_sources_mirror:
+  - when: {type: analysis}
+    reference_line_pattern: '^> 引用:'
+    # 规则:`> 引用:` 行逗号分隔的路径集合与 frontmatter sources_used 走 Set 比对(Q7 死循环防护)
+    # 不一致 → WARN(不 FAIL,允许 LLM 后期补充,但 lint 给出 diff)
+    # Q7:重写不动 updated + mtime
 
 ### 3.2.1 扩展工作流(US-6:加新实体/概念类型)
 
@@ -947,22 +1001,28 @@ g10_links_mirror:
 | `concepts/standard/`     | `standard`     | ⚠️**frontmatter 锁**;**正文自由发挥**(标准页通常包含:发布机构、版本、约束范围、与相邻标准关系)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `concepts/term/`         | `term`         | ⚠️**frontmatter 锁**;**正文自由发挥**(术语页通常包含:定义、起源、典型用例、相邻术语)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `concepts/other/`        | `other`        | ⚠️**frontmatter 锁**;**正文自由发挥**(兜底)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `analyses/`              | `analysis`     | ✅**frontmatter + 正文骨架都锁死**(query 落档强制套)。frontmatter type-specific 必填:`answer_to`(原问题)+ `generated_by: agent: producer/aeps-llm-wiki-plugin/<version>` + 长摘要走 `summary` 字段(必须**首行保留 query 原问句** `**问题**: <原问句>`,纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**。正文 **3 节骨架硬约束**(任何缺失 = lint FAIL):`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`。字段完整集合与 SCHEMA.md §2.2 一致。                                                                                                                                                                                                                               |
+| `analyses/`              | `analysis`     | ✅**frontmatter + 正文骨架都锁死**(query 落档强制套,G11 v0.5.0 升级为**分析专属骨架**,与 `sources/` 不再共用)。frontmatter type-specific 必填:`answer_to`(原问题)+ `generated_by: agent: producer/aeps-llm-wiki-plugin/<version>` + **`sources_used`**(G11 M2 溯源丢失修复:string[],本次回答参考的 wiki 页相对路径列表,lint C15.2 必填且每条必须解析到真实存在的 `knowledge/**/*.md`,Q7 死循环防护:重写不动 `updated` + 文件 mtime)+ 长摘要走 `summary` 字段(必须**首行保留 query 原问句** `**问题**: <原问句>`,纪律见 §3.1 §C)。**正文禁止出现 `## 摘要` 小节**。**正文 3 节专属骨架硬约束**(G11 M1 结构断层修复,任何缺失 = lint FAIL,详见 lint C15.1 + `templates/analysis-page.md`):`## 方案推演 / 架构分析`(替代 sources 的 `## 重点摘录`,语义对齐"LLM 综合推演")+ `## 关联溯源`(替代 sources 的 `## 我的思考`,语义对齐"引用链 + 推演依据",末尾追加 `> 引用:` 行列源路径,与 frontmatter `sources_used` Set 比对,lint C15.4)+ `## 总结:最有收获的一句话`(一句话 Core Verdict)。**禁止**含 `## 重点摘录` / `## 我的思考`(sources 风格,语义不符)+ `## 摘要` / `## Summary`(沿用 §3.1 §C 纪律)。**落档询问受 gating 控制**(G11 M3,详见 §4.3 + lint C15.3):4 触发(Overview / Comparison / ≥2 子目录源 / ≥200 字)任一命中即问,4 不触发(Exact / <200 字 / <2 源 / "Wiki 未覆盖")任一命中即跳过。字段完整集合与 SCHEMA.md §2.2 一致。 |
 | `comparisons/`           | `comparison`   | ⚠️**frontmatter 锁**(`type: comparison` + `sources:` ≥ 2 条 `[[wikilink]]` 链接到对比的 entity/concept 页 + `last_updated`);**正文自由发挥**,但典型结构:多栏对照表 + 维度差异 + 各自适用场景                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `syntheses/`             | `synthesis`    | ⚠️**frontmatter 锁**(`type: synthesis` + `topic:` + `sources_count` 引用了多少页 + `last_updated`);**正文自由发挥**,但典型结构:主题脉络梳理 + 多观点融合 + 个人判断                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-**为什么 `sources/` 和 `analyses/` 要锁死正文而其他 type 不锁**:
+**为什么 `sources/` 和 `analyses/` 要锁死正文而其他 type 不锁**(G11 升级注解):
 
-- 这两类是**个人色彩最重**的页(读后感 + 思考),骨架统一便于快速浏览、横向对比、长期复盘
+- `sources/` 用"重点摘录 / 我的思考 / 总结"3 节 —— 对应"human reading material"(读源 → 摘录 → 思考 → 一句话)
+- `analyses/` 用 G11 v0.5.0 专属"方案推演 / 架构分析 / 关联溯源 / 总结"3 节 —— 对应"LLM 综合推演"(面对 query → 推演 → 引用链 → 一句话 Core Verdict)
+- **为什么 v0.5.0 起 analysis 不再复用 sources 骨架**(M1 结构断层):"重点摘录"语义是"原文摘出来",但 analysis 页**没有原文可摘**;硬塞就是把"综合推演"伪装成"摘录",失真。专属骨架把"推演逻辑"和"引用依据"显式分两节,语义对齐"LLM 综合推演"的人脑活动流。
 - 其他 type(14 个 entities/concepts 子类 + comparison + synthesis)是**客观/结构化内容**,强加"我的思考"会污染 OKF 工具消费的语义,只能 LLM 自由发挥
 - `comparison` 用对照表 + 维度差异更自然,`synthesis` 用脉络梳理 + 多观点融合更自然 —— 这俩**不**用 `sources/analyses` 的 3 节骨架
 
 **lint 规则**(对应 §4.4):
 
-- `sources/*.md` / `analyses/*.md` 必含 3 节 H2 标题(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),**逐字匹配**,缺一即 FAIL
+- `sources/*.md` 必含 3 节 H2 标题(`## 重点摘录`、`## 我的思考`、`## 总结:最有收获的一句话`),**逐字匹配**,缺一即 FAIL
+- `analyses/*.md` **G11 v0.5.0 起必含分析专属 3 节 H2 标题**(`## 方案推演 / 架构分析`、`## 关联溯源`、`## 总结:最有收获的一句话`),**逐字匹配**,缺一即 FAIL(lint C15.1)
 - `sources/*.md` / `analyses/*.md` **禁止**含 `## 摘要` / `## Summary` H2 标题(纪律见 §3.1 §C),命中即 FAIL
-- 其他 type 不检查 H2 骨架
+- `analyses/*.md` **额外禁止**含 sources 风格的 `## 重点摘录` / `## 我的思考` H2(G11 lint C15.1 forbidden_h2)
+- `analyses/*.md` 必填 `sources_used: string[]`(lint C15.2),每条路径必须解析到真实存在的 `knowledge/**/*.md`
+- `analyses/*.md` `## 关联溯源` 末尾 `> 引用:` 行与 frontmatter `sources_used` Set 比对,不一致 WARN(lint C15.4,Q7 死循环防护:重写不动 `updated` + 文件 mtime)
 - `analyses/*.md` 的 `summary` 字段首行必须含 `**问题**:` 前缀(LLM 在写完后必须保留 query 原问句作为引用锚;从原正文移到 summary)
+- query 落档询问受 gating 控制(lint C15.3,详见 §4.3):输出末尾必须含 prompt 或 skip 标记,二者必居其一
 - 14 子类目录的 .md 必须 frontmatter `type` 等于该目录对应的子类值(目录 ↔ type 联合校验),违规 FAIL
 
 #### §3.6.1 `raw_category` 派生字段约定
@@ -1685,6 +1745,61 @@ QUERY_QMD_REQUIRED_THRESHOLD = 1000  # N ≥ 此值必须 qmd
 
 **为何不引入 RAG / 向量索引**:`index.md` + 4 跳在 ~100 个源 / 几百页规模足够(Karpathy `llm-wiki.md` line 47 验证);qmd 作为可选搜索引擎补充更大规模,plugin 不自建 RAG(对齐 NFR-1)。
 
+#### 4.3.2 落档 gating(G11 v0.5.0 M3,详见 prd §4.3 + lint C15.3)
+
+**为什么需要 gating**:v0.4.0 及以前 query 落档**每次都问**用户"要不要落档",导致 over-prompting —— 纯事实查证(S32G PCIe 几个接口) / 短答(< 200 字) / Wiki 未覆盖的问题也被问,用户疲劳。G11 M3 加 gating 让询问**只在真正"有存档价值"时**发生。
+
+**判定算法**(伪代码,SKILL.md 提示词驱动,scripts 层面无强制实现):
+
+```python
+# G11 v0.5.0 新增(详见 prd §4.3 G11 M3)
+def should_prompt_save(intent, answer_length, sources_by_subdir, answer_body):
+    """落档询问 gating 判定。返回 (bool, reason)。"""
+
+    # --- 不触发条件(任一命中即跳过) ---
+    if intent == "exact":
+        return False, "intent=exact(纯事实查证)"
+    if answer_length < 200:
+        return False, f"answer_length={answer_length}<200(短答)"
+    if len(sources_by_subdir) < 2:
+        return False, f"sources={len(sources_by_subdir)}<2(单点查证)"
+    if "Wiki 未覆盖" in answer_body:
+        return False, "Wiki 未覆盖此问题(LLM 诚实声明)"
+
+    # --- 触发条件(任一命中即问) ---
+    if intent == "overview":
+        return True, "intent=overview(跨领域综述)"
+    if intent == "comparison":
+        return True, "intent=comparison(对比分析)"
+    if len(sources_by_subdir) >= 2:
+        return True, f"sources={len(sources_by_subdir)}≥2 子目录(整合多源)"
+    if answer_length >= 200:
+        return True, f"answer_length={answer_length}≥200(深度回答)"
+
+    # 兜底:不命中 → 不问
+    return False, "fallthrough(不命中触发)"
+```
+
+**关键设计点**:
+
+- **OR 不是 AND**:触发和不触发都是 OR 语义(任一命中即决定),**不是** AND,避免短答但跨域时被漏
+- **不触发优先级 > 触发**:先判不触发,再判触发(避免 Exact + 多源矛盾时二义)
+- **`sources_by_subdir`** 统计的不是命中页数,而是**子目录数**(例:同时命中 `sources/foo.md` + `entities/person/bar.md` = 2 子目录,触发)
+- **`answer_length`** 是 LLM 实际回答的字数(中文字符 / 英文 word 走统一近似估算),不含 wiki 链接文本
+- **`"Wiki 未覆盖"` 字面检测**:LLM 诚实声明语,与 intent=exact 互补(exact 走通但 Wiki 没数据)
+
+**SKILL.md 输出契约**:
+
+- **触发**:`❓ 本次回答命中 ≥2 个 Wiki 源、深度 ≥200 字,符合 analysis 落档门槛。是否落档为 \`knowledge/analyses/<时间戳>-<slug>.md\`?[Y/n]`
+- **不触发**:`💡 本次回答为单点查证 / 短答 / Wiki 未覆盖,跳过落档询问。`
+- lint C15.3 校验:`grep` query 输出末尾必须含 `❓` 或 `💡` 标记,二者必居其一
+
+**迁移兼容**(G11 v0.5.0 lint 跑在 v0.4.0 落档的旧 analysis 页):
+
+- SKILL.md query 阶段 detect 旧骨架(`## 重点摘录` + `## 我的思考`)→ 提示用户跑 `python ./scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0`
+- 迁移脚本逻辑:把 `## 重点摘录` → `## 方案推演 / 架构分析`(语义最接近"分析推理");把 `## 我的思考` → `## 关联溯源`(语义最接近"引用链");frontmatter 自动补 `sources_used`(从正文 wikilink 提取 + 推断);`## 总结:最有收获的一句话` 保留
+- 迁移**不动 `updated` + mtime**(Q7 死循环防护);`log.md` 追加 `**Migration**` 条目
+
 ### 4.4 `/aeps-llm-wiki-lint`
 
 **Agent 行为**:
@@ -2017,6 +2132,42 @@ python3 ./scripts/safe-mv.py --project-dir . --apply temp/decision-abc123.json
 | 同一文件已被 ingest 过(sources/ 已有名)   | 警告 + 问用户是覆盖还是新版本              |
 | LLM 抽取生成 0 个概念页                   | 不报错,只生成 source 页 + 警告"没抽到概念" |
 | frontmatter schema 校验失败               | 不写盘,要求 LLM 重写 frontmatter           |
+| **G11** `analyses/*.md` 用 sources 风格 3 节骨架(`## 重点摘录` + `## 我的思考`)| FAIL,提示跑 `migrate-analysis-skeleton.py`(详见 §4.3.2) |
+| **G11** `analyses/*.md` 缺 `sources_used` 或路径不存在 | FAIL(确定性结构修复:`--fix` 自动从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段引用路径推断;Q7 死循环防护:重写不动 `updated` + mtime)|
+| **G11** `analyses/*.md` `## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` Set 比对不一致 | WARN(允许 LLM 后期补充,但 lint 给出 diff;Q7 不动 updated + mtime)|
+| **G11** query skill 输出末尾既无 `❓` 也无 `💡` 标记 | FAIL(确定性结构修复:report-only,让 SKILL.md 重生成输出) |
+
+#### Lint C15 详解(G11 v0.5.0 新增,详见 prd §4.3 + §3.6 + templates/analysis-page.md)
+
+**C15.1** —— `analyses/*.md` 专属 3 节骨架(M1 结构断层修复):
+
+- **required_h2**:`## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`(逐字匹配)
+- **forbidden_h2**:`## 重点摘录` + `## 我的思考`(sources 风格)+ `## 摘要` + `## Summary`(沿用 §3.1 §C 纪律)
+- 缺任一 required → FAIL;含任一 forbidden → FAIL
+- **确定性结构修复**:`--fix` 自动追加占位 H2(空内容),`log.md` 追加 `**LintFix**: lint-C15.1 on analyses/<file>.md — added placeholder H2`
+- **禁止**自动重命名 H2(`## 重点摘录` 不会自动改名 `## 方案推演 / 架构分析`,那需要 LLM 重写语义);提示用户跑 `migrate-analysis-skeleton.py`(语义级)
+
+**C15.2** —— `sources_used` 必填 + 路径存在(M2 溯源丢失修复):
+
+- **必填**:`type: analysis` 页 frontmatter 必须含 `sources_used: string[]`,空数组 / 字段缺失 → FAIL
+- **路径校验**:每条字符串相对 `knowledge/` 路径必须解析到真实存在的 `.md` 文件(例:`sources/foo.md` / `entities/person/bar.md` / `syntheses/topic.md`)
+- **派生规则**:`--fix` 自动从 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段实际引用路径抓取,**禁止**从全文 grep 抽(避免误填无关 wikilink)
+- **Q7 死循环防护**:`--fix` 重写 `sources_used` 时**绝对不动 `updated` 字段 + 文件 mtime**
+- **log 记录**:`**LintFix**: lint-C15.2 on analyses/<file>.md — sources_used auto-filled (n=<k> paths)`
+
+**C15.3** —— query 落档 gating 输出(M3 Over-prompting 修复,详见 §4.3.2):
+
+- 校验对象:query skill 输出末尾必须含 `❓`(触发提示)或 `💡`(跳过提示)标记,二者必居其一
+- 验证方式:SKILL.md 跑完 query 后,用 `python ./scripts/lint-query-output.py --input <last-response>.md` 校验
+- 失败 → report-only FAIL(语义级,SKILL.md 重读 §4.3.2 重新生成输出,**不**自动改)
+
+**C15.4** —— `## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` Set 比对:
+
+- 提取:`## 关联溯源` 段尾 `> 引用: <path1>, <path2>, ...` 行的逗号分隔路径
+- 比对:与 frontmatter `sources_used` 走 Set 比对(类似 Q7 §3.6.2 死循环防护规则)
+- 不一致 → WARN(给出 diff:`sources_used 中有但 > 引用 行没有 = [...]` / 反之)
+- **Q7**:`--fix` 重写不动 `updated` + 文件 mtime;只追加 diff,不删现有内容
+- **为什么 WARN 不 FAIL**:LLM 后期补充时只补 frontmatter 是常见场景,`## 关联溯源` 段尾引用行可手动添加
 
 #### Lint --fix 安全锁(v0.3.2 新增)
 

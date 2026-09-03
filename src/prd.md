@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:v0.4.0 已冻结(2026-09-03)
+> **状态**:v0.5.0 已冻结(2026-09-03)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;具体 skill 接口、frontmatter schema、数据流等在 `design.md`
@@ -44,6 +44,10 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - query 阶段 LLM 通过 `links:` 直接读 md 副本,**不再二次跑转换**(原"raw/ 里 .pdf LLM 解析不了"痛点解决)
   - 重转策略:**不重转**(对齐 raw/ 不可变层 + G7 + Q5);需重转时由用户手工 `cp` 回 `inbox/` 走标准 ingest
   - 纯文本类(.md / .markdown / .rst / .txt / .csv / .json / .yaml / .yml / .xml / .html / .htm) **不生成** .converted.md 副本(原生可直接读)
+- **G11**:**query skill 落档为 analysis 页时消除 3 个隐患**(G11 衍生需求,见 §4.3 + design §3.6.1 + implement §C15):
+  - **结构断层**:`analyses/` **不再复用** `sources/` 的 3 节骨架(原 v0.4.0 复用导致"LLM 推演回答被强行套'重点摘录'"),改用 **analyses 专属骨架**:`## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`(语义对齐"LLM 综合推演";见 §4.3 + design §3.6.1)
+  - **溯源丢失**:`type: analysis` frontmatter **新增必填 `sources_used`**(本次回答参考的 wiki 页相对路径列表,供图跳转 + 后续 lint 校验;C15)
+  - **Over-prompting**:**落档询问加 gating**(防 Exact 查证型 spam):仅在跨领域综述 / 对比分析 / 整合 ≥ 2 源 / 深度 ≥ 200 字 触发,Exact / 短答 / 未命中 / Wiki 未覆盖自动跳过
 
 ### 2.2 非目标(明确不做)
 
@@ -192,7 +196,34 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - 探查入口:`scripts/check-qmd.py`(Python 3.10+ 单次脚本,跑 `qmd --version` 探查可用性)
 - **必须**:
   - 回答,**每条断言附 wiki 标准 markdown 链接**
-  - 回答结束后**问用户是否落档** —— 落档则新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`(正文 **3 节骨架硬约束**:`## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`,与 `sources/` 同约束;**禁止**含 `## 摘要` 小节,query 原问句必须保留在 frontmatter `summary` 字段首行 `**问题**: ...`;详见 design §3.1 §C),追加 log
+  - **G11 — 落档 gating**(G11 M3,详见 design §4.3 + implement §C15.3):回答结束后,**仅在满足下列触发条件之一时才在末尾问用户是否落档**:
+    - **触发条件**(任一命中即问):
+      - **跨领域综述 / Overview**:intent 判定为 overview 类(全局设计 / 方案评估)
+      - **对比分析 / Comparison**:intent 判定为 comparison 类(提问含 "X vs Y" 型对象对比)
+      - **整合多源**:本次 query 命中 ≥ 2 个不同 wiki 子目录的源页
+      - **深度回答**:回答字数 ≥ 200 字(LLM 综合推演,非短答)
+    - **不触发**(任一命中即跳过):
+      - intent = `exact`(纯事实查证,如"S32G PCIe 几个接口")
+      - 回答字数 < 200 字
+      - 命中源 < 2 个
+      - 回答含 "Wiki 未覆盖此问题" 字样(LLM 诚实声明)
+    - **Gating 提示语模板**(SKILL.md 用):
+      - 触发:`❓ 本次回答命中 ≥2 个 Wiki 源、深度 ≥200 字,符合 analysis 落档门槛。是否落档为 \`knowledge/analyses/<时间戳>-<slug>.md\`?[Y/n]`
+      - 不触发:`💡 本次回答为单点查证 / 短答 / Wiki 未覆盖,跳过落档询问。`
+  - **G11 — 落档为 analysis 页**(G11 M1 + M2,详见 design §3.6.1 + templates/analysis-page.md):
+    - 新建 `type: analysis` 页,放在 `knowledge/analyses/<时间戳>-<slug>.md`
+    - frontmatter 必填:
+      - `type: analysis` + `title` + `updated` + `tags`
+      - `answer_to`:原 query 问句
+      - `sources_used`:string[],**本次回答参考的 wiki 页相对路径列表**(去重,SKILL.md 扫阶段 2 命中 + 阶段 3 引用路径自动抓)
+      - `generated_by: agent: producer/aeps-llm-wiki-plugin/<version>`
+      - `summary`:首行 `**问题**: <原问句>`,余下 ≤ 280 字符
+    - **正文 3 节专属骨架硬约束**(lint C15.1 + C15.4,缺一即 FAIL):
+      - `## 方案推演 / 架构分析` —— 本次推演的核心分析与架构逻辑(替代原 sources 风格的"重点摘录",语义对齐"LLM 综合推演")
+      - `## 关联溯源` —— 本次推演用到的关键 Wiki 事实与依据(替代原 sources 风格的"我的思考",语义对齐"引用链 + 推演依据");末尾追加 `> 引用:` 行列源路径,与 frontmatter `sources_used` 镜像同步(Q7 死循环防护)
+      - `## 总结:最有收获的一句话` —— 一句话 Core Verdict / 核心结论
+    - **禁止**含 `## 摘要` / `## Summary` 小节(对齐 v0.4.0 纪律,§3.1 §C)
+  - 追加 log(`**Creation**: query "<原问句>" → analyses/<file>.md`)
 - **不应**:编造 wiki 里没有的内容(必须诚实说"我读到的 wiki 里没有覆盖这点")
 
 ### 4.4 Lint skill
@@ -328,6 +359,9 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - [ ] AC-8:`/aeps-llm-wiki-ingest` 但 `inbox/` 为空:提示"inbox/ 为空,先把资料丢进 inbox 再跑",**不报错**(退出码 0,符合 SKILL 调用语义)
 - [ ] AC-9(G10):丢 `inbox/iso26262.pdf` → ingest 完成后 `raw/06_功能安全/iso26262.pdf` 与 `raw/06_功能安全/iso26262.pdf.converted.md` **同时存在**;源页 frontmatter 含 `format: pdf` + `converter: anydoc` + `native_text: false` + `converted_path: raw/06_功能安全/iso26262.pdf.converted.md`,且 `links:` 含 `[[iso26262.pdf.converted]]`
 - [ ] AC-10(G10):丢 `inbox/notes.md`(纯文本) → ingest 完成后 `raw/<subdir>/notes.md` 存在,**不**生成 `notes.md.converted.md`;源页 frontmatter `format: md` + `converter: null` + `native_text: true` + `converted_path: null`,`links:` 含 `[[notes]]`
+- [ ] AC-11(G11 M1):`/aeps-llm-wiki-query "<深度架构问题>"` 触发落档后,新建 `knowledge/analyses/<时间戳>-<slug>.md`,正文含**分析专属 3 节骨架**(`## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`),**不含** `## 重点摘录` / `## 我的思考` / `## 摘要` / `## Summary` H2;lint C15.1 命中 FAIL
+- [ ] AC-12(G11 M2):落档的 analysis 页 frontmatter **必填** `sources_used: [相对路径列表]`,且 lint C15.2 校验:每条路径都解析到真实存在的 `knowledge/**/*.md`(相对 `knowledge/`),否则 FAIL;`## 关联溯源` 末尾 `> 引用:` 行与 `sources_used` 走 Set 比对(Q7),不一致 WARN;`sources_used` 任意一条被 `--fix` 重写时,**不动 `updated` 字段 + 文件 mtime**(Q7 死循环防护规则延续)
+- [ ] AC-13(G11 M3):落档询问**受 gating 控制**,四种触发条件任一命中才问(Overview / Comparison / ≥2 不同子目录的源 / ≥200 字),四种不触发任一命中即跳过(Exact / <200 字 / <2 源 / "Wiki 未覆盖")。可写 e2e 测试:同一 query skill,三种 query 类型(Exact 单点 / Overview 多源 / Comparison 对比)分别跑,**断言**落档询问输出与 gating 规则一致(Exact 无 prompt;Overview 必有 prompt;Comparison 必有 prompt)
 
 ### 7.2 非功能验收
 
@@ -364,6 +398,9 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 | **G10 — raw/ 体积翻倍**(每份非 md 资料都生成 .converted.md 副本)| 用户磁盘占用增加 | 仅对走过转换的文件生成;OCR md 副本通常 << 原文件;`raw/` 本就是归档层,体积增长在预期内;`source_file:` 仍指原文件,引用侧不受影响 |
 | **G10 — 重转需求被用户触发**(anydoc / paddleocr 升级 / 转换异常)| 用户需要覆盖 raw/ 副本 | 不开重转 skill(G10 拍板);`cp` 回 inbox 走标准 ingest = 新文件,旧副本保留(可手工 `git rm`);raw/ 不可变层 + Q5 原则保护 |
 | **G10 — query 仍读到 raw/ 原 .pdf**(用户未走 ingest 直接 `git mv` 进 raw)| query 仍解析不了 | lint 检查:`source_file` 指 raw/<subdir>/<file> 但 `converted_path` 为 null 且 `native_text: false` → 报错"该 source 缺 md 副本,请把原文件 `cp` 回 inbox/ 走 ingest" |
+| **G11 — 旧 analysis 页骨架失效**(v0.4.0 及以前落档的 analyses 用 sources 风格 3 节)| lint 跑在 v0.5.0 上 FAIL | 提供迁移脚本 `scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0`:把 `## 重点摘录` → `## 方案推演 / 架构分析` + 把 `## 我的思考` → `## 关联溯源`,保留正文,frontmatter 补 `sources_used`(从正文 wikilink 提取 + 推断);SKILL.md query 阶段 detect 到旧骨架时**提示**用户跑迁移 |
+| **G11 — sources_used 误填**(LLM 把 `## 关联溯源` 段落里出现的所有 wikilink 都塞进去)| 列表膨胀 / 含大量无关页 | lint C15.2 + C15.4 双重校验:仅 `## 关联溯源` 末尾 `> 引用:` 行 + query 阶段实际引用路径 + lint 验存在;**禁止**从全文 grep 抽;**禁止**列入 `## 关联溯源` 段正文里出现过但未在引用行的页 |
+| **G11 — gating 误判**(短答但其实重要 / Exact 但其实跨域)| 落档询问过松或过严 | gating 触发条件**任一命中即问**,是 OR 不是 AND;不触发条件也是 OR;边界条件(log.md 最近条目是否含 query "<原问句>" 模式)走 `log.md` 检测;lint 仅校 schema,语义误判由用户在 prompt 时回退 |
 
 ---
 
@@ -405,6 +442,21 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ---
 
 ## 12. Change History
+
+### v0.5.0(2026-09-03) — Round 10 G11 query 落档消除 3 个隐患(专属骨架 + sources_used + gating)
+
+| # | 增量 | 关联 Q/A | 主要文档改动 |
+|---|---|---|---|
+| 11 | **G11 目标 + M1-M3 必须**:query skill 落档为 analysis 页时消除 3 个隐患 —— (M1 结构断层) `analyses/` **不再复用** sources 的 3 节骨架,改用**分析专属骨架**:`## 方案推演 / 架构分析`(替代 ## 重点摘录)+ `## 关联溯源`(替代 ## 我的思考,末尾追加 `> 引用:` 行列源路径)+ `## 总结:最有收获的一句话`(语义对齐"LLM 综合推演"而非"human reading material");(M2 溯源丢失) `type: analysis` frontmatter **新增必填 `sources_used`**(string[],本次回答参考的 wiki 页相对路径列表,Q7 死循环防护:lint 重写时不动 `updated` + 文件 mtime);(M3 Over-prompting) **落档询问加 gating**,4 触发(Overview / Comparison / ≥2 子目录源 / ≥200 字)任一命中即问,4 不触发(Exact / <200 字 / <2 源 / Wiki 未覆盖)任一命中即跳过 | 用户提"query skill 3 个隐患:结构断层(analysis 不该用 sources 骨架)+ 溯源丢失(sources_used 缺位变孤岛节点)+ Over-prompting(纯事实查证不该问落档)" | prd §2.1(G11 + M1-M3 描述)+ §4.3(G11 gating 4 触发 + 4 不触发 + analysis 专属骨架硬约束 + sources_used 必填 + Q7 死循环防护延续)+ §7.1 AC-11/AC-12/AC-13 + §8 风险表新增 3 行(G11 旧骨架失效 / sources_used 误填 / gating 误判);design §3.2 schema extensions.plugin 新增 `sources_used` 字段 + §3.6.1 analysis 段专属骨架锁 + §4.3 query skill 落档 gating 流程 + §5.4 lint C15(C15.1 专属骨架校验 / C15.2 sources_used 路径存在 / C15.3 gating 输出断言 / C15.4 `> 引用:` 镜像);templates/analysis-page.md(**新建**,frontmatter 锁 + 写入指引 + 不变量 lint C15);implement §C15(G11 4 个 fixture:test_analysis_dedicated_skeleton / test_analysis_sources_used_required / test_query_gating_logic / test_analysis_sources_used_mirror) |
+| 12 | **G11 迁移路径拍板**:v0.5.0 lint 跑在 v0.4.0 落档的旧 analysis 页上会 FAIL(骨架语义变化);提供 `scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0`(映射 `## 重点摘录` → `## 方案推演 / 架构分析` / `## 我的思考` → `## 关联溯源`,frontmatter 补 `sources_used`,正文保留);SKILL.md query 阶段 detect 旧骨架时**提示**用户跑迁移(不自动改) | G11 派生决策 | prd §8 风险表第 1 行 G11 缓解 + design §4.3 query skill 落档 detect 段 |
+
+**兼容性**:v0.5.0 是 **MINOR bump**(analysis 页骨架语义变化 + `sources_used` 必填,**OKF v0.2 schema 无 breaking change** —— `sources_used` 是 plugin 扩展字段,§9 规则"consumers MUST NOT reject bundle because of missing optional frontmatter fields"保证兼容)。**唯一强约束**:v0.4.0 及以前落档的 analysis 页在 v0.5.0 lint 上会 FAIL,用户必须跑一次 `migrate-analysis-skeleton.py` 迁移。
+
+**升级路径**:既有 v0.4.0 wiki 升级到 v0.5.0 plugin:
+1. 升级 plugin → 跑 `/aeps-llm-wiki-init`(幂等再入,scripts/ + templates/ 同步;新加 `templates/analysis-page.md` + `scripts/migrate-analysis-skeleton.py`)
+2. **跑 `python ./scripts/migrate-analysis-skeleton.py --from v0.4.0 --to v0.5.0`**:`analyses/` 下旧骨架页批量转新骨架 + 补 `sources_used`
+3. 跑 `/aeps-llm-wiki-lint --fix --apply` 二次确认所有 FAIL 已清零
+4. 后续 query 落档走 v0.5.0 新规则(专属骨架 + sources_used 必填 + gating)
 
 ### v0.4.0(2026-09-03) — Round 8 G10 外部转换副本入 raw + 源页 link 指副本
 
