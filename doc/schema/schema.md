@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — Agent 操作手册
 
-> **plugin 版本**:0.5.5
+> **plugin 版本**:0.5.6
 > **初始化时间**:2026-09-04T10:30:00Z
 > **维护者**:zhigang.liu
 > **权威顺序**:OKF v0.2 规范 > **`doc/schema/frontmatter-spec.md`(人读字段规范,唯一权威)** > `doc/schema/frontmatter.schema.json`(机器读,跟随 spec) > 本 `schema.md`(工作流入口) > `knowledge/glossary.md`(术语表)
@@ -205,3 +205,4 @@ aliases:
 | 0.5.3 | 2026-09-05 | §1 tag 数量约束下限由"3 条"对齐为"5 条",与 `frontmatter.schema.json` `minItems: 5` 及 `tag-spec.md` §8 Lint 阈值一致 |
 | 0.5.4 | 2026-09-06 | §1 顶部加 init 工作流引用句(init 流程不在本文件重复);§1.1 步骤 3 `convert-to-md.py` → `convert-to-md.js`(对齐 design.md §4.2 Node.js 单栈 + G6);顶部 plugin 版本号 0.5.2 → 0.5.4(版本错位 bugfix) |
 | 0.5.5 | 2026-09-06 | §2 表 + enum 扩到 22 项:`knowledge/` 根下4 件顶层索引 `index.md` / `overview.md` / `glossary.md` / `log.md` 对应新增 type 值 `index` / `overview` / `glossary` / `log`(init 首次启用时由 4 件顶层索引的初始 frontmatter 引用);合计 18 → 22 项硬枚举;`frontmatter.schema.json` enum +描述同步更新;顶部 plugin 版本号 0.5.4 → 0.5.5 |
+| 0.5.6 | 2026-09-07 | M2.2 ingest skill 落地:`scripts/ingest/` 新增 7 脚本(scan-inbox/classify/convert-to-md/init-batch/move-to-raw/build-related-pages/append-log) + 1 lint-stub 占位;`skills/aeps-llm-wiki-ingest/SKILL.md` 19 步编排;§1.1 ingest 工作流描述从"待实现"→"已实现 0.5.6";顶部 plugin 版本号 0.5.5 → 0.5.6 |

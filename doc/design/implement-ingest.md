@@ -1,11 +1,20 @@
 # aeps-llm-wiki-plugin — implement-ingest (M2.2)
 
-> **状态**:draft(待 review)
-> **创建日期**:2026-09-07
+> **状态**:frozen(v0.1.0)
+> **冻结日期**:2026-09-07
 > **作者**:zhigang.liu(由 Claude Code 起草)
 > **上游契约**:`prd.md v0.4.1`(已冻结)+ `design.md v0.1.1`(已冻结)+ `schema.md v0.5.5`(工作流入口)+ `frontmatter-spec.md`(字段权威)+ `tag-spec.md v1.0`(tag 字典)
 > **范围**:仅 `aeps-llm-wiki-ingest` skill 实现细节;init / query / lint / synthesize 各有独立 `implement-{skill}.md`,**本文件不交叉污染**
 > **完成定义(M2.2 done =)**:本 `implement-ingest.md` 冻结 + `skills/aeps-llm-wiki-ingest/SKILL.md` + `scripts/ingest/*` 全套写完 + 单元测试 + 至少 1 个 e2e 跑通 + `trellis-check` 全套通过
+
+---
+
+## Change History
+
+| 版本 | 日期 | 变更 | 作者 |
+|---|---|---|---|
+| v0.1.0 | 2026-09-07 | 冻结初版:7 个 scripts/ingest/* 脚本契约 + 双向反链规则 + 5 路径分流 + 19 步流程对齐 PRD §4.2 + 测试矩阵 AC-2/6/7/8/9/10/14/15/16 + NFR-1/2/4/5 + COMPAT-1 + 5 路径分流 + raw 拍板门 + 命名飘 + 幂等 + lint C17/18/19 + e2e | zhigang.liu(Claude Code 起草) |
+| v0.1.1 | 2026-09-07 | M2.2 落地:7 个 scripts/ingest/* 脚本 + lint-stub 占位 + 8 个测试文件(40 → 43 用例,均 pass);build-related-pages.js 加 ajv 校验 + 删 TYPE_DIRS 死代码;classify.js 加 `--route <2\|3>`;测试 `os.tmpdir()` → 项目 `temp/`;`scripts/ingest/test/fixtures/` 创目录 + sample-source.md/sample-note.txt;同步升 plugin 版本 0.5.5 → 0.5.6(plugin.json + schema.md 顶部 + schema.md Change History) | zhigang.liu(Claude Code 实施 + 复核) |
 
 ---
 
