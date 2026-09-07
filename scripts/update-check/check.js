@@ -123,6 +123,24 @@ export function truncateReason(reason, max) {
 }
 
 /**
+ * Message emitted after a divergent cache was successfully reset to
+ * origin/main (i.e. the force-push rewrite case). Same shape as the upgrade
+ * message but explains the reset rather than a fast-forward pull.
+ */
+export function buildDivergedResetMessage(localVer, remoteVer) {
+  return `📦 aeps-llm-wiki 远端历史被改写(force-push),已重置到最新版本(${localVer} → ${remoteVer})。当前 session 仍使用旧代码,运行 \`/reload-plugins\` 后生效。`;
+}
+
+/**
+ * Message emitted when divergent cache could not be reset (e.g. dirty
+ * working tree blocked the reset). User needs to take manual action.
+ */
+export function buildDivergedResetFailedMessage(reason) {
+  const truncated = truncateReason(reason, 80);
+  return `⚠️ aeps-llm-wiki 远端历史被改写(force-push),本地 cache 跟远端已分叉(原因:${truncated})。请手动处理:卸载后重装 plugin(\`/plugin uninstall aeps-llm-wiki@aeps-public-marketplace\` 然后 \`/plugin install aeps-llm-wiki@aeps-public-marketplace\`),或手动进 plugin 仓跑 \`git fetch && git reset --hard origin/main\`。`;
+}
+
+/**
  * Build the hook JSON output for additionalContext injection.
  * Returns the JSON string with a single trailing newline (Claude Code accepts
  * either with or without newline; we add one for shell-friendliness).
@@ -248,8 +266,37 @@ async function detect(pluginRoot, { shouldPull = true } = {}) {
   // 5. Pull --ff-only
   const pull = git(pluginRoot, ['pull', '--ff-only', 'origin', 'main']);
   if (pull.status !== 0) {
-    const reasonSource = (pull.stderr && pull.stderr.length > 0) ? pull.stderr : pull.stdout;
-    return { state: 'pull-failed', reason: reasonSource || 'git pull failed' };
+    const pullReason = (pull.stderr && pull.stderr.length > 0) ? pull.stderr : (pull.stdout || 'git pull failed');
+    // Any pull --ff-only failure → fallback to fetch + reset --hard origin/main.
+    // This covers three real cases:
+    //   a) Force-push rewrite of remote history (cache no longer fast-forwards)
+    //   b) Cache remote URL unreachable mid-session (auth/network)
+    //   c) Local cache has untracked files that block pull
+    // In case (c) reset --hard will refuse; we then report back so the user
+    // can take manual action.
+    const fetch = git(pluginRoot, ['fetch', 'origin', 'main']);
+    if (fetch.status === 0) {
+      const reset = git(pluginRoot, ['reset', '--hard', 'origin/main']);
+      if (reset.status === 0) {
+        // After reset, re-read plugin.json for the post-reset version.
+        let resetVer = localVer;
+        try {
+          const manifestPath = path.join(pluginRoot, '.claude-plugin', 'plugin.json');
+          const text = await readFile(manifestPath, 'utf8');
+          const v = parseVersion(text);
+          if (v) resetVer = v;
+        } catch {
+          // keep localVer
+        }
+        return { state: 'diverged-reset', localVer, remoteVer: resetVer };
+      }
+      const resetReason = (reset.stderr && reset.stderr.length > 0) ? reset.stderr : (reset.stdout || 'git reset failed');
+      return { state: 'diverged-reset-failed', reason: resetReason };
+    }
+    const fetchReason = (fetch.stderr && fetch.stderr.length > 0) ? fetch.stderr : (fetch.stdout || 'git fetch failed');
+    // If even fetch failed (e.g. SSH auth down), report the original pull
+    // failure reason so the user sees the real blocker.
+    return { state: 'pull-failed', reason: pullReason || fetchReason };
   }
 
   // 6. Re-read plugin.json to get the post-pull version
@@ -281,8 +328,14 @@ async function runHook() {
   if (result.state === 'updated') {
     const msg = buildUpgradedMessage(result.localVer, result.remoteVer);
     process.stdout.write(buildHookOutput(msg));
+  } else if (result.state === 'diverged-reset') {
+    const msg = buildDivergedResetMessage(result.localVer, result.remoteVer);
+    process.stdout.write(buildHookOutput(msg));
   } else if (result.state === 'pull-failed') {
     const msg = buildPullFailedMessage(result.reason, pluginRoot);
+    process.stdout.write(buildHookOutput(msg));
+  } else if (result.state === 'diverged-reset-failed') {
+    const msg = buildDivergedResetFailedMessage(result.reason);
     process.stdout.write(buildHookOutput(msg));
   }
   // 'no-update' and 'detect-failed' → silent
