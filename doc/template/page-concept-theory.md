@@ -72,12 +72,6 @@ aliases:
 
 - 本页由 `/aeps-llm-wiki-ingest` 从源页抽取 concept 时自动生成,或用户手工创建
 - `type` 取值必须与目录 1:1 绑死:`concept.theory` → `knowledge/concepts/theory/`
-- 其他 6 个子类共用本骨架,仅替换 `type` + `{子类名}` 占位符:
-  - `concept.method` → `knowledge/concepts/method/`
-  - `concept.field` → `knowledge/concepts/field/`
-  - `concept.phenomenon` → `knowledge/concepts/phenomenon/`
-  - `concept.standard` → `knowledge/concepts/standard/`
-  - `concept.term` → `knowledge/concepts/term/`
-  - `concept.other` → `knowledge/concepts/other/`
+- concept 7 子类使用各自差异化模板(详见 `concept-entities-spec.md` §3),不再共用本骨架
 - **aliases 字段**(plugin 推荐,概念页强推荐):常用缩写/同义词通过 `aliases: [...]` 注册,详见 `frontmatter-spec.md` §12.4
 - lint 必查:同 entity;C15.5 反转(PRD Q9):wikilink 不再 FAIL,`--fix` 反向标准 markdown 链接 → `[[wikilink]]`(代码层待实现)

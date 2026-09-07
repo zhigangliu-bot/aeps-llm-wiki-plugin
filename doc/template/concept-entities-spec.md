@@ -31,7 +31,7 @@
 >
 > **历史背景**:早期版本曾让 6 个子类共用 `page-entity-person.md` 骨架,但 `## 代表工作 / ## 关键思想` 仅适合 `person`,对 `event / organization / project / product / place` 都不适用。现已拆分 7 个差异化模板,`gen-page.js` 按 subtype 自动映射。
 
-## 2. Concept 子类枚举
+## 3. Concept 子类枚举
 
 | 值             | 含义          | 例子                                           |
 | -------------- | ------------- | ---------------------------------------------- |
@@ -42,3 +42,19 @@
 | `standard`   | 标准 / 规范   | TSN、ISO 26262、ISO 21434                      |
 | `term`       | 术语 / 概念词 | AaaS、MaaS、Spec-Driven-Development            |
 | `other`      | 兜底          | 不属于上述 6 类的概念                          |
+
+## 3. Concept 7 子类骨架建议(差异化模板)
+
+| 子类 | 模板文件 | 推荐 H2 骨架 |
+|---|---|---|
+| `concept.theory`     | `page-concept-theory.md`     | 核心原则 / 工作流 / 与传统笔记的差异 |
+| `concept.method`     | `page-concept-method.md`     | 核心思想 / 适用场景 / 操作步骤 / 局限 / 反模式 |
+| `concept.field`      | `page-concept-field.md`      | 领域范畴 / 关键议题 / 主要玩家 / 发展趋势 |
+| `concept.phenomenon` | `page-concept-phenomenon.md` | 现象描述 / 触发条件 / 影响范围 / 当前应对 |
+| `concept.standard`   | `page-concept-standard.md`   | 标准概述 / 核心内容 / 关键要求 / 与相关标准的关系 / 版本演进 |
+| `concept.term`       | `page-concept-term.md`       | 定义 / 上下文 / 同义反义(术语页较短,1-3 段即可) |
+| `concept.other`      | `page-concept-other.md`      | 不强制 H2 骨架;LLM 按资料特点自由组织;如常用结构重复出现,应新增子类 |
+
+> **模板文件**:`doc/template/page-concept-{theory,method,field,phenomenon,standard,term,other}.md`,7 个差异化骨架,`gen-page.js` 按 `concept.*` subtype 自动选模板(详见 `scripts/gen-page.js` 的 `tplName` 映射)。
+>
+> **历史背景**:早期版本曾让 6 个子类共用 `page-concept-theory.md` 骨架,但 `## 核心原则 / ## 工作流 / ## 与传统笔记的差异` 仅适合 `theory`,对 `phenomenon / standard / term` 都不适用。现已拆分 7 个差异化模板,`gen-page.js` 按 subtype 自动映射。

@@ -243,7 +243,10 @@ function main() {
       const subtype = type.slice("entity.".length); // person / organization / project / product / event / place / other
       return `page-entity-${subtype}.md`;
     }
-    if (type.startsWith("concept.")) return "page-concept-theory.md"; // 7 子类共用骨架
+    if (type.startsWith("concept.")) {
+      const subtype = type.slice("concept.".length); // theory / method / field / phenomenon / standard / term / other
+      return `page-concept-${subtype}.md`;
+    }
     return `page-${type}.md`;
   })();
 

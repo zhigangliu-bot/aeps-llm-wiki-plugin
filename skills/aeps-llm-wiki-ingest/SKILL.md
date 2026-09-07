@@ -154,7 +154,9 @@ node scripts/gen-page.js --type <entity|concept>.<subtype> --slug <slug> \
   --title "<title>" --json
 ```
 
-**entity.* 模板差异化**:`gen-page.js` 按 `entity.<subtype>` 自动选 7 个差异化模板(`page-entity-{person,organization,project,product,event,place,other}.md`,对齐 `doc/template/concept-entities-spec.md` §2),不再让 `event / organization / project / product / place` 共用 person 骨架(## 代表工作 / ## 关键思想 对这些子类不适用)。`concept.*` 7 子类当前共用 `page-concept-theory.md` 骨架,如后续发现 concept 子类也需要差异化,按相同模式扩展。
+**entity.* 模板差异化**:`gen-page.js` 按 `entity.<subtype>` 自动选 7 个差异化模板(`page-entity-{person,organization,project,product,event,place,other}.md`,对齐 `doc/template/concept-entities-spec.md` §2),不再让 `event / organization / project / product / place` 共用 person 骨架(## 代表工作 / ## 关键思想 对这些子类不适用)。
+
+**concept.* 模板差异化**:`gen-page.js` 按 `concept.<subtype>` 自动选 7 个差异化模板(`page-concept-{theory,method,field,phenomenon,standard,term,other}.md`,对齐 `doc/template/concept-entities-spec.md` §3)。`## 核心原则 / ## 工作流 / ## 与传统笔记的差异` 仅适合 `theory`,对 `phenomenon / standard / term` 不适用。
 
 ### 步骤 11:LLM 填 entity / concept 正文
 
