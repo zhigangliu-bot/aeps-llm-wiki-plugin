@@ -108,16 +108,34 @@ node scripts/ingest/move-to-raw.js \
 
 ### 步骤 6:建 source 页 skeleton
 
+LLM 拍板下面 4 个 OKF 推荐字段后传入 `gen-page.js`(对齐 `templates/page-source.md` 模板头部,避免前次 M2.2 落地时的字段缺失 bug):
+
 ```bash
 node scripts/gen-page.js --type source --slug <slug> \
   --ext <ext> --subdir <raw_subdir> \
   --title "<title>" \
-  [--source-file '<wikilink>'] --json
+  --description "<OKF v0.2 §4.1 推荐:一句话 30-80 字概括>" \
+  --tags "docform/<...>,domain/<...>,maturity/<...>,tec/<...>" \
+  --summary "<OKF v0.2 §4.1 推荐:50-150 字精要>" \
+  --stale-after "<+1 年 ISO 8601>" \
+  --source-file '[[<subdir>/<slug>.<ext>|<display>]]' --json
 ```
+
+参数说明:
+
+- `--description`:OKF v0.2 §4.1 推荐字段;`template/page-source.md` 已含示例。LLM 根据标题 + 文件名给一句话 30-80 字概括
+- `--tags`:6 轴字典(`doc-spec.md`),必填 `docform/` + `domain/`,共 5-10 条
+- `--summary`:OKF v0.2 §4.1 推荐字段;LLM 写完正文后回到 frontmatter 补,50-150 字
+- `--stale-after`:默认 `generated.at + 1 年`(ISO 8601);LLM 可根据资料类型调整(标准/规范 → 5 年;时事 → 6 月)
+- `--source-file`:Obsidian wikilink,`[[<subdir>/<slug>.<ext>|<display>]]` 格式;`template/page-source.md` 示例参考
+
+如果 4 个字段 SKILL.md 一时拿不准,**步骤 7 写完正文后回步骤 6 补传**重跑(`--out` 覆盖目标文件)。
 
 ### 步骤 7:LLM 填 source 正文
 
 仅改 H2 之间正文;**不**改 frontmatter 字段值 / H2 顺序 / `## 维护说明` 尾巴(对齐 design §4.3 SKILL.md 硬约束)。
+
+写完正文后,**回头把 `--summary` 字段值写入 frontmatter**(步骤 6 重跑一次 `--out` 覆盖)。
 
 来源不足自检:每条断言自检能否在源文件找到依据;无法溯源 → 显式标注 `[来源不足,需人工复核]`。
 

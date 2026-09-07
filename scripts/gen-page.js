@@ -20,6 +20,22 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// ---- plugin 版本号 -------------------------------------------------------
+// 从 plugin 本体 .claude-plugin/plugin.json 读取,而不是 scripts/package.json
+// (scripts/package.json 是 scripts 私有包版本,与 plugin 本体版本解耦)
+// 读取失败 → 降级 fallback 到 "0.0.0" + stderr WARN,不阻塞生成
+function readPluginVersion() {
+  try {
+    const pluginJsonPath = resolve(__dirname, "..", ".claude-plugin", "plugin.json");
+    const txt = readFileSync(pluginJsonPath, "utf8");
+    const json = JSON.parse(txt);
+    return json.version || "0.0.0";
+  } catch (e) {
+    console.error(`WARN: plugin.json 读取失败,fallback "0.0.0": ${e.message}`);
+    return "0.0.0";
+  }
+}
+
 // ---- 5 路径分流 -----------------------------------------------------------
 // 与 doc/template/page-source.md §4 路径分流表 + PRD §4.2 对齐.
 // ext → { converter, native_text, converted_path 模板, 正文链接目标模板 }
@@ -115,9 +131,10 @@ function renderFrontmatter(type, args) {
     }
   }
   lines.push("generated:");
-  lines.push(`  by: "producer/aeps-llm-wiki-plugin/0.1.0"`);
+  lines.push(`  by: "producer/aeps-llm-wiki-plugin/${readPluginVersion()}"`);
   lines.push(`  at: "${now}"`);
   lines.push(`status: stable`);
+  if (args.stale_after) lines.push(`stale_after: "${args.stale_after}"`);
   if (type === "source") {
     if (args.source_file) lines.push(`source_file: "${args.source_file}"`);
     lines.push(`format: ${ext || "md"}`);
@@ -197,7 +214,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (!k.startsWith("--")) continue;
-    const key = k.slice(2);
+    const key = k.slice(2).replace(/-/g, "_");
     const v = argv[i + 1];
     out[key] = v && !v.startsWith("--") ? v : true;
     if (v && !v.startsWith("--")) i++;
