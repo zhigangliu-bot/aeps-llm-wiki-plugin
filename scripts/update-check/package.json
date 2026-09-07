@@ -1,0 +1,13 @@
+{
+  "name": "update-check",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SessionStart hook for auto-detecting remote plugin updates and fast-forwarding local clone.",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

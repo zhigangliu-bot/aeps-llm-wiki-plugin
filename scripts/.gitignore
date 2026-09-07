@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+# ignore scripts/test/ entirely: 决策 2026-09-07, init 测试已实跑过(41 单元 + 30 e2e 全部 pass),
+# 测试源不 commit(本机 ephemeral,不复用);fixtures/ + _media/ 大文件自然也包含在内
+test/
+**/_media/

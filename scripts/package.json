@@ -1,0 +1,22 @@
+{
+  "name": "aeps-llm-wiki-scripts",
+  "version": "0.1.0",
+  "description": "aeps-llm-wiki-plugin scripts (anydoc + python ocr)",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@firecrawl/anydoc": "^0.2.4",
+    "ajv": "^8.17.0",
+    "js-yaml": "^4.1.0"
+  },
+  "scripts": {
+    "anydoc-pdf": "node anydoc/anydoc_pdf_to_md.js",
+    "docling": "python anydoc/docling_to_md.py",
+    "gen-page": "node gen-page.js",
+    "aggregate-index": "node aggregate-index.js"
+  }
+}

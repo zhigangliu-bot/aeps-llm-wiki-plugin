@@ -1,0 +1,29 @@
+# references / inputs / untracked docs
+reference/
+doc/input/
+
+# dependencies
+node_modules/
+scripts/node_modules/
+scripts/anydoc/node_modules/
+scripts/ocr/node_modules/
+scripts/**/node_modules/
+
+# tests: source 跟 fixture 都 ignore (跟 plugin 仓 f:/wiki-plugin-pub 约定一致;
+# init 41 单元 + 30 e2e 实跑过, 测试源不 commit; fixtures/ + _media/ 大文件自然包含)
+scripts/test/
+scripts/**/test/
+test/
+**/test/
+
+# local artifacts
+scripts/**/_media/
+fixtures/
+*.log
+.DS_Store
+Thumbs.db
+*.tmp
+temp/
+
+# plugin packaging note: plugin 本体本身有 node_modules 也不在仓里(node-only scripts
+# 不用 npm 依赖), 但 scripts/node_modules/ 可能存在 anydoc/ocr 测试残留

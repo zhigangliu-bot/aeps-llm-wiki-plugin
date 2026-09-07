@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhigangliu-bot/aeps-llm-wiki-plugin/schema/frontmatter.schema.json",
+  "title": "aeps-llm-wiki-plugin frontmatter schema",
+  "description": "OKF v0.2 原生字段 + plugin 扩展字段。OKF reader 按未知字段忽略(MUST NOT reject, MUST preserve on round-trip;OKF §4.1 + §11)。plugin 扩展字段命名不加前缀(PRD §10 Q8)。",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "source",
+        "analysis",
+        "comparison",
+        "synthesis",
+        "entity.person",
+        "entity.organization",
+        "entity.project",
+        "entity.product",
+        "entity.event",
+        "entity.place",
+        "entity.other",
+        "concept.theory",
+        "concept.method",
+        "concept.field",
+        "concept.phenomenon",
+        "concept.standard",
+        "concept.term",
+        "concept.other",
+        "index",
+        "overview",
+        "glossary",
+        "log"
+      ],
+      "description": "OKF v0.2 §4.1 唯一硬必填字段。plugin 取值 22 种:18 与 knowledge/ 18 叶子存储目录 1:1 绑死 + 4 与 knowledge/ 根下 4 件顶层索引(index/overview/glossary/log)1:1 绑死(详见 README.md §2.4 + design.md §1.2)。"
+    },
+    "id": {
+      "type": "string",
+      "description": "OKF §4.1 推荐字段。稳定主键;plugin 默认用页面相对路径(如 entities/person/foo.md)。"
+    },
+    "title": {
+      "type": "string",
+      "description": "OKF §4.1 推荐字段。Obsidian 顶部显示、index.md 第一列。"
+    },
+    "description": {
+      "type": "string",
+      "description": "OKF §4.1 推荐字段。单句摘要;index.md 第二列(详见 frontmatter-spec.md §4.2.2)。"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$",
+        "description": "OKF §4.1 推荐字段。**plugin 收紧:tag 值必须遵循 `doc/template/tag-spec.md` 6 轴字典**(domain / layer / phase / docform / maturity / tec),全小写 + `-` 连字符,2-3 词。**裸 tag**(无 `axis/` 前缀)FAIL。entity 页允许非前缀裸名(如 `[[Karpathy]]` 别名走 aliases,不走 tags;tags 内若有人名 / 公司名,FAIL)。**状态词 / 版本号 / OKF type 值进 tags 一律 FAIL**(走对应 frontmatter 字段,详见 tag-spec.md §1.4 隔离机制)。"
+      },
+      "minItems": 5,
+      "maxItems": 10,
+      "description": "OKF §4.1 推荐字段。YAML list;Obsidian 自动扫到 tag 面板;plugin 第 1 跳关键词过滤。**plugin 强化为 6 轴字典约束**(详见 `doc/template/tag-spec.md`):每条必须是 `domain/` / `layer/` / `phase/` / `docform/` / `maturity/` / `tec/` 之一前缀的字典词;必填轴 `docform/` + `domain/`(tag-spec §1.2)。最少 5 条(覆盖度下限 WARN),最多 10 条(切片区分度上限 WARN);lint tag-spec §8 范式 1-4 主题-技术共存 / 层级-技术对齐 / 形态-成熟度约束 / 跨域粒度控制全部生效。"
+    },
+    "resource": {
+      "type": "string",
+      "description": "OKF §4.1 选填字段。物理资源 URI。**plugin 收紧**(详见 frontmatter-spec.md §4.2.3 + §13):单源模式(如 type: source 页)顶层 resource 必填,指底层资产;多源融合模式(analysis/synthesis/comparison)顶层 resource 不填,改用 sources[] 表达。lint 待实现:type: source 缺 resource FAIL;多源页填了 resource 且 sources[] 也有,WARN。"
+    },
+    "sources": {
+      "type": "array",
+      "description": "OKF §5.1。该概念引用的原始资料。type: source 页必填,指向自己。",
+      "items": {
+        "type": "object",
+        "required": ["resource"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "稳定键;用于 per-claim attribution(OKF §5.1)。"
+          },
+          "resource": {
+            "type": "string",
+            "description": "REQUIRED within entry。可以是绝对 URL、bundle-relative 路径(/...)或相对路径(OKF §6.2)。"
+          },
+          "title": { "type": "string" },
+          "author": { "type": "string", "description": "actor convention(OKF §7),如 team:ga4-docs / human:karpathy。" },
+          "usage_count": { "type": "integer", "minimum": 0 },
+          "last_modified": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "usage_window": {
+      "type": "object",
+      "description": "OKF §5.1 usage_window。**顶层兄弟字段**(单数),不属于 sources[] 内部(详见 frontmatter-spec.md §4.4.2)。为整组 sources[].usage_count 框定时间窗;单条 sources[] 可自带 usage_window 覆盖默认值。plugin 当前不写。",
+      "properties": {
+        "from": { "type": "string", "format": "date-time" },
+        "to": { "type": "string", "format": "date-time" }
+      }
+    },
+    "generated": {
+      "type": "object",
+      "required": ["by"],
+      "description": "OKF §5.2。plugin 推荐填写 `{ by: producer/aeps-llm-wiki-plugin/{version}, at: ISO8601 }`。",
+      "properties": {
+        "by": {
+          "type": "string",
+          "description": "actor convention(OKF §7);REQUIRED within generated。"
+        },
+        "at": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC(OKF §5)。" }
+      }
+    },
+    "verified": {
+      "description": "OKF §5.2 验证事件列表。**bare mapping 兜底**:single verifier 可写成无列表短横的 `{ by, at }` 映射;消费方 MUST 把 bare mapping 当作单元素列表处理(详见 frontmatter-spec.md §4.3.2)。",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["by", "at"],
+            "properties": {
+              "by": { "type": "string" },
+              "at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["by", "at"],
+          "properties": {
+            "by": { "type": "string" },
+            "at": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "stable", "deprecated"],
+      "default": "stable",
+      "description": "OKF §5.4。生命周期状态;默认 stable。"
+    },
+    "stale_after": {
+      "type": "string",
+      "format": "date-time",
+      "description": "OKF §5.5。绝对时刻;plugin lint 据此判陈旧(`now >= stale_after` 即陈旧)。唯一陈旧度信号,无 fallback。"
+    },
+    "runtime": {
+      "type": "string",
+      "description": "OKF §4.6 Attested Computation 契约字段。**plugin 当前不使用**(plugin 不实现此类型,详见 frontmatter-spec.md §11.5);保留 schema 定义供 OKF reader 解析外部 OKF bundle 时兼容。runtime 决定 parameters 语义(如 bigquery / postgres / dbt / python / Looker)。"
+    },
+    "parameters": {
+      "type": "array",
+      "description": "OKF §4.6 Attested Computation 契约字段。**plugin 当前不使用**;保留供 OKF reader 兼容。`[{ name, type, required }]` 列表,agent 仅可填值,不可改写或编辑计算本身。",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "computation": {
+      "type": "string",
+      "description": "OKF §4.6 Attested Computation 契约字段。**plugin 当前不使用**;保留供 OKF reader 兼容。计算文件路径(§5.2 三种形式);缺省用正文 `# Computation` 围栏。"
+    },
+    "executor": {
+      "type": "object",
+      "description": "OKF §4.6 Attested Computation 契约字段。**plugin 当前不使用**;保留供 OKF reader 兼容。`{ resource, receipt: [{field_names}] }` —— 如何跑、跑出什么。",
+      "properties": {
+        "resource": {
+          "type": "string",
+          "description": "路径型字段,见 §5.2 三种形式。"
+        },
+        "receipt": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "attester": {
+      "type": "object",
+      "description": "OKF §4.6 Attested Computation 契约字段。**plugin 当前不使用**;保留供 OKF reader 兼容。`{ resource }` —— 确定性核验代码路径。",
+      "properties": {
+        "resource": {
+          "type": "string",
+          "description": "路径型字段,见 §5.2 三种形式。"
+        }
+      }
+    },
+    "source_file": {
+      "type": "string",
+      "description": "[plugin ext, source 必填] **Obsidian wikilink 文本**(裸文件名 + 可选显示文本),指向 raw/{subdir}/{原文件}。Obsidian 渲染为可点击蓝色下划线链接,点击打开原文件(pdf/docx/png 等)。语法:`[[xxx.pdf]]` 或 `[[xxx.pdf|显示文本]]`。例:`source_file: \"[[01-晶心/Andeis Overview and RISC-V Solutions 260130.pdf]]\"`。跨 reader(GitHub/VSCode)降级显示为原始 wikilink 文本。详见 frontmatter-spec.md §12.5。"
+    },
+    "format": {
+      "type": "string",
+      "description": "[plugin ext, source 必填] 原文件扩展名(小写):pdf / pptx / docx / xlsx / png / jpg / jpeg / bmp / tiff / md / txt / json / yaml / yml / xml / html / htm / csv / rst / markdown。"
+    },
+    "converter": {
+      "type": ["string", "null"],
+      "enum": ["anydoc", "paddleocr", "claude-native", null],
+      "description": "[plugin ext, source 必填] 实际走过的读取路径(详见 PRD §4.2 文件读取策略 4 路径分流):null = 路径 1 纯文本直接读;claude-native = 路径 2 Claude Code 原生识别成功(不落 .converted.md,native_text=true);anydoc = 路径 3 Claude Code 不能识别,降级 anydoc 转换;null 表示纯文本直接读。paddleocr = 路径 4 OCR(图片)。**null 是 JSON Schema 空值类型,不是字符串 'null'**(详见 frontmatter-spec.md §12.6)。"
+    },
+    "native_text": {
+      "type": "boolean",
+      "description": "[plugin ext, source 必填] 是否原生纯文本;决定是否生成 .converted.md 副本。纯文本 .md / .txt / .json 等为 true。"
+    },
+    "converted_path": {
+      "type": ["string", "null"],
+      "description": "[plugin ext, source 必填] md 副本相对 knowledge/ 路径;null 表示纯文本无副本。例:`./raw/06_功能安全/iso26262.pdf.converted.md`。**null 是 JSON Schema 空值类型,不是字符串 'null'**(详见 frontmatter-spec.md §12.6)。"
+    },
+    "sources_used": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[plugin ext, analysis 必填] 本次 query 参考的 wiki 页相对路径列表(去重,SKILL.md 扫阶段 2 命中 + 阶段 3 引用路径自动抓)。lint C15.2 校每条存在。"
+    },
+    "answer_to": {
+      "type": "string",
+      "description": "[plugin ext, analysis 必填] 原 query 问句;G11 落档分析页必备。"
+    },
+    "sources_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "[plugin ext, **REQUIRED for type: analysis / synthesis / comparison**;其他 type 推荐] 当前 wiki 页引用的 wiki 页/资料数(入度);synthesis < 3 WARN。3 种综合类 type 必填(FAIL on 缺失);source / entity.* / concept.* 不强制。与 OKF §5.1 `sources[].usage_count`(原始素材被消费次数,原始活跃度)语义不同。"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "[plugin ext, **REQUIRED**(plugin 强化)] LLM 最后一次综合推演该页的时间(读事件);所有 6 种 type 的 allOf.required 列表必含本字段,FAIL on 缺失。与 OKF §5.2 `generated.at`(写事件)语义不同;lint C15.2 `--fix` 不动(Q7 死循环防护)。不参与陈旧度判断(陈旧度统一用 `stale_after`,详见 frontmatter-spec.md §12.2)。"
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 280,
+      "description": "[plugin ext, **REQUIRED for type: analysis / synthesis / comparison**;其他 type 推荐] 长摘要(≤ 280 字);Obsidian 顶部 summary 卡片。3 种综合类 type 必填(FAIL on 缺失);source / entity.* / concept.* 不强制(可选填)。与 OKF §4.1 `description`(单句静态语义摘要)语义不同:description 是定义,summary 是当前快照。analysis 页首行格式:**问题**: {answer_to},余下 ≤ 280 字符。"
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[plugin ext, plugin 推荐] Obsidian 原生别名机制:string[],为页面注册若干别名,使 `[[alias]]` 形式的 wikilink 可解析到本页(详见 PRD §10 Q9 + frontmatter-spec.md §5.1)。例:`aliases: [Andrej Karpathy, Karpathy]`。OKF reader 按未知字段忽略(MUST NOT reject)。"
+    }
+  },
+  "allOf": [
+    {
+      "description": "type: source 必填字段组",
+      "if": { "properties": { "type": { "const": "source" } } },
+      "then": {
+        "required": ["title", "description", "tags", "resource", "generated", "source_file", "format", "converter", "native_text", "converted_path", "updated"]
+      }
+    },
+    {
+      "description": "type: analysis 必填字段组",
+      "if": { "properties": { "type": { "const": "analysis" } } },
+      "then": {
+        "required": ["title", "description", "tags", "sources", "generated", "answer_to", "sources_used", "sources_count", "summary", "updated"]
+      }
+    },
+    {
+      "description": "type: comparison 必填字段组",
+      "if": { "properties": { "type": { "const": "comparison" } } },
+      "then": {
+        "required": ["title", "description", "tags", "sources", "generated", "sources_count", "summary", "updated"]
+      }
+    },
+    {
+      "description": "type: synthesis 必填字段组",
+      "if": { "properties": { "type": { "const": "synthesis" } } },
+      "then": {
+        "required": ["title", "description", "tags", "sources", "generated", "sources_count", "summary", "updated"]
+      }
+    },
+    {
+      "description": "type: entity.* 必填字段组",
+      "if": { "properties": { "type": { "pattern": "^entity\\." } } },
+      "then": {
+        "required": ["title", "description", "tags", "sources", "generated", "updated"]
+      }
+    },
+    {
+      "description": "type: concept.* 必填字段组",
+      "if": { "properties": { "type": { "pattern": "^concept\\." } } },
+      "then": {
+        "required": ["title", "description", "tags", "sources", "generated", "updated"]
+      }
+    }
+  ],
+  "not": {
+    "description": "禁止发明 OKF 之外的『结构性』frontmatter 字段(PRD §10 Q7)。OKF 未定义的结构性字段(如 `links:`)一律禁用。",
+    "anyOf": [
+      {
+        "required": ["links"],
+        "description": "禁止 frontmatter `links:` 字段;OKF §5 lineage 走正文链接。"
+      }
+    ]
+  }
+}
