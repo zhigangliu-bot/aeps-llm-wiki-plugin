@@ -60,13 +60,13 @@ aliases:
 
 - 本页由 `/aeps-llm-wiki-ingest` 从源页抽取 entity 时自动生成,或用户手工创建
 - `type` 取值必须与目录 1:1 绑死:`entity.person` → `knowledge/entities/person/`
-- 其他 6 个子类共用本骨架,仅替换 `type` + `{子类名}` 占位符:
-  - `entity.organization` → `knowledge/entities/organization/`
-  - `entity.project` → `knowledge/entities/project/`
-  - `entity.product` → `knowledge/entities/product/`
-  - `entity.event` → `knowledge/entities/event/`
-  - `entity.place` → `knowledge/entities/place/`
-  - `entity.other` → `knowledge/entities/other/`
+- 其他 6 个子类**各自有差异化骨架**(`page-entity-organization.md` / `project` / `product` / `event` / `place` / `other`),不再共用本骨架:
+  - `entity.organization` → `page-entity-organization.md`
+  - `entity.project` → `page-entity-project.md`
+  - `entity.product` → `page-entity-product.md`
+  - `entity.event` → `page-entity-event.md`
+  - `entity.place` → `page-entity-place.md`
+  - `entity.other` → `page-entity-other.md`
 - **aliases 字段**(plugin 推荐,人名页强推荐):本页 `[[Karpathy]]` 别名通过 `aliases: [...]` 注册,`aliases` 详见 `frontmatter-spec.md` §12.4
 - lint 必查:frontmatter 必填字段 + `type` 与目录一致 + 正文链接目标存在(`[[wikilink]]` 与标准 markdown 链接混用检测,优先 wikilink)
 - C15.5 反转(PRD Q9):wikilink 不再 FAIL;`--fix` 反向将正文标准 markdown 链接 → `[[wikilink]]`(代码层待实现)

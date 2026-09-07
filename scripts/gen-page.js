@@ -238,7 +238,11 @@ function main() {
   const NO_FM = new Set(["source", "entity.person"]); // 先按 type 映射,真正无 FM 的 page 是 index/overview/glossary/log,这里只兜底
   const tplName = (() => {
     if (type === "source") return "page-source.md";
-    if (type.startsWith("entity.")) return "page-entity-person.md"; // 7 子类共用骨架
+    // entity.* 7 子类差异化骨架(对齐 concept-entities-spec.md §3)
+    if (type.startsWith("entity.")) {
+      const subtype = type.slice("entity.".length); // person / organization / project / product / event / place / other
+      return `page-entity-${subtype}.md`;
+    }
     if (type.startsWith("concept.")) return "page-concept-theory.md"; // 7 子类共用骨架
     return `page-${type}.md`;
   })();

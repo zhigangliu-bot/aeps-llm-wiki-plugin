@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
-plugin-version: 0.5.5
+plugin-version: 0.5.6
 ---
 
 # /aeps-llm-wiki-ingest
@@ -153,6 +153,8 @@ LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 node scripts/gen-page.js --type <entity|concept>.<subtype> --slug <slug> \
   --title "<title>" --json
 ```
+
+**entity.* 模板差异化**:`gen-page.js` 按 `entity.<subtype>` 自动选 7 个差异化模板(`page-entity-{person,organization,project,product,event,place,other}.md`,对齐 `doc/template/concept-entities-spec.md` §2),不再让 `event / organization / project / product / place` 共用 person 骨架(## 代表工作 / ## 关键思想 对这些子类不适用)。`concept.*` 7 子类当前共用 `page-concept-theory.md` 骨架,如后续发现 concept 子类也需要差异化,按相同模式扩展。
 
 ### 步骤 11:LLM 填 entity / concept 正文
 
