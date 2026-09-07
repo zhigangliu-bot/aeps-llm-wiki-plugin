@@ -158,6 +158,37 @@ aeps-llm-wiki-plugin/
 
 ---
 
+## Auto update(每个 session 自动)
+
+本 plugin 在 `SessionStart` event 注册了一个 hook(`hooks/hooks.json`,matcher = `startup`)。每次新会话开始时,hook 会**静默**执行:
+
+1. `git ls-remote origin HEAD` 拿远端 commit SHA,跟本地 `git rev-parse HEAD` 比对
+2. 一致 → 静默,session 正常初始化(**无打扰**)
+3. 不一致 → `git pull --ff-only origin main` 自动拉取;成功后通过 `hookSpecificOutput.additionalContext` 在 session 开头告知你已升级:
+   ```
+   📦 aeps-llm-wiki 已升级(0.5.4 → 0.5.5)。当前 session 仍使用旧代码,运行 `/reload-plugins` 后生效。
+   ```
+4. 拉取失败 → 在 session 开头告知你手动处理:
+   ```
+   ⚠️ aeps-llm-wiki 有新版本但自动升级失败(原因:truncated)。请手动处理:
+   在 plugin 根目录跑 `git pull --ff-only origin main`,
+   或重新 `/plugin install aeps-llm-wiki@aeps-public-marketplace`。
+   ```
+5. 远端历史被 force-push 重写过(导致 cache 跟远端分叉) → 自动 `git fetch` + `git reset --hard origin/main`,告知文案里说「远端历史被改写」+ `/reload-plugins`
+
+**关键不变量**:
+
+- **零打扰**:hook 成功(sha 一致)→ 完全静默,session 开头**没有**任何额外输出
+- **不阻断**:任何 throw / git 缺失 / plugin.json 缺字段 / 网络异常 → stdout 空,exit 0,session 初始化不受影响
+- **无 npm 依赖**:纯 Node.js 内置 API(`node:fs/promises` / `node:child_process` / `node:path`),~250 行可读可审
+- **每个 session 都 fetch**:不节流;版本未变不告知
+
+**注意**:升级在本 session **不生效**(hook 跑完后,本 session 已加载的 plugin 代码是旧的);要立即用新代码,跑 `/reload-plugins`。下一个 session 会自然用新代码。
+
+详见 `doc/design/prd.md` §4.7 + `scripts/update-check/README.md`。
+
+---
+
 ## 开发
 
 ### 环境要求
@@ -187,6 +218,59 @@ node scripts/init/test/e2e.js
 - **Karpathy LLM Wiki**:`balukosuri/llm-wiki-karpathy`(本仓库 `reference/` 镜像)
 - **OKF v0.2**:Google Cloud Open Knowledge Format(本仓库 `doc/input/google-OKF/` 镜像)
 - **Obsidian**:https://obsidian.md/
+
+---
+
+## 踩过的坑(Auto update 实现期间的真实教训)
+
+> 这一节是给后续维护者看的真实记录,不是教程。Auto update hook 看似简单(`ls-remote` + `rev-parse` + `pull`),实际落地遇到了三个非预期问题。
+
+### 坑 1:远端 force-push 会破坏 cache 的 `git pull --ff-only`
+
+**场景**:我们在 plugin 仓做了一次 `git push --force-with-lease`(为了清理老 init/test 目录的提交历史)。用户的 cache 仓(`~/.claude/plugins/cache/.../0.5.5/`)本来 `git pull --ff-only origin main` 应该一路顺畅,**但因为远端历史被改写**,本地 HEAD 找不到 ancestor,fast-forward 失败 → 永远停在老 commit,hook 报 `pull-failed`,session 开头一直骚扰用户「请手动 pull」。
+
+**修复**:hook 检测到 `pull --ff-only` 失败时,**不立刻报错**,而是 fallback 跑 `git fetch origin main` + `git reset --hard origin/main`。前提是 working tree 干净(若有未提交改动,reset 会失败,这时才报 `diverged-reset-failed` 让用户手动处理)。
+
+**给维护者的提示**:任何时候**对 plugin 远端仓做 force-push 前**,先在团队/社群公告;否则所有已安装用户的 cache 都会掉队一次,且只能靠 hook 的 reset fallback 自动恢复。
+
+### 坑 2:plugin cache 默认 remote URL 是 **SSH**,不是 HTTPS
+
+**场景**:Claude Code install plugin 时把 remote URL 记录成 `git@github.com:zhigangliu-bot/aeps-llm-wiki-plugin.git`(SSH)。多数 Windows 用户(以及部分 CI 环境)**没配 GitHub SSH key**,hook 跑 `git ls-remote` 时报:
+
+```
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+```
+
+hook 退化成 `detect-failed` → 静默退出,**用户根本不知道有更新可拉**(等于 hook 失效了)。
+
+**最终解决方案**(三个候选,我们选了 B):
+
+| 方案 | 操作 | 代价 |
+|---|---|---|
+| A. 卸载重装 | `/plugin uninstall aeps-llm-wiki@aeps-public-marketplace` 后再 `/plugin install ...` | 让用户多走两步;cache 丢失 |
+| B. 改 cache 仓 remote 为 HTTPS(保留 cache) | `git -C "<cache>" remote set-url origin https://github.com/zhigangliu-bot/aeps-llm-wiki-plugin.git` + `git fetch origin` + `git reset --hard origin/main` | 用户手动一次;cache 保留,版本对齐 |
+| C. 给 GitHub 配 SSH key | 一劳永逸 | 用户门槛高(SSH key 生成 + GitHub 账号加 key) |
+
+我们最终选 **B**:cache 里其他 plugin 还在,只改本仓的 remote URL,然后 `reset --hard origin/main` 同步到远端最新 commit。**这是开发期一次性操作,生产用户不会主动触发**(他们直接 install plugin,remote 是 SSH;hook 会退化成 detect-failed 静默,**这是已知 trade-off**,后续考虑在 hook 里 fallback 到 HTTPS remote)。
+
+### 坑 3:hook 代码**本身也在 cache 里**,更新 hook 要重装 plugin
+
+**场景**:`scripts/update-check/check.js` 跟 plugin 其它文件一起装到 cache 仓里。**修改 hook 行为 → 必须让用户重装 plugin**(才能拿到新版 check.js)。但 hook 本身做的就是「自动帮用户拉最新 plugin」,**这构成了一个鸡生蛋的问题**:
+
+- hook 升级时 cache 还停在旧 hook 版本
+- 旧 hook 跑 `git pull --ff-only` 会拉到新 hook 版本
+- 但 hook 是 SessionStart 时跑一次,**已经在跑的 session 仍用旧 check.js 加载的代码**(语义不变,因为 check.js 是 stateless 函数,只是缺新状态机分支)
+
+**结论**:本地开发调试 hook 行为时,**别用 install 出来的 cache 仓**,直接 `cd` 到开发仓跑 `node scripts/update-check/check.js --check-only` / `--pull`(CLI 模式);发布到远端后,用户**下个 session** 自然用上新 hook。
+
+### 总结:Auto update 不是「装完就一劳永逸」的
+
+- 远端 force-push → 触发 hook 的 reset 分支(已自动处理)
+- 用户的 cache remote 是 SSH 且没配 key → hook 静默失效(用户需手动改 HTTPS 一次,见坑 2)
+- hook 代码自身升级 → 用户下个 session 自动生效,本 session 仍用旧(预期行为)
+
+任何 hook 边界外的特殊情况(本地有未提交改动 / cache 仓被手工破坏 / 多个 plugin 互相冲突),走 fallback 文案告诉用户手动。
 
 ---
 

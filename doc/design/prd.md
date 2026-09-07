@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:已冻结(v0.4.1,2026-09-06)
+> **状态**:已冻结(v0.5.0,2026-09-07)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;实现期细节见 [design.md](./design.md),执行清单见 `implement.md`(待写)
@@ -14,6 +14,7 @@
 | v0.4.0-draft | 2026-09-06 | 二次瘦身(573 → 431 行,-25%):§4.1.1 职责分层整节外移;§4.2 5 路径分流表 + frontmatter 扩展字段表 + source 页正文结构 + 强制溯源范围表外移;§4.4 lint C1-C20 集中表 + `--fix` 分流细节外移;§4.6 路径 B 计数器细节并入 design.md;§6.1 目录树缩成简表;§10「参考」并入 design.md §9;同步修复 §4.1 重复 CLAUDE.md 区块导致的代码块错位(虚假 `## Wiki 工作流` 占用 200 行)。design.md v0.1.0-draft 同批落地 |
 | v0.4.0 | 2026-09-06 | freeze(状态 + Change History) |
 | v0.4.1 | 2026-09-06 | AC-9(G10)重写为"原生优先 / 失败回退 anydoc"二选一验收(对齐 design.md §3.2 + §7.2 原生优先原则);不放宽其它目标 |
+| v0.5.0 | 2026-09-07 | 新增 G12 + §4.7 Update check hook(SessionStart 自动检测远端 commit + ff-only 拉取 + force-push diverge 自动 reset + 拉取失败告知)。hook 代码 `scripts/update-check/check.js` + `hooks/hooks.json`,纯 Node.js 单文件零 npm 依赖。冻结基础为已实现 commit `92ba7a3` |
 
 ---
 
@@ -327,6 +328,59 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 | 6 | C5 lint 校验      | `comparison` 必含 `sources` 字段                                  | 否               |
 | 7 | 路径 B 计数器更新 | 仅 B + 仅拍板建页后更新                                           | 否               |
 | 8 | 拒绝路径          | 仅追加 `**Creation Skipped**` 到 log                              | 否               |
+
+### 4.7 Update check hook
+
+**触发**:`SessionStart` event hook(`hooks/hooks.json`,matcher = `startup`)。每次新会话开始时由 Claude Code 自动调用 `scripts/update-check/check.js`,无用户感知延迟。
+
+**目标**(**G12**,对应 M3 里程碑):
+
+- **G12**:用户在每个 session 开始时**自动**获得 plugin 最新版本,**无需手动卸载重装**。具体:
+  - hook 启动时 `git ls-remote origin HEAD` 拿远端 commit SHA,跟本地 `git rev-parse HEAD` 比对
+  - 一致 → 静默,exit 0,session 正常初始化
+  - 不一致 → `git pull --ff-only origin main` 自动拉取;成功后通过 `hookSpecificOutput.additionalContext` 在 session 开头告知用户(📦 ... → ...);失败或 force-push diverge 见下表
+  - 每个 session 都 fetch(无 throttle);版本未变不告知
+  - 只拉 `aeps-llm-wiki-plugin`(仓根即 plugin 根,无 monorepo 拆分)
+  - 不阻断 session 初始化:任何 throw / 网络异常 / git 缺失 / plugin.json 缺字段 → 静默,exit 0
+  - 零 npm 依赖(Node.js 内置 `node:fs/promises` / `node:child_process` / `node:path`),单文件 ~250 行可读可审
+
+**状态机**(hook 报告给用户的 4 类消息):
+
+| 状态 | 触发条件 | 告知用户文案(模板) | 用户下一步动作 |
+|---|---|---|---|
+| `no-update` | local SHA == remote SHA | (无,静默) | 无 |
+| `updated` | `git pull --ff-only origin main` 成功 | `📦 aeps-llm-wiki 已升级(local → remote)。当前 session 仍使用旧代码,运行 /reload-plugins 后生效。` | 跑 `/reload-plugins` |
+| `pull-failed` | pull --ff-only 拒绝(dirty tree / 网络 / 鉴权),且 fetch 也失败 | `⚠️ aeps-llm-wiki 有新版本但自动升级失败(原因:truncated)。请手动处理:git pull --ff-only origin main,或重装 plugin。` | 手动 `git pull` 或 `/plugin install aeps-llm-wiki@aeps-public-marketplace` |
+| `diverged-reset` | pull --ff-only 拒绝(force-push 重写远端),但 `git fetch` + `git reset --hard origin/main` 成功 | `📦 aeps-llm-wiki 远端历史被改写(force-push),已重置到最新版本(local → remote)。当前 session 仍使用旧代码,运行 /reload-plugins 后生效。` | 跑 `/reload-plugins` |
+| `diverged-reset-failed` | reset 也失败(如 dirty working tree 阻挡 reset) | `⚠️ aeps-llm-wiki 远端历史被改写(force-push),本地 cache 跟远端已分叉(原因:truncated)。请手动处理:卸载后重装 plugin,或手动进 plugin 仓跑 git fetch && git reset --hard origin/main。` | 手动 reset 或 uninstall+install |
+
+**契约**(R1-R4,hook 必须满足):
+
+- **R1** 检测:`git ls-remote origin HEAD` + `git rev-parse HEAD`,SHA 一致则 `no-update`,不一致才继续走 R2
+- **R2** 拉取:`git pull --ff-only origin main`,失败 → fallback 到 `git fetch origin main` + `git reset --hard origin/main`,再失败 → `pull-failed` 状态(告知用户手动)
+- **R3** 告知(成功):stdout 输出 `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"📦 ..."}}` + 单换行;版本号取自 `.claude-plugin/plugin.json` 的 `version` 字段
+- **R4** 静默(失败):任何 throw / git 缺失 / plugin.json 缺字段 / exit 非 0 → stdout 空,exit 0,session 初始化不受影响
+
+**调用约定**(便于调试 / CI):
+
+- 默认(无 flag):hook 模式,JSON stdout,任何情况 exit 0
+- `--check-only`:CLI,只检测不拉取,纯文本 stdout,exit 0 / 1 / 2(便于手测 `node scripts/update-check/check.js --check-only`)
+- `--pull`:CLI,检测 + 拉取,纯文本 stdout,exit 0 / 1 / 2
+
+**非目标**:
+
+- ❌ 不实现 diff 显示(用户拉完直接看 plugin 仓根的 README/CHANGELOG)
+- ❌ 不实现版本号硬校验(只比对 commit SHA;plugin.json `version` 字段仅用于告知文案)
+- ❌ 不实现多 plugin 并行检测(marketplace 范围内本 plugin 独立)
+- ❌ 不实现 marketplace 级别的更新通知(单 plugin scope)
+- ❌ 不写 G11 gating 规则里那种"用户拍板才执行"的逻辑 —— 升级由 hook 自动执行,失败才打断用户
+
+**实现位置**:
+
+- hook 代码:`scripts/update-check/check.js`(单文件,零 npm 依赖)
+- hook 配置:`hooks/hooks.json`(SessionStart matcher = startup)
+- 单测:`scripts/update-check/test/check.test.js`(36 用例覆盖 semver / SHA / 状态机 / 静默分支 / JSON 协议)
+- 模块 README:`scripts/update-check/README.md`
 
 ---
 
