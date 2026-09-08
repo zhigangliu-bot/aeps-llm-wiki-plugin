@@ -2,6 +2,7 @@
 name: aeps-llm-wiki-init
 description: 初始化 aeps-llm-wiki 知识库目录结构(首次启用 / 幂等再入)
 plugin-version: 0.5.5
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/patch-claude-md.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-report.js*)
 ---
 
 # /aeps-llm-wiki-init
@@ -29,7 +30,7 @@ init skill 把 plugin 仓的 `doc/` + `scripts/` 同步到用户工程根,**目�
 ### 步骤 0:探测工程状态(只读)
 
 ```bash
-node scripts/init/detect-state.js --project <用户工程根> --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js --project <用户工程根> --json
 ```
 
 读 stdout JSON 解析:
@@ -40,7 +41,7 @@ node scripts/init/detect-state.js --project <用户工程根> --json
 ### 步骤 1:首次启用 dry-run 预览
 
 ```bash
-node scripts/init/build-skeleton.js --project <dir> --dry-run --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js --project <dir> --dry-run --json
 ```
 
 把 JSON 输出展示给用户(包含 `created[]` 列表),询问"是否继续?是 / 否 / 调整路径"。
@@ -50,7 +51,7 @@ node scripts/init/build-skeleton.js --project <dir> --dry-run --json
 用户拍板后:
 
 ```bash
-node scripts/init/build-skeleton.js --project <dir> --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js --project <dir> --json
 ```
 
 JSON 含 `counts.gitkeepTotal`(应为 39=6+18+15)+ `created[]` 列表。
@@ -60,7 +61,7 @@ JSON 含 `counts.gitkeepTotal`(应为 39=6+18+15)+ `created[]` 列表。
 无论是首次还是幂等再入,都跑:
 
 ```bash
-node scripts/init/sync-files.js --project <dir> --plugin-root <plugin-root> --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js --project <dir> --plugin-root <plugin-root> --json
 ```
 
 JSON 含 `added / updated / skipped / warned` 4 数组 + 计数。
@@ -71,7 +72,7 @@ JSON 含 `added / updated / skipped / warned` 4 数组 + 计数。
 ### 步骤 4:CLAUDE.md 受控区块
 
 ```bash
-node scripts/init/patch-claude-md.js --project <dir> --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/init/patch-claude-md.js --project <dir> --json
 ```
 
 JSON 含 `action: created|appended|updated|skipped|error`。
@@ -83,10 +84,10 @@ JSON 含 `action: created|appended|updated|skipped|error`。
 
 ```bash
 # 把步骤 2/3/4 的 stdout JSON 串起来
-(node scripts/init/build-skeleton.js --project <dir> --json; \
- node scripts/init/sync-files.js --project <dir> --plugin-root <plugin-root> --json; \
- node scripts/init/patch-claude-md.js --project <dir> --json) \
- | node scripts/init/sync-report.js --project <dir>
+(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js --project <dir> --json; \
+ node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js --project <dir> --plugin-root <plugin-root> --json; \
+ node ${CLAUDE_PLUGIN_ROOT}/scripts/init/patch-claude-md.js --project <dir> --json) \
+ | node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-report.js --project <dir>
 ```
 
 人类可读输出,展示 added/updated/skipped/warned 计数 + 文件列表。

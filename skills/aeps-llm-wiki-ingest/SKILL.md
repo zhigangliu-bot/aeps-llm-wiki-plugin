@@ -2,6 +2,7 @@
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
 plugin-version: 0.5.6
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
 # /aeps-llm-wiki-ingest
@@ -52,7 +53,7 @@ ls temp/ingest-batch-*.json 2>/dev/null
 ### 步骤 0.5:依赖 preflight(必跑)
 
 ```bash
-node scripts/ingest/preflight.js --scripts-dir <用户工程根>/scripts --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --scripts-dir <用户工程根>/scripts --json
 ```
 
 读 stdout JSON:
@@ -65,7 +66,7 @@ node scripts/ingest/preflight.js --scripts-dir <用户工程根>/scripts --json
 ### 步骤 1:扫 inbox
 
 ```bash
-node scripts/ingest/scan-inbox.js --inbox inbox/ --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --inbox inbox/ --json
 ```
 
 读 stdout JSON:
@@ -76,7 +77,7 @@ node scripts/ingest/scan-inbox.js --inbox inbox/ --json
 
 ```bash
 # 对每个文件分别调(也可用 --batch 批模式)
-node scripts/ingest/classify.js --file inbox/<file> --check-deps --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --file inbox/<file> --check-deps --json
 ```
 
 读 stdout JSON:
@@ -87,7 +88,7 @@ node scripts/ingest/classify.js --file inbox/<file> --check-deps --json
 - PDF 原生失败 → 用 `--route 3` 覆盖默认(SKILL.md 显式重跑)
 
 ```bash
-node scripts/ingest/convert-to-md.js --file inbox/foo.pdf --emit-to inbox/ --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --file inbox/foo.pdf --emit-to inbox/ --json
 ```
 
 - 路径 1/2 → 跳过本步
@@ -106,7 +107,7 @@ SKILL.md 与用户对话拍板,**不**写 `infer-intent.js` / `dedupe.js`(LLM �
 ### 步骤 4:创建 batch + 迁 raw/
 
 ```bash
-node scripts/ingest/init-batch.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js \
   --project <用户工程根> \
   --files '<scan-inbox JSON 的 files[]>' \
   --emit-dir <用户工程根>/temp/ --json
@@ -116,11 +117,11 @@ node scripts/ingest/init-batch.js \
 
 ```bash
 # dry-run 先看
-node scripts/ingest/move-to-raw.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js \
   --project <用户工程根> --batch <batch_file> --json
 
 # 拍板后 --apply (若有同名冲突,先 --decision y|n|d)
-node scripts/ingest/move-to-raw.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js \
   --project <用户工程根> --batch <batch_file> --decision y --apply --json
 ```
 
@@ -137,7 +138,7 @@ node scripts/ingest/move-to-raw.js \
 LLM 拍板下面 4 个 OKF 推荐字段后传入 `gen-page.js`(对齐 `templates/page-source.md` 模板头部,避免前次 M2.2 落地时的字段缺失 bug):
 
 ```bash
-node scripts/gen-page.js --type source --slug <slug> \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type source --slug <slug> \
   --ext <ext> --subdir <raw_subdir> \
   --title "<title>" \
   --description "<OKF v0.2 §4.1 推荐:一句话 30-80 字概括>" \
@@ -176,7 +177,7 @@ LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 ### 步骤 10:建 entity / concept 页 skeleton
 
 ```bash
-node scripts/gen-page.js --type <entity|concept>.<subtype> --slug <slug> \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type <entity|concept>.<subtype> --slug <slug> \
   --title "<title>" --json
 ```
 
@@ -191,7 +192,7 @@ node scripts/gen-page.js --type <entity|concept>.<subtype> --slug <slug> \
 ### 步骤 12:回填 source 页 `## 相关页面` + entity/concept 页 `## 来源资料`(双向反链,完全重建)
 
 ```bash
-node scripts/ingest/build-related-pages.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js \
   --project <用户工程根> --batch <batch_file> --apply --json
 ```
 
@@ -208,7 +209,7 @@ LLM 决定:命名飘合并 / 改链等。
 ### 步骤 14:更新 glossary.md(增量合并)
 
 ```bash
-node scripts/aggregate-index.js --knowledge knowledge/ --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --json
 ```
 
 (本步为 query/synthesize 共享;ingest 跑完调一次,确保 index.md 反映新页)
@@ -224,7 +225,7 @@ node scripts/aggregate-index.js --knowledge knowledge/ --json
 ### 步骤 17:追加 log.md(最新在前,ISO 8601)
 
 ```bash
-node scripts/ingest/append-log.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js \
   --project <用户工程根> --batch <batch_file> --apply --json
 ```
 
@@ -245,7 +246,7 @@ rm temp/ingest-batch-{ts}.json
 当前为 M2.4 预留 stub:
 
 ```bash
-node scripts/ingest/lint-stub.js --project <用户工程根> --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --project <用户工程根> --json
 ```
 
 读 stdout JSON:`linted` 字段反映本次扫到的 knowledge/ 页数;`fail` / `warn` 在 stub 阶段固定为 0;M2.4 真实实现替换 stub 内容,字段含义不变。
