@@ -257,18 +257,12 @@ function main() {
   }
 
   // 模板文件:无 frontmatter 特殊页(no-frontmatter)直接拼空 frontmatter
-  const NO_FM = new Set(["source", "entity.person"]); // 先按 type 映射,真正无 FM 的 page 是 index/overview/glossary/log,这里只兜底
+  // v0.5.7 起:entity.* / concept.* 7 子类统一走 page-entity.md / page-concept.md 通用模板,
+  // 旧的 14 个差异化模板(page-entity-{person,...}.md / page-concept-{theory,...}.md)已删除.
   const tplName = (() => {
     if (type === "source") return "page-source.md";
-    // entity.* 7 子类差异化骨架(对齐 concept-entities-spec.md §3)
-    if (type.startsWith("entity.")) {
-      const subtype = type.slice("entity.".length); // person / organization / project / product / event / place / other
-      return `page-entity-${subtype}.md`;
-    }
-    if (type.startsWith("concept.")) {
-      const subtype = type.slice("concept.".length); // theory / method / field / phenomenon / standard / term / other
-      return `page-concept-${subtype}.md`;
-    }
+    if (type.startsWith("entity.")) return "page-entity.md";
+    if (type.startsWith("concept.")) return "page-concept.md";
     return `page-${type}.md`;
   })();
 

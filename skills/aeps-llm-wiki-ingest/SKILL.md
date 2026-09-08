@@ -181,9 +181,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type <entity|concept>.<subtype>
   --title "<title>" --json
 ```
 
-**entity.* 模板差异化**:`gen-page.js` 按 `entity.<subtype>` 自动选 7 个差异化模板(`page-entity-{person,organization,project,product,event,place,other}.md`,对齐 `doc/template/concept-entities-spec.md` §2),不再让 `event / organization / project / product / place` 共用 person 骨架(## 代表工作 / ## 关键思想 对这些子类不适用)。
-
-**concept.* 模板差异化**:`gen-page.js` 按 `concept.<subtype>` 自动选 7 个差异化模板(`page-concept-{theory,method,field,phenomenon,standard,term,other}.md`,对齐 `doc/template/concept-entities-spec.md` §3)。`## 核心原则 / ## 工作流 / ## 与传统笔记的差异` 仅适合 `theory`,对 `phenomenon / standard / term` 不适用。
+**entity.* / concept.* 通用骨架**(v0.5.7 起):`gen-page.js` 按 `entity.<subtype>` 自动选 [`page-entity.md`](../doc/template/page-entity.md);按 `concept.<subtype>` 自动选 [`page-concept.md`](../doc/template/page-concept.md)。**不再**使用旧的 7 个差异化模板(`page-entity-{person,organization,project,product,event,place,other}.md` / `page-concept-{theory,method,field,phenomenon,standard,term,other}.md`,已删除)。子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。
 
 ### 步骤 11:LLM 填 entity / concept 正文
 

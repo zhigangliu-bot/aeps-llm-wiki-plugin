@@ -7,7 +7,7 @@
 > - **[`page-comparison.md`](page-comparison.md)** — `type: comparison` 页(`tags:` 行必须以本字典为准)
 > - **[`page-synthesis.md`](page-synthesis.md)** — `type: synthesis` 页(`tags:` 行必须以本字典为准)
 >
-> 实体页([`page-entity-person.md`](page-entity-person.md) 等 7 个 entity 子类)与概念页([`page-concept-theory.md`](page-concept-theory.md) 等 7 个 concept 子类)同理 —— 同样以本字典为准。
+> 实体页([`page-entity.md`](page-entity.md);v0.5.7 起 7 个 entity 子类共用本通用模板)与概念页([`page-concept.md`](page-concept.md);v0.5.7 起 7 个 concept 子类共用本通用模板)同理 —— 同样以本字典为准。
 >
 > **复制策略**:**复制到用户项目**。init 时复制 `tag-spec.md` 到 `{project}/raw/tag-spec.md`;**用户再次调用 init skill 时按 append 策略同步**(详见 design.md §4.1.1 "幂等再入"):用户为主,plugin 新版内容 append 到本地副本,**不覆盖用户改过的内容**,lint 提示"plugin 新版有 X 条本地没有"。
 > **使用方**:SKILL.md 显式告知"需要时读 templates/tag-spec.md";LLM ingest / lint 时必须查字典

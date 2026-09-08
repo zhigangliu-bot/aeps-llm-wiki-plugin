@@ -21,7 +21,7 @@ sources:
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.2"
+  by: "producer/aeps-llm-wiki-plugin/0.5.6"
   at: "2026-09-04T15:00:00Z"
 
 # OKF §5.4 lifecycle(可选)
@@ -37,30 +37,18 @@ summary: "LayerZero 走 Ultra Light Node 预言机轻客户端,Wormhole 走 Guar
 
 # LayerZero vs Wormhole 跨链机制对比
 
-【正文链接主推 `[[wikilink]]` 裸文件名(PRD §10 Q9,`doc/schema/schema.md` §3.1)。正文可放 `## 维度对比表` / `## 适用场景` / `## 风险点` 等;**常驻页**,后续 LLM 可 update。】
+【正文完全自由发挥。**正文链接主推 `[[wikilink]]` 裸文件名**(PRD §10 Q9,`doc/schema/schema.md` §3.1)。
 
-## 维度对比表
+comparison 页是**常驻**对照页(后续 LLM 可 update),不是 query 的一次性快照。LLM 根据对比对象的特性决定组织 —— 维度对比表 / 适用场景 / 风险点 / 决策树 / 时间线演进,任何结构都允许,**不锁骨架、不强制任何 H2 节名**。
 
-| 维度 | [[layerzero]] | [[wormhole]] |
-|---|---|---|
-| 信任假设 | 预言机 + Relayer 双签 | Guardian 多签守护网络 |
-| 安全模型 | Ultra Light Node 轻客户端 | Guardian 节点验证 |
-| 跨链消息延迟 | < 1 分钟 | 1-5 分钟 |
-| TVL(2026-09) | $X | $Y |
-| 适用场景 | 大量高频跨链消息 | 高价值跨链转账 |
-
-## 适用场景
-
-【基于 wiki 内 LayerZero / Wormhole 实体页与跨链桥概念页,总结两条路径的适用场景。】
-
-## 风险点
-
-【总结两条路径的已知风险与历史事故。】
+**唯一硬约束**:
+- frontmatter `sources:` 至少 2 条 entity/concept 页(lint C5 FAIL on 缺失)
+- `sources_count` 推荐填写,实际 ≥ 2】
 
 ## 关联导引(Related Links,`doc/schema/schema.md` §3.1 规则 3)
 
-- 综合:[[automotive-functional-safety]]
-- 分析:[[s32g-vs-s32k3-body-controller]]
+- 综合:[[<wikilink>]]
+- 分析:[[<wikilink>]]
 
 ---
 
@@ -72,6 +60,6 @@ summary: "LayerZero 走 Ultra Light Node 预言机轻客户端,Wormhole 走 Guar
   - `type` 必须是 `comparison`(否则 FAIL)
   - `sources` 必填,至少 2 条 entity/concept 页(否则 FAIL)
   - `sources_count` 推荐填写,实际 ≥ 2
-  - 正文不锁骨架(LLM 自由发挥)
+  - 正文**不锁骨架**(v0.5.7 起;旧版推荐的 `## 维度对比表` / `## 适用场景` / `## 风险点` 已废除)
   - C15.5 反转(PRD Q9):wikilink 不再 FAIL;`--fix` 反向将正文标准 markdown 链接 → `[[wikilink]]`(代码层待实现)
 - 与 `type: analysis` **职责分开**:analysis 是 LLM 综合推演的一次性快照,comparison 是用户长期查阅的对照表(PRD §4.6 路径 C 决策)

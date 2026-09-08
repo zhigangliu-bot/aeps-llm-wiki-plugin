@@ -412,8 +412,8 @@ ingest 涉及的依赖:
   - [doc/schema/frontmatter.schema.json](../schema/frontmatter.schema.json)—— 机器读校验
 - 模板:
   - [doc/template/page-source.md](../template/page-source.md)—— source 页模板
-  - [doc/template/page-entity-person.md](../template/page-entity-person.md)—— entity 共用骨架(7 子类)
-  - [doc/template/page-concept-theory.md](../template/page-concept-theory.md)—— concept 共用骨架(7 子类)
+  - [doc/template/page-entity.md](../template/page-entity.md)—— entity 通用骨架(v0.5.7 起,7 子类共用)
+  - [doc/template/page-concept.md](../template/page-concept.md)—— concept 通用骨架(v0.5.7 起,7 子类共用)
 - 已有可复用脚本:
   - `scripts/gen-page.js`—— 22 type 全齐的骨架生成
   - `scripts/aggregate-index.js`—— index/overview/glossary 聚合

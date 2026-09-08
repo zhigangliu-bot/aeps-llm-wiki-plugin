@@ -105,11 +105,11 @@
 | `README.md` | 本文件,字段总表 + 使用指南 | N/A |
 | `frontmatter.schema.json` | 已迁至 `doc/schema/frontmatter.schema.json` | ✅ |
 | `page-source.md` | `type: source`(4 路径分流:纯文本 / claude-native / anydoc / paddleocr;SKILL.md 按扩展名填 converter) | ✅ |
-| `page-entity-person.md` | `type: entity.person`(7 子类共用骨架) | ✅ |
-| `page-concept-theory.md` | `type: concept.theory`(7 子类共用骨架) | ✅ |
-| `page-analysis.md` | `type: analysis`(query 落档,G11 专属骨架) | ✅ |
-| `page-comparison.md` | `type: comparison`(常驻对照页) | ✅ |
-| `page-synthesis.md` | `type: synthesis`(常驻综合页) | ✅ |
+| `page-entity.md` | `type: entity.<subtype>`(7 子类通用骨架,v0.5.7 起) | ✅ |
+| `page-concept.md` | `type: concept.<subtype>`(7 子类通用骨架,v0.5.7 起) | ✅ |
+| `page-analysis.md` | `type: analysis`(query 落档;v0.5.7 起正文完全松绑,仅 `> 引用:` 行硬约束) | ✅ |
+| `page-comparison.md` | `type: comparison`(常驻对照页;v0.5.7 起正文完全松绑) | ✅ |
+| `page-synthesis.md` | `type: synthesis`(常驻综合页;v0.5.7 起正文完全松绑) | ✅ |
 | `doc/schema/schema.md` | `doc/schema/schema.md`(Agent 操作手册,统一入口) | N/A(无 frontmatter) |
 | `page-index.md` | `knowledge/index.md`(主目录) | N/A(无 frontmatter,OKF §8) |
 | `page-overview.md` | `knowledge/overview.md`(大图) | N/A |
@@ -129,12 +129,12 @@
 
 | 规则 | 适用类型 | 行为 |
 |---|---|---|
-| 3 节骨架硬约束 | `source` / `analysis` | 必含 `## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`(source)或 `## 方案推演 / 架构分析` / `## 关联溯源` / `## 总结:最有收获的一句话`(analysis);缺一 FAIL |
+| 3 节骨架硬约束 | `source` | 必含 `## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`;缺一 FAIL。`analysis` / `comparison` / `synthesis` / `entity.*` / `concept.*` v0.5.7 起**不锁 H2 骨架**,lint 仅校验 `> 引用:` 行(analysis 唯一保留硬约束) |
 | 禁用 `## 摘要` / `## Summary` | 所有 type | 长摘要走 frontmatter `summary` 字段;FAIL on 残留 |
 | `comparison` 必填 `sources` | `comparison` | FAIL on 缺失 |
 | `synthesis` `sources_count` < 3 | `synthesis` | WARN(避免空综合) |
 | `analysis` 必填 `sources_used` | `analysis` | 每条路径必须解析到真实存在的 `knowledge/**/*.md`;否则 FAIL |
-| `analysis` `## 关联溯源` 末行 `> 引用:` 与 `sources_used` 一致 | `analysis` | lint Set 比对,不一致 WARN |
+| `analysis` `> 引用:` 行与 `sources_used` 一致 | `analysis` | lint Set 比对,不一致 WARN。v0.5.7 起不要求在 `## 关联溯源` 节下,正文任意位置出现 `> 引用:` 行即可 |
 | `[[wikilink]]` 与标准 markdown 链接混用 | 所有 type | 同段落二选一,优先 wikilink(Q9 决策);`--fix` 自动转 wikilink(待实现) |
 | `links:` frontmatter 字段残留 | 所有 type | FAIL;`--fix` 删除字段(对齐 OKF §5) |
 
@@ -148,7 +148,7 @@
 
 | 类别 | 文件 | 作用 | 谁读 |
 |---|---|---|---|
-| **页面模板** | `page-{type}.md`(9 个:`source` / `entity-{person,organization,...}` / `concept-{theory,method,...}` / `analysis` / `comparison` / `synthesis` / `index` / `overview` / `glossary` / `log`) | 告诉 LLM "生成一个这种 `type` 的页面时,frontmatter 长啥样 + 正文骨架是啥" | 每个 skill 的 SKILL.md |
+| **页面模板** | `page-{type}.md`(v0.5.7 起共 6 个:`source` / `entity` / `concept` / `analysis` / `comparison` / `synthesis`;无 frontmatter 特殊页 `index` / `overview` / `glossary` / `log`) | 告诉 LLM "生成一个这种 `type` 的页面时,frontmatter 长啥样 + 正文骨架是啥" | 每个 skill 的 SKILL.md |
 | **字典规范** | `tag-spec.md` / `rawdir-spec.md` / `concept-entities-spec.md` | LLM 填字段时**查表**:tags 取值不能瞎写,子目录命名要按字典拍,entity/concept 二选一要按判定规则 | SKILL.md 跑时作为"约束输入"注入 LLM prompt |
 
 > **注意**:字段定义的**唯一权威**是 `doc/schema/frontmatter-spec.md`(本 README 第 0 段"权威顺序"已写);本目录**不是字段定义**,是"字段 + 骨架 + 例子 + 维护说明"的打包体。模板与 spec 冲突时以 spec 为准。
@@ -201,7 +201,7 @@
 |---|---|---|
 | **init** | 全部模板(9 个 `page-*.md` + 3 个字典) | `index.md` / `overview.md` / `glossary.md` / `log.md`(从对应模板建空白) |
 | **ingest** | `page-source.md`(按 5 路径分流填变量)+ `page-entity-{subtype}.md` / `page-concept-{subtype}.md`(按 LLM 提议的 entity/concept)+ `tag-spec.md` + `rawdir-spec.md` + `concept-entities-spec.md` | `knowledge/sources/{slug}.md` + `knowledge/entities/{subtype}/{slug}.md` + `knowledge/concepts/{subtype}/{slug}.md` + 增量更新 `index.md` / `glossary.md` / `log.md` |
-| **query** | `page-analysis.md`(G11 M1 落档,3 节专属骨架) | `knowledge/analyses/{timestamp}-{slug}.md` |
+| **query** | `page-analysis.md`(G11 M1 落档;v0.5.7 起正文完全松绑,仅 `> 引用:` 行硬约束) | `knowledge/analyses/{timestamp}-{slug}.md` |
 | **synthesize** | `page-synthesis.md`(常驻综合页)+ `tag-spec.md`(tags 6 轴) | `knowledge/syntheses/{topic-slug}.md` |
 | **lint** | **不写页**,只校验现存的页 frontmatter 是否符合 `schema/frontmatter-spec.md`;模板作为"预期形态"对照(例如 analysis 页必含 `## 关联溯源`) | — |
 

@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:已冻结(v0.5.1,2026-09-08)
+> **状态**:已冻结(v0.5.6,2026-09-08)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;实现期细节见 [design.md](./design.md),执行清单见 `implement.md`(待写)
@@ -16,6 +16,7 @@
 | v0.4.1 | 2026-09-06 | AC-9(G10)重写为"原生优先 / 失败回退 anydoc"二选一验收(对齐 design.md §3.2 + §7.2 原生优先原则);不放宽其它目标 |
 | v0.5.0 | 2026-09-07 | 新增 G12 + §4.7 Update check hook(SessionStart 自动检测远端 commit + ff-only 拉取 + force-push diverge 自动 reset + 拉取失败告知)。hook 代码 `scripts/update-check/check.js` + `hooks/hooks.json`,纯 Node.js 单文件零 npm 依赖。冻结基础为已实现 commit `92ba7a3` |
 | v0.5.1 | 2026-09-08 | **已知缺陷(hook 未生效)**:Claude Code 跑 SessionStart hook 时**未注入 `CLAUDE_PLUGIN_ROOT` env 变量**(实测 unset),hook 进入 R4 静默分支 return 0,session 开头无任何告知、无 pull 动作。`.in_use/{pid}` 标记可证明 hook 进程确实跑了,但因 plugin 根定位失败 → 完全无效。**未改代码**,仅记录;修复留待 v0.5.2 task(planning 阶段:把 plugin 根定位从「单 env」改为「cwd 兜底 + 向上找 .claude-plugin/plugin.json」) |
+| v0.5.6 | 2026-09-08 | **模板骨架全面松绑**(对齐 Karpathy LLM Wiki 模式「LLM 读源 + 人策展」+ 用户反馈「模板限制 LLM 自我发挥」):(1) `entity.*` / `concept.*` 14 个差异化骨架模板删除,合并为 1 个 `page-entity.md` / `page-concept.md` 通用模板;子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。(2) `analysis` 3 节专属骨架废除,正文完全自由发挥,仅保留 `> 引用:` 行与 `sources_used` 一致这一唯一硬约束;lint C4 改为 WARN/不锁。(3) `comparison` / `synthesis` 正文硬推荐 H2(`## 维度对比表` / `## 体系总览` 等)废除,正文完全自由发挥;`sources:` 必填与 `sources_count` ≥ 3 仍保留。(4) `source` 模板不动 —— 3 节必选 + 自由追加节本来就是混合骨架,符合「raw 层忠实摘录」语义。(5) AC-11 重写:analysis 落档仅校验 `> 引用:` 行存在性 + `sources_used` 一致性,**不再**要求 3 节骨架存在。同步改动:`scripts/gen-page.js` 改 entity/concept 模板选择逻辑(7 子类 → 1 通用);`skills/aeps-llm-wiki-ingest/SKILL.md` 步骤 10 / `doc/design/implement-ingest.md` §引用 / `doc/template/README.md` §3+§5+§6.1+§6.4 / `doc/template/tag-spec.md` §1 / `doc/template/concept-entities-spec.md` §2+§3 全部同步。新增 `doc/template/CHANGELOG.md` 记模板变更。**Lint 强度变化**(对齐 user feedback):entity/concept/comparison/synthesis 4 类 wiki 页结构约束由「H2 FAIL」变为「frontmatter + 链接 + `> 引用:`」三重校验,LLM 写作自由大幅提升。 |
 
 ---
 
@@ -57,7 +58,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
   - 重转策略:**不重转**(对齐 raw/ 不可变层 + G7 + Q5);需重转时由用户手工 `cp` 回 `inbox/` 走标准 ingest
   - 纯文本类(.md / .markdown / .rst / .txt / .csv / .json / .yaml / .yml / .xml / .html / .htm) **不生成** .converted.md 副本(原生可直接读)
 - **G11**:**query skill 落档为 analysis 页时消除 3 个隐患**(G11 衍生需求,见 §4.3):
-  - **结构**:`analyses/` 使用专属 3 节骨架：`## 方案推演 / 架构分析`、`## 关联溯源`、`## 总结:最有收获的一句话`。
+  - **结构**(v0.5.6 起):`analyses/` 正文**完全自由发挥**,不锁 H2 骨架。**唯一硬约束**:文末必须含 `> 引用:` 行,其 wikilink 列表与 `sources_used` Set 一致(lint C15.4 WARN)。旧版 3 节专属骨架(`## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`)已废除。
   - **溯源丢失**:`type: analysis` frontmatter **新增必填 `sources_used`**(本次回答参考的 wiki 页相对路径列表,供图跳转 + 后续 lint 校验;C15)
   - **Over-prompting**:**落档询问加 gating**(防 Exact 查证型 spam):仅在跨领域综述 / 对比分析 / 整合 ≥ 2 源 / 深度 ≥ 200 字 触发,Exact / 短答 / 未命中 / Wiki 未覆盖自动跳过
 
@@ -228,10 +229,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
   - 路径:`knowledge/analyses/{timestamp}-{slug}.md`
   - frontmatter 必填:`answer_to`(原问句)/ `sources_used`(本次回答参考的 wiki 页相对路径列表,SKILL.md 自动抓阶段 2 命中 + 阶段 3 引用路径)/ `generated_by: agent: producer/aeps-llm-wiki-plugin/{version}` / `summary`(首行 `**问题**: {原问句}`,余下 ≤ 280 字符)
-  - 正文 3 节专属骨架(缺一即 FAIL):
-    - `## 方案推演 / 架构分析` —— 核心推演与架构逻辑
-    - `## 关联溯源` —— 关键 Wiki 事实与依据;末行 `> 引用:` 列源路径(标准 markdown 链接),与 `sources_used` 双向引用,lint 校一致(Q7 死循环防护)
-    - `## 总结:最有收获的一句话` —— Core Verdict
+  - 正文**不锁 H2 骨架**(v0.5.6 起);**唯一硬约束**:文末必须含 `> 引用:` 行(标准 markdown 链接也可,wikilink 主推),其 wikilink / markdown 链接列表与 `sources_used` Set 一致,lint C15.4 WARN(Q7 死循环防护)
   - 出现 `## 摘要` / `## Summary` → 内容迁移到 frontmatter `summary` 字段
 
 **流程表**(步骤 / 做什么 / 写什么 / 阻塞):
@@ -247,7 +245,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 | 6  | 组织回答                | 每条断言附`[[wikilink]]`                                                       | 对话                                         | 是                                   |
 | 7  | 诚实声明                | 不编造;未覆盖 → 答"我读到的 wiki 里没有覆盖这点"                                | 对话                                         | 是                                   |
 | 8  | G11 gating 判定         | 4 触发任一命中 + 4 不触发全不命中 → 落档询问;否则跳过                           | 对话                                         | 是(触发 → 询问;不触发 → 跳过 9-11) |
-| 9  | 建 analysis 页 skeleton | `gen-page.js --type analysis --slug {timestamp}-{slug}` + 3 节专属骨架         | `knowledge/analyses/{timestamp}-{slug}.md` | 是                                   |
+| 9  | 建 analysis 页 skeleton | `gen-page.js --type analysis --slug {timestamp}-{slug}`(v0.5.6 起不再追加 3 节骨架 H2) | `knowledge/analyses/{timestamp}-{slug}.md` | 是                                   |
 | 10 | LLM 填 analysis 正文    | 仅 H2 之间正文;`answer_to` + `sources_used` + `summary` + 末行 `> 引用:` | 同上                                         | 是                                   |
 | 11 | 追加 log                | `**Creation**: query "{原问句}" → analyses/{file}.md                      | `knowledge/log.md`                         | 否                                   |
 
@@ -256,7 +254,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - **触发**:`/aeps-llm-wiki-lint [--fix]`
 - **报告项**:孤儿页 / 矛盾 / 陈旧页(`stale_after` 已填且过期,**未填一律静默跳过,不报陈旧、不 WARN**)/ 命名飘 / 漏链 / frontmatter 不合规 / 正文骨架不合规
 - **`--fix` 分流**:
-  - **确定性结构修复**(直接 patch + `log.md` 追加 `**LintFix**`):frontmatter 字段缺失补占位 / 类型错位强转 / `## 摘要` 残留删除并保留内容到 `summary` / sources/analyses 缺 3 节骨架 H2 追加占位 / 标准 markdown 链接残留转 `[[wikilink]]`
+  - **确定性结构修复**(直接 patch + `log.md` 追加 `**LintFix**`):frontmatter 字段缺失补占位 / 类型错位强转 / `## 摘要` 残留删除并保留内容到 `summary` / **source** 缺 3 节骨架 H2 追加占位(source 页仍保留 3 节骨架) / 标准 markdown 链接残留转 `[[wikilink]]`(v0.5.6 起 analysis 不再补 3 节骨架)
   - **语义级问题**(仅出**提案**等用户确认):矛盾 / 命名飘合并 / 漏链 / 陈旧页处理
 - **不应**:无 `--fix` 时静默修改文件
 
@@ -271,7 +269,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 | 2  | C17 模板一致性                     | 比对`gen-page.js` 模板产出                                                  | 只读                                                            | 否                                                |
 | 3  | C18 原生 + 副本矛盾                | source frontmatter 组合检查                                                   | 只读                                                            | 否                                                |
 | 4  | C19 降级日志                       | raw 对应原文件降级日志                                                        | 只读                                                            | 否                                                |
-| 5  | C3 + C4 3 节骨架                   | sources / analyses H2 存在性                                                  | 只读                                                            | 否                                                |
+| 5  | C3 3 节骨架                   | **仅 source** H2 存在性(`## 重点摘录` + `## 我的思考` + `## 总结:最有收获的一句话`);v0.5.6 起 analyses 不再校验 H2 骨架,仅校验 `> 引用:` 行存在性(C15.4) | 只读                                                            | 否                                                |
 | 6  | C2`## 摘要` 残留                 | 全部 type 禁用                                                                | 只读                                                            | 否                                                |
 | 7  | C5`comparison.sources`           | 必填校验                                                                      | 只读                                                            | 否                                                |
 | 8  | C6`synthesis.sources_count`      | < 3 WARN                                                                      | 只读                                                            | 否                                                |
@@ -448,8 +446,8 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
    - (a) **原生可读**:文件直迁 `raw/06_功能安全/iso26262.pdf`,**不生成** `.converted.md`;frontmatter `format: pdf` + `converter: claude-native` + `native_text: true` + `converted_path: null`;正文 `> 原始来源:` 指向原文件
    - (b) **原生失败**(双栏 / 扫描 / 加密 / 表格错位等):回退路径 3 → `raw/06_功能安全/iso26262.pdf` + `.converted.md` **同时存在**;frontmatter `format: pdf` + `converter: anydoc` + `native_text: false` + `converted_path: raw/06_功能安全/iso26262.pdf.converted.md`;正文 `> 原始来源:` 指向 md 副本
 - [ ] AC-10(G10):丢 `inbox/notes.md`(纯文本) → `raw/{subdir}/notes.md` 存在,**不**生成 `.converted.md`;frontmatter `format: md` + `converter: null` + `native_text: true` + `converted_path: null`;正文 `> 原始来源:` 指向原文件
-- [ ] AC-11(G11 M1):query 触发落档 → `analyses/{timestamp}-{slug}.md` 含**分析 3 节骨架**(`## 方案推演 / 架构分析` + `## 关联溯源` + `## 总结:最有收获的一句话`);**不含** `## 重点摘录` / `## 我的思考` / `## 摘要` / `## Summary`;lint C4 FAIL
-- [ ] AC-12(G11 M2):analysis `sources_used` 每条解析到真实 `knowledge/**/*.md`,否则 FAIL(C7);`## 关联溯源` 末行 `> 引用:` 与 `sources_used` Set 比对,不一致 WARN(C8);`--fix` 重写不动 `updated` + mtime(Q7)
+- [ ] AC-11(G11 M1, v0.5.6):query 触发落档 → `analyses/{timestamp}-{slug}.md` 含文末 `> 引用:` 行(其 wikilink 列表与 `sources_used` Set 一致,lint C15.4 WARN);**不含** `## 摘要` / `## Summary`(走 frontmatter `summary`)。**不再**校验 3 节骨架存在;analysis 正文完全自由发挥。
+- [ ] AC-12(G11 M2, v0.5.6):analysis `sources_used` 每条解析到真实 `knowledge/**/*.md`,否则 FAIL(C7);**正文任意位置**出现 `> 引用:` 行(不再要求在 `## 关联溯源` 节下)与 `sources_used` Set 比对,不一致 WARN(C8);`--fix` 重写不动 `updated` + mtime(Q7)
 - [ ] AC-13(G11 M3):gating e2e:Exact 无 prompt;Overview / Comparison 必有 prompt
 - [ ] AC-14(Related Pages source → entity/concept):source 页 `## 相关页面(Related Pages)` 固定含 `### Entities` + `### Concepts` 子标题;每次 ingest 完全重建,人工条目不保留;某组空仅删该子标题,全空删整节
 - [ ] AC-15(Related Pages 双向反链):entity / concept 页 `## 来源资料` 小节按 source `title` 排序;完全重建,人工条目不保留;无 source 引用删整节;Obsidian 反链面板可见
