@@ -12,6 +12,19 @@ plugin-version: 0.5.6
 
 用户在 `inbox/` 丢资料后跑 `/aeps-llm-wiki-ingest`(无参数,递归扫 `inbox/`)。
 
+## 路径布局(plugin 仓 vs 用户工程)
+
+plugin 仓根目录与 sync-files 同步出的用户工程根目录布局不同,这是 sync-files.js 故意分开的两个命名空间,**不是 bug**;脚本运行时用 `import.meta.dirname` 解析 plugin 仓路径,不依赖 cwd。
+
+| plugin 仓根 | 用户工程根 | sync 行为(sync-files.js) |
+|---|---|---|
+| `doc/schema/` | `schema/` | overwrite(SYNC-6) |
+| `doc/template/` | `templates/` | backfill missing;preserve existing |
+| `scripts/` | `scripts/` | backfill missing;preserve existing |
+| `.claude-plugin/` | — | 不进用户工程(由 plugin loader 处理) |
+
+历史背景:用户曾误以为 `doc/schema/` 应跟 `schema/` 一样,用过 `junction doc/schema → schema` 兜底;实际 plugin 仓路径正确,问题在于认知错位。
+
 ## 设计原则(必读)
 
 - **原生多模态优先**(PRD G10 + design §3.2):Claude Code 原生能读 → 路径 1/2 直接结束,**不生成 .converted.md**,不调 `convert-to-md.js`;不能 → 路径 3/4。
@@ -35,6 +48,19 @@ ls temp/ingest-batch-*.json 2>/dev/null
 - 无 → 继续
 
 对 inbox 每个文件,先让 Claude Code 直接读;能读 → 路径 1/2;不能 → 路径 3/4。
+
+### 步骤 0.5:依赖 preflight(必跑)
+
+```bash
+node scripts/ingest/preflight.js --scripts-dir <用户工程根>/scripts --json
+```
+
+读 stdout JSON:
+
+- `ok == true` → 进入步骤 1
+- `ok == false` → 缺失依赖,按 stderr `npm install` 提示让用户装,exit 0 后重跑本步
+
+**为什么单独一步**:SKILL.md L253 / L257 已规定不自动 `npm install`,但没规定 preflight 时机,导致用户首次跑步骤 1 才遇到 `Cannot find module 'js-yaml'` 类错误才意识到要装。preflight 把错误前置到流程最早节点。
 
 ### 步骤 1:扫 inbox
 

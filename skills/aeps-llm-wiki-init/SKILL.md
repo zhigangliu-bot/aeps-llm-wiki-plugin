@@ -8,6 +8,18 @@ plugin-version: 0.5.5
 
 初始化用户的 wiki 项目工程,生成 6 顶层目录 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引模板。已存在工程走幂等再入(只补缺失,不覆盖用户内容)。
 
+## 路径布局(plugin 仓 vs 用户工程)
+
+init skill 把 plugin 仓的 `doc/` + `scripts/` 同步到用户工程根,**目标路径与 plugin 仓源路径故意不同**(用户工程没有 `doc/` 前缀):
+
+| plugin 仓根 | 用户工程根 | sync 行为 |
+|---|---|---|
+| `doc/schema/` | `schema/` | overwrite |
+| `doc/template/` | `templates/` | backfill missing;preserve existing |
+| `scripts/` | `scripts/` | backfill missing;preserve existing |
+
+不要把 plugin 仓 `doc/schema/` 跟用户工程 `schema/` 视为同一目录的别名 — 它们是 sync-files.js 故意分开的命名空间。脚本运行时用 `import.meta.dirname` 解析 plugin 仓路径,不依赖 cwd。
+
 ## 触发
 
 用户在新项目里跑 `/aeps-llm-wiki-init`,或在已有项目里再跑一次。

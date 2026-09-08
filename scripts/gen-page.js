@@ -245,6 +245,17 @@ function main() {
     process.exit(1);
   }
 
+  // analysis / comparison / synthesis 必填字段验证(对齐 doc/template/page-{analysis,comparison,synthesis}.md)
+  // 防止静默生成残缺 frontmatter,触发下游 build-related-pages ajv 校验失败。
+  if (type === "analysis" && !args.answer_to) {
+    console.error("ERROR: --type analysis 必须 --answer-to (query 问题原文,30-80 字)");
+    process.exit(1);
+  }
+  if (["analysis", "comparison", "synthesis"].includes(type) && !args.sources_used && !args.sources_count) {
+    console.error(`ERROR: --type ${type} 必须 --sources-used 或 --sources-count`);
+    process.exit(1);
+  }
+
   // 模板文件:无 frontmatter 特殊页(no-frontmatter)直接拼空 frontmatter
   const NO_FM = new Set(["source", "entity.person"]); // 先按 type 映射,真正无 FM 的 page 是 index/overview/glossary/log,这里只兜底
   const tplName = (() => {
