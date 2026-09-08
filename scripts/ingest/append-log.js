@@ -67,7 +67,7 @@ function parseArgs(argv) {
 
 /**
  * 解析 log.md body 成 [{date, content}] 列表
- * 每个 H2 ## YYYY-MM-DD 占一段
+ * 每个 H2 ## [YYYY-MM-DD] 占一段(v0.5.6 起:对齐 Karpathy LLM Wiki log.md,加方括号视觉区分)
  * 自动剥离节末尾的 `---` 水平线(对齐 page-log.md 模板)与文末 `## 维护` 节,保证 round-trip 幂等
  */
 function parseLogSections(body) {
@@ -76,11 +76,11 @@ function parseLogSections(body) {
   const cutoff = lines.findIndex((l, i) => l.trim() === '## 维护');
   const core = cutoff >= 0 ? lines.slice(0, cutoff) : lines;
 
-  // 2. 按 ## YYYY-MM-DD H2 切片
+  // 2. 按 ## [YYYY-MM-DD] H2 切片(v0.5.6 起加方括号)
   const sections = [];
   let cur = null;
   for (const line of core) {
-    const m = line.match(/^##\s+(\d{4}-\d{2}-\d{2})\s*$/);
+    const m = line.match(/^##\s+\[(\d{4}-\d{2}-\d{2})\]\s*$/);
     if (m) {
       if (cur) sections.push(cur);
       cur = { date: m[1], content: [] };
@@ -108,7 +108,7 @@ function parseLogSections(body) {
 }
 
 /**
- * 把 sections 拼回 body(对齐 doc/template/page-log.md L9-21)
+ * 把 sections 拼回 body(对齐 doc/template/page-log.md,v0.5.6 起输出 ## [YYYY-MM-DD])
  * 每个日期节末尾追加 `---` 水平线
  * 文末追加 `## 维护` 节(若不存在)
  */
@@ -116,13 +116,13 @@ function renderLogSections(sections) {
   if (!sections.length) return '';
   const out = [];
   for (const s of sections) {
-    out.push(`## ${s.date}`);
+    out.push(`## [${s.date}]`);
     out.push('');
     out.push(...s.content);
     out.push('');
     out.push('---');
   }
-  // 文末 ## 维护 节(对齐模板 L29-37)
+  // 文末 ## 维护 节(对齐模板)
   out.push('');
   out.push('## 维护');
   out.push('');

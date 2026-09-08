@@ -1,12 +1,4 @@
-# 项目名 Wiki 变更日志
-
-> **plugin 版本**:0.5.2
->
-> 本文件无 frontmatter(OKF §9 reserved filename);按 ISO 8601 日期做 H2,最新在前。
-
----
-
-## 2026-09-04
+## [2026-09-04]
 
 **Init**: 用户项目 wiki 初始化,生成 17 个叶子存储目录 + 5 份管理文件
 
@@ -20,7 +12,7 @@
 
 ---
 
-## {YYYY-MM-DD}
+## [{YYYY-MM-DD}]
 
 【占位:用户后续 ingest / query / lint 追加。最新的日期在前。】
 
@@ -28,10 +20,13 @@
 
 ## 维护
 
-- 字段定义权威:`../doc/schema/frontmatter-spec.md`(人读规范,唯一权威);`../doc/schema/frontmatter.schema.json` 跟随对齐
-- 本文件由 SKILL.md 在每次 ingest / query 落档 / lint 时追加;前缀 5 种(PRD §4.6 路径 B 注释):
+- 本文件由 SKILL.md 在每次 ingest / query 落档 / lint 时追加;最新在前(latest first)
+- 日期节格式:`## [YYYY-MM-DD]`(v0.5.6 起加方括号视觉区分,对齐 Karpathy LLM Wiki `wiki/log.md`)
+- 前缀 5 种(PRD §4.6 路径 B 注释):
   - `**Init**`:项目初始化
   - `**Ingest**`:inbox → raw 迁移 + 知识页生成
   - `**Creation**`:query 落档为 analysis 页(G11 M1)
   - `**LintFix**`:`--fix` 模式确定性结构修复
   - `**LintProposal**`:`--fix` 模式语义级问题(仅提案)
+- 查看最近活动:`grep "^## \[" knowledge/log.md | tail -10`
+- 字段定义权威:`../doc/schema/frontmatter-spec.md`(人读规范);`../doc/schema/frontmatter.schema.json` 跟随对齐

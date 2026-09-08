@@ -70,3 +70,8 @@
   1. 删除本地 `templates/page-entity-{person,organization,...}.md` 与 `templates/page-concept-{theory,method,...}.md` 共 14 个文件(可选;不影响生成)
   2. 跑 `/aeps-llm-wiki-lint --fix` 让 lint 应用新的判定规则(确定性结构修复不再补 analysis 3 节骨架)
   3. 对已有 entity/concept/analysis/comparison/synthesis 页可手改或保留(不会被 lint 强制重写,因结构约束已放宽)
+
+### 6. log 模板对齐 Karpathy `wiki/log.md`(v0.5.6 同批补)
+
+- [`page-log.md`](page-log.md):日期格式 `## YYYY-MM-DD` → `## [YYYY-MM-DD]`(加方括号视觉区分);**顶部元信息整段删除**(H1 标题 + 顶部 blockquote 介绍),所有信息全部迁移到 `## 维护` 节。原因:`scripts/ingest/append-log.js` 的 `parseLogSections` 假设 log.md 只含 H2 日期节 + `## 维护` 节,任何前言都会被吞。
+- [`scripts/ingest/append-log.js`](../../scripts/ingest/append-log.js): `parseLogSections` 正则改为匹配 `## [YYYY-MM-DD]`; `renderLogSections` 输出 `## [${s.date}]`。`## 维护` 节由脚本接管(模板里写的会被替换为脚本版本)。
