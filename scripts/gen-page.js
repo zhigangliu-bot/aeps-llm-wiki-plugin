@@ -129,6 +129,17 @@ function renderFrontmatter(type, args) {
       lines.push("sources_used:");
       for (const s of args.sources_used.split(",")) lines.push(`  - ${s.trim()}`);
     }
+    // analysis 专属必填字段(对齐 page-analysis.md L32-37)
+    if (type === "analysis" && args.answer_to) {
+      lines.push(`answer_to: "${args.answer_to}"`);
+    }
+    // analysis / comparison / synthesis 必填 sources_count
+    if (args.sources_count) {
+      lines.push(`sources_count: ${args.sources_count}`);
+    } else if (args.sources_used) {
+      // 没显式传 → 用 sources_used 数组长度
+      lines.push(`sources_count: ${args.sources_used.split(",").length}`);
+    }
   }
   lines.push("generated:");
   lines.push(`  by: "producer/aeps-llm-wiki-plugin/${readPluginVersion()}"`);

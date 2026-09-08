@@ -68,12 +68,18 @@ function parseArgs(argv) {
 /**
  * 解析 log.md body 成 [{date, content}] 列表
  * 每个 H2 ## YYYY-MM-DD 占一段
+ * 自动剥离节末尾的 `---` 水平线(对齐 page-log.md 模板)与文末 `## 维护` 节,保证 round-trip 幂等
  */
 function parseLogSections(body) {
   const lines = body.split('\n');
+  // 1. 切掉文末 `## 维护` 节(由 renderLogSections 末尾追加,parse 时不应吸收)
+  const cutoff = lines.findIndex((l, i) => l.trim() === '## 维护');
+  const core = cutoff >= 0 ? lines.slice(0, cutoff) : lines;
+
+  // 2. 按 ## YYYY-MM-DD H2 切片
   const sections = [];
   let cur = null;
-  for (const line of lines) {
+  for (const line of core) {
     const m = line.match(/^##\s+(\d{4}-\d{2}-\d{2})\s*$/);
     if (m) {
       if (cur) sections.push(cur);
@@ -85,11 +91,26 @@ function parseLogSections(body) {
     }
   }
   if (cur) sections.push(cur);
+
+  // 3. 每节内容 trimEnd + 剥离节末尾连续的 `---` 水平线
+  for (const s of sections) {
+    while (s.content.length && s.content[s.content.length - 1].trim() === '') {
+      s.content.pop();
+    }
+    if (s.content.length && s.content[s.content.length - 1].trim() === '---') {
+      s.content.pop();
+    }
+    while (s.content.length && s.content[s.content.length - 1].trim() === '') {
+      s.content.pop();
+    }
+  }
   return sections;
 }
 
 /**
- * 把 sections 拼回 body
+ * 把 sections 拼回 body(对齐 doc/template/page-log.md L9-21)
+ * 每个日期节末尾追加 `---` 水平线
+ * 文末追加 `## 维护` 节(若不存在)
  */
 function renderLogSections(sections) {
   if (!sections.length) return '';
@@ -98,7 +119,20 @@ function renderLogSections(sections) {
     out.push(`## ${s.date}`);
     out.push('');
     out.push(...s.content);
+    out.push('');
+    out.push('---');
   }
+  // 文末 ## 维护 节(对齐模板 L29-37)
+  out.push('');
+  out.push('## 维护');
+  out.push('');
+  out.push('- 字段定义权威:`../doc/schema/frontmatter-spec.md`(人读规范,唯一权威);`../doc/schema/frontmatter.schema.json` 跟随对齐');
+  out.push('- 本文件由 SKILL.md 在每次 ingest / query 落档 / lint 时追加;前缀 5 种(PRD §4.6 路径 B 注释):');
+  out.push('  - `**Init**`:项目初始化');
+  out.push('  - `**Ingest**`:inbox → raw 迁移 + 知识页生成');
+  out.push('  - `**Creation**`:query 落档为 analysis 页(G11 M1)');
+  out.push('  - `**LintFix**`:`--fix` 模式确定性结构修复');
+  out.push('  - `**LintProposal**`:`--fix` 模式语义级问题(仅提案)');
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
 }
 

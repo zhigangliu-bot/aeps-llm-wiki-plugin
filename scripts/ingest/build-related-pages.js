@@ -65,10 +65,15 @@ async function loadValidator() {
 const ENTITY_DIRS = ['person', 'organization', 'project', 'product', 'event', 'place', 'other'];
 const CONCEPT_DIRS = ['theory', 'method', 'field', 'phenomenon', 'standard', 'term', 'other'];
 
-const RELATED_H2 = '## 相关页面(Related Pages)';
+const RELATED_H2 = '## 相关页面(Related Pages,由 ingest 自动生成)';
 const RELATED_ENTITIES_H3 = '### Entities';
 const RELATED_CONCEPTS_H3 = '### Concepts';
-const SOURCES_H2 = '## 来源资料';
+const SOURCES_H2 = '## 来源资料(由 ingest 自动生成)';
+
+// 反链区块说明文字(对齐 page-source.md L111 / page-entity-*.md L55):
+// 本节由 /aeps-llm-wiki-ingest 双向反链生成,每次 ingest 完全重建,不保留人工添加的条目。
+const RELATED_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据本源页抽取并创建的实体页、概念页生成,每次 ingest **完全重建**,不保留人工添加的条目;没有任何相关页面时省略本节。';
+const SOURCES_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据抽取本页的 `type: source` 源页列表生成,作为 source 页 `## 相关页面(Related Pages)` 的反向链接(双向反链)。每次 ingest **完全重建**,不保留人工添加的条目;没有任何 source 页引用本页时省略本节。';
 
 // ---- frontmatter 解析 ----
 function parseFrontmatter(mdText) {
@@ -202,7 +207,7 @@ async function scanEntityConcept(knowledgeDir) {
 // ---- 区块渲染 ----
 function renderRelatedBlock(entities, concepts) {
   if (!entities.length && !concepts.length) return null;
-  const lines = [RELATED_H2, ''];
+  const lines = [RELATED_H2, '', RELATED_DESC, ''];
   if (entities.length) {
     lines.push(RELATED_ENTITIES_H3, '');
     for (const e of entities.sort((a, b) => a.title.localeCompare(b.title))) {
@@ -222,7 +227,7 @@ function renderRelatedBlock(entities, concepts) {
 
 function renderSourcesBlock(sourceRefs) {
   if (!sourceRefs.length) return null;
-  const lines = [SOURCES_H2, ''];
+  const lines = [SOURCES_H2, '', SOURCES_DESC, ''];
   for (const s of sourceRefs.sort((a, b) => a.title.localeCompare(b.title))) {
     lines.push(`- [[${s.slug}]]`);
   }
@@ -233,6 +238,7 @@ function renderSourcesBlock(sourceRefs) {
 // ---- body 区块替换 ----
 /**
  * 删除 body 中已有的 RELATED_H2 / SOURCES_H2 区块(到下一个 H2 或文末)
+ * 同步吃掉紧随其后的 `---` 水平线(避免 rebuild 时累积多个)
  * 保留 ## 维护说明 等其他 H2
  */
 function stripExistingBlock(body, h2Name) {
@@ -240,19 +246,30 @@ function stripExistingBlock(body, h2Name) {
   const lines = body.split('\n');
   const out = [];
   let inBlock = false;
+  let afterBlockEaten = false;  // 是否刚退出 block(用于吃 --- 水平线)
   for (const line of lines) {
-    if (line.trim() === h2Name) {
+    if (!inBlock && line.trim() === h2Name) {
       inBlock = true;
+      afterBlockEaten = false;
       continue;
     }
     if (inBlock) {
       if (/^##\s/.test(line.trim())) {
         inBlock = false;
+        // 退出 block 后,看下一行是不是 ---
+        afterBlockEaten = true;
         out.push(line);
+        continue;
       }
       // skip until next H2
       continue;
     }
+    if (afterBlockEaten && line.trim() === '---') {
+      // 吃掉本行 `---`(残留的旧水平线);但只吃一次
+      afterBlockEaten = false;
+      continue;
+    }
+    afterBlockEaten = false;
     out.push(line);
   }
   // 去掉末尾多余空行
@@ -260,7 +277,7 @@ function stripExistingBlock(body, h2Name) {
 }
 
 /**
- * 在 body 中插入新块到 ## 维护说明 之前
+ * 在 body 中插入新块到 ## 维护说明 之前(且 ## 维护说明 之前补 `---` 水平线,对齐模板 L57)
  * 若 ## 维护说明 不存在 → 追加到文末
  */
 function insertBeforeMaintain(body, block) {
@@ -270,6 +287,8 @@ function insertBeforeMaintain(body, block) {
   for (const line of lines) {
     if (!inserted && line.trim().startsWith('## 维护说明')) {
       out.push(block);
+      out.push('');
+      out.push('---');
       out.push('');
       inserted = true;
     }
