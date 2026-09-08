@@ -20,7 +20,8 @@
  *   0 - always; failures are swallowed silently per design §1.3.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
@@ -180,6 +181,103 @@ export function parseRevParseHead(stdout) {
 }
 
 // ---------------------------------------------------------------------------
+// Plugin root resolution (multi-source fallback)
+//
+// Claude Code does NOT reliably inject `CLAUDE_PLUGIN_ROOT` when running
+// SessionStart hooks. v0.5.1 hard-failed on this assumption; v0.5.2 walks
+// up from cwd to find `.claude-plugin/plugin.json` so the hook works whether
+// or not the env var is set.
+// ---------------------------------------------------------------------------
+
+const PLUGIN_MARKER_REL = path.join('.claude-plugin', 'plugin.json');
+const MAX_ANCESTOR_DEPTH = 5;
+
+/**
+ * Resolve the absolute path of the plugin root. Tries, in order:
+ *
+ *   1. `CLAUDE_PLUGIN_ROOT` env (original v0.5.0 contract, kept for forward
+ *      compatibility with any future SDK that does inject it).
+ *   2. `cwd` itself (in practice, Claude Code runs the hook with cwd set to
+ *      the plugin cache dir, which IS the plugin root).
+ *   3. Walk up from `cwd` up to `MAX_ANCESTOR_DEPTH` levels looking for a
+ *      `.claude-plugin/plugin.json` file. This handles the case where cwd
+ *      happens to be a sub-directory like `scripts/update-check/`.
+ *
+ * Returns the absolute path string if a valid plugin root is found
+ * (i.e. `.claude-plugin/plugin.json` exists at that path).
+ * Returns `null` if no source yields a valid root.
+ *
+ * This function NEVER throws — every probe is wrapped in a try/catch.
+ *
+ * `options.cwd` and `options.env` are injectable for unit tests.
+ */
+export async function resolvePluginRoot(options = {}) {
+  const env = options.env ?? process.env;
+  const cwd = options.cwd ?? process.cwd();
+
+  // 1. CLAUDE_PLUGIN_ROOT env (if set, validate it then return)
+  const fromEnv = env.CLAUDE_PLUGIN_ROOT;
+  if (typeof fromEnv === 'string' && fromEnv.length > 0) {
+    if (await isValidPluginRoot(fromEnv)) return path.resolve(fromEnv);
+  }
+
+  // 2. cwd itself
+  if (await isValidPluginRoot(cwd)) return path.resolve(cwd);
+
+  // 3. Walk up from cwd (cap at MAX_ANCESTOR_DEPTH)
+  let cur = path.resolve(cwd);
+  for (let i = 0; i < MAX_ANCESTOR_DEPTH; i++) {
+    const parent = path.dirname(cur);
+    if (parent === cur) break; // filesystem root
+    if (await isValidPluginRoot(parent)) return parent;
+    cur = parent;
+  }
+
+  return null;
+}
+
+/**
+ * Synchronous variant for CLI mode where we already know cwd + env and
+ * don't want to incur the async overhead. Same fallback order, uses
+ * `node:fs.existsSync` for the validation step (slightly weaker than stat,
+ * but CLI mode is only used by humans for debugging, not in the hot path).
+ */
+export function resolvePluginRootSync(options = {}) {
+  const env = options.env ?? process.env;
+  const cwd = options.cwd ?? process.cwd();
+
+  const fromEnv = env.CLAUDE_PLUGIN_ROOT;
+  if (typeof fromEnv === 'string' && fromEnv.length > 0) {
+    if (existsSync(path.join(fromEnv, PLUGIN_MARKER_REL))) return path.resolve(fromEnv);
+  }
+  if (existsSync(path.join(cwd, PLUGIN_MARKER_REL))) return path.resolve(cwd);
+
+  let cur = path.resolve(cwd);
+  for (let i = 0; i < MAX_ANCESTOR_DEPTH; i++) {
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    if (existsSync(path.join(parent, PLUGIN_MARKER_REL))) return parent;
+    cur = parent;
+  }
+  return null;
+}
+
+/**
+ * Returns true iff `dir/.claude-plugin/plugin.json` exists and is a file.
+ * NEVER throws — stat failures (ENOENT, EACCES, ...) all return false.
+ */
+async function isValidPluginRoot(dir) {
+  if (typeof dir !== 'string' || dir.length === 0) return false;
+  try {
+    const markerPath = path.join(dir, PLUGIN_MARKER_REL);
+    const s = await stat(markerPath);
+    return s.isFile();
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shell helpers
 // ---------------------------------------------------------------------------
 
@@ -317,9 +415,13 @@ async function detect(pluginRoot, { shouldPull = true } = {}) {
  * Hook-mode main: prints JSON to stdout (or nothing) and always exits 0.
  */
 async function runHook() {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginRoot || pluginRoot.length === 0) {
-    // Misuse (env var not set) → silent exit
+  // Resolve plugin root via multi-source fallback (v0.5.2). Claude Code
+  // does not reliably inject CLAUDE_PLUGIN_ROOT, so we also probe cwd and
+  // walk up to find `.claude-plugin/plugin.json`.
+  const pluginRoot = await resolvePluginRoot();
+  if (!pluginRoot) {
+    // Could not locate plugin root from any source → silent exit.
+    // Maintains the v0.5.0 R4 "do not block session init" contract.
     return;
   }
 
@@ -345,9 +447,13 @@ async function runHook() {
  * CLI-mode main: prints plain text and returns an exit code.
  */
 async function runCli(mode) {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginRoot || pluginRoot.length === 0) {
-    process.stdout.write('error: CLAUDE_PLUGIN_ROOT is not set\n');
+  // CLI mode: use sync resolver (no event-loop overhead, easier to debug).
+  const pluginRoot = resolvePluginRootSync();
+  if (!pluginRoot) {
+    process.stdout.write(
+      'error: cannot resolve plugin root. Tried CLAUDE_PLUGIN_ROOT env, cwd, ' +
+        `and ${MAX_ANCESTOR_DEPTH}-level upward search for .claude-plugin/plugin.json.\n`
+    );
     process.exit(2);
   }
 

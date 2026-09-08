@@ -6,3 +6,7 @@ Thumbs.db
 # 测试源不 commit(本机 ephemeral,不复用);fixtures/ + _media/ 大文件自然也包含在内
 test/
 **/_media/
+
+# 例外(v0.5.2): update-check 的 44 个单测是 hook 契约的一部分,必须随代码一起 commit;
+# 用户重装 plugin 后能直接 node --test 验证。其它 skill 的 test 仍 ignore。
+!update-check/test/
