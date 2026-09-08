@@ -2,7 +2,7 @@
 
 > **一个 Claude Code plugin,把 Karpathy LLM Wiki + Google OKF v0.2 + Obsidian 整合成一个本地知识库工具链。**
 
-![plugin version](https://img.shields.io/badge/version-0.5.5-blue)
+![plugin version](https://img.shields.io/badge/version-0.5.6-blue)
 ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 ![node](https://img.shields.io/badge/node-%E2%89%A520.0.0-brightgreen)
 
@@ -264,11 +264,32 @@ hook 退化成 `detect-failed` → 静默退出,**用户根本不知道有更新
 
 **结论**:本地开发调试 hook 行为时,**别用 install 出来的 cache 仓**,直接 `cd` 到开发仓跑 `node scripts/update-check/check.js --check-only` / `--pull`(CLI 模式);发布到远端后,用户**下个 session** 自然用上新 hook。
 
+### 坑 4:`CLAUDE_PLUGIN_ROOT` env **根本没注入**,hook 实际静默失效
+
+**这是最坑的坑**。check.js 设计假设 Claude Code 跑 SessionStart hook 时会 export `CLAUDE_PLUGIN_ROOT` env 变量指向 plugin cache 根,代码第一件事就是 `process.env.CLAUDE_PLUGIN_ROOT`。
+
+**实测**:2026-09-08 看 cache 仓 `.in_use/{pid}` 文件证明 hook **确实跑了**(pid=10072,Sep 8 09:28),但 `process.env.CLAUDE_PLUGIN_ROOT` **是 undefined**。
+
+**后果**:
+- hook 进入 `if (!pluginRoot || pluginRoot.length === 0) return;` 静默分支
+- stdout 空,exit 0
+- session 开头**完全没有任何告知**、**没有任何 pull 动作**
+- cache 永远停在旧 commit,直到用户手动进 cache 仓跑 `node scripts/update-check/check.js --pull`
+
+**这是个真 bug,当前 v0.5.1 文档里已记录为已知缺陷**。**修复方向**(v0.5.2,未实施):把 plugin 根定位从「单 env」改成「cwd 兜底 + 向上递归找 `.claude-plugin/plugin.json`」多源 fallback。
+
+**临时手动同步**(如果你等不及修复):
+```bash
+cd "C:/Users/ThinkPad/.claude/plugins/cache/aeps-public-marketplace/aeps-llm-wiki-plugin/0.5.5"
+CLAUDE_PLUGIN_ROOT="$(pwd)" node scripts/update-check/check.js --pull
+```
+
 ### 总结:Auto update 不是「装完就一劳永逸」的
 
 - 远端 force-push → 触发 hook 的 reset 分支(已自动处理)
 - 用户的 cache remote 是 SSH 且没配 key → hook 静默失效(用户需手动改 HTTPS 一次,见坑 2)
 - hook 代码自身升级 → 用户下个 session 自动生效,本 session 仍用旧(预期行为)
+- **`CLAUDE_PLUGIN_ROOT` 不注入 → hook 完全失效**(坑 4,**v0.5.1 已知缺陷**)
 
 任何 hook 边界外的特殊情况(本地有未提交改动 / cache 仓被手工破坏 / 多个 plugin 互相冲突),走 fallback 文案告诉用户手动。
 

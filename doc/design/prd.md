@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — PRD
 
-> **状态**:已冻结(v0.5.0,2026-09-07)
+> **状态**:已冻结(v0.5.1,2026-09-08)
 > **创建日期**:2026-09-01
 > **作者**:zhigang.liu
 > **范围**:仅本文档;实现期细节见 [design.md](./design.md),执行清单见 `implement.md`(待写)
@@ -15,6 +15,7 @@
 | v0.4.0 | 2026-09-06 | freeze(状态 + Change History) |
 | v0.4.1 | 2026-09-06 | AC-9(G10)重写为"原生优先 / 失败回退 anydoc"二选一验收(对齐 design.md §3.2 + §7.2 原生优先原则);不放宽其它目标 |
 | v0.5.0 | 2026-09-07 | 新增 G12 + §4.7 Update check hook(SessionStart 自动检测远端 commit + ff-only 拉取 + force-push diverge 自动 reset + 拉取失败告知)。hook 代码 `scripts/update-check/check.js` + `hooks/hooks.json`,纯 Node.js 单文件零 npm 依赖。冻结基础为已实现 commit `92ba7a3` |
+| v0.5.1 | 2026-09-08 | **已知缺陷(hook 未生效)**:Claude Code 跑 SessionStart hook 时**未注入 `CLAUDE_PLUGIN_ROOT` env 变量**(实测 unset),hook 进入 R4 静默分支 return 0,session 开头无任何告知、无 pull 动作。`.in_use/{pid}` 标记可证明 hook 进程确实跑了,但因 plugin 根定位失败 → 完全无效。**未改代码**,仅记录;修复留待 v0.5.2 task(planning 阶段:把 plugin 根定位从「单 env」改为「cwd 兜底 + 向上找 .claude-plugin/plugin.json」) |
 
 ---
 
@@ -381,6 +382,15 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 - hook 配置:`hooks/hooks.json`(SessionStart matcher = startup)
 - 单测:`scripts/update-check/test/check.test.js`(36 用例覆盖 semver / SHA / 状态机 / 静默分支 / JSON 协议)
 - 模块 README:`scripts/update-check/README.md`
+
+**已知缺陷(v0.5.1)**:**Claude Code 跑 SessionStart hook 时未注入 `CLAUDE_PLUGIN_ROOT` env 变量**(实测 unset),hook 进入 R4 静默分支 return 0,session 开头无任何告知、无 pull 动作。`.in_use/{pid}` 标记证明 hook 进程确实跑了,但 plugin 根定位失败 → hook **当前在生产中完全无效**。**修复方案**(v0.5.2 task,未实施):
+
+- 把 plugin 根定位从「依赖 `CLAUDE_PLUGIN_ROOT` 单 env」改为**多源兜底**:
+  1. 先看 `CLAUDE_PLUGIN_ROOT`(原 R4 路径,若 SDK 后期注入则恢复)
+  2. fallback 到 `process.cwd()`(多数情况是 plugin 根)
+  3. fallback 到从 cwd 向上递归找 `.claude-plugin/plugin.json`(最稳健,只要进程跑在 plugin 仓内就 OK)
+- 找到根后做存在性校验(`stat` `.claude-plugin/plugin.json` 通过才算合法 plugin 根),否则才静默退出
+- **不要**fallback 到 `git rev-parse --show-toplevel`(在 plugin cache 仓里跑没问题,但若 Claude Code 在用户项目里跑 hook —— 不是 cache 仓 —— 就会定位错)
 
 ---
 
