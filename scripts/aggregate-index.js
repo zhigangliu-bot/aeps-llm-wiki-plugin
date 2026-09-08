@@ -143,7 +143,7 @@ function renderIndex(rootDir, pages) {
       lines.push("*(暂无)*");
     } else {
       for (const p of items.sort((a, b) => a.title.localeCompare(b.title))) {
-        const tagStr = (p.tags || []).slice(0, 3).map((t) => `#${t.split("/").pop()}`).join(" ");
+        const tagStr = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
         lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${tagStr ? ` <span style="color:gray">${tagStr}</span>` : ""}`);
       }
     }
@@ -163,7 +163,7 @@ function renderIndex(rootDir, pages) {
         ? (a, b) => b.mtime - a.mtime
         : (a, b) => a.title.localeCompare(b.title);
       for (const p of items.sort(sortFn)) {
-        const tagStr = (p.tags || []).slice(0, 3).map((t) => `#${t.split("/").pop()}`).join(" ");
+        const tagStr = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
         lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${tagStr ? ` <span style="color:gray">${tagStr}</span>` : ""}`);
       }
     }
