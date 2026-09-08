@@ -1,3 +1,4 @@
+<!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
 type: comparison
@@ -9,6 +10,8 @@ tags:
   - domain/cross-domain
   - layer/middleware-soa
   - tec/someip
+  - maturity/comparison
+  - phase/architecture
 
 # OKF §5.1 sources(对比的两个对象 wiki 页)
 sources:
@@ -21,7 +24,7 @@ sources:
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.6"
+  by: "producer/aeps-llm-wiki-plugin/0.6.0"
   at: "2026-09-04T15:00:00Z"
 
 # OKF §5.4 lifecycle(可选)

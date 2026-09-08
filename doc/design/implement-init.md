@@ -9,6 +9,15 @@
 
 ---
 
+## Change History
+
+| 版本 | 日期 | 变更 |
+|---|---|---|
+| v0.1.0 | 2026-09-06 | 初版草稿,M2.1 init 任务启动 |
+| v0.1.1 | 2026-09-08 | 批次 4 (P3 文档与版本一致):(1) §5.1 plugin 版本号描述升级为 0.5.6(对齐 plugin.json);(2) 顶部新增 Change History 段(本表)。**注**:本文档版本号与 plugin 主版本号解耦;plugin 主版本号由 `.claude-plugin/plugin.json` 锁定,本批次不修改 plugin.json(由父任务在所有批次完成后统一发版到 0.6.0) |
+
+---
+
 ## 0. 任务总览
 
 ### 0.1 目标
@@ -289,7 +298,7 @@ init 涉及的依赖**全部内置或弱依赖**——不需要外部 binary:
 - `package.json` `version` = 与 `schema.md` 顶部 `plugin 版本` 字段**强一致**
 - **手动同步**:任何时候改 `schema.md` `plugin 版本` 字段,**必须**同步 `package.json` `version`(用 `trellis-check` 卡校验)
 - 升号策略:`patch` = bugfix / 文档修订;`minor` = 新 skill / 新功能 / 新字段;`major` = 字段语义变化 / OKF 兼容性破坏
-- 当前目标版本:`schema.md 0.5.5` → `package.json 0.5.5`(M2.1 落 init 实现时同步)
+- 当前目标版本:`schema.md 0.5.6` → `package.json 0.5.6`(M2.1 落 init 实现时同步,M2.2 ingest 落地时再升 0.5.6)
 
 ### 5.2 跨版本兼容
 

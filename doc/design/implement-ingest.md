@@ -15,6 +15,8 @@
 |---|---|---|---|
 | v0.1.0 | 2026-09-07 | 冻结初版:7 个 scripts/ingest/* 脚本契约 + 双向反链规则 + 5 路径分流 + 19 步流程对齐 PRD §4.2 + 测试矩阵 AC-2/6/7/8/9/10/14/15/16 + NFR-1/2/4/5 + COMPAT-1 + 5 路径分流 + raw 拍板门 + 命名飘 + 幂等 + lint C17/18/19 + e2e | zhigang.liu(Claude Code 起草) |
 | v0.1.1 | 2026-09-07 | M2.2 落地:7 个 scripts/ingest/* 脚本 + lint-stub 占位 + 8 个测试文件(40 → 43 用例,均 pass);build-related-pages.js 加 ajv 校验 + 删 TYPE_DIRS 死代码;classify.js 加 `--route <2\|3>`;测试 `os.tmpdir()` → 项目 `temp/`;`scripts/ingest/test/fixtures/` 创目录 + sample-source.md/sample-note.txt;同步升 plugin 版本 0.5.5 → 0.5.6(plugin.json + schema.md 顶部 + schema.md Change History) | zhigang.liu(Claude Code 实施 + 复核) |
+| v0.1.2 | 2026-09-08 | 批次 4 (P3 文档与版本一致):(1) §6.1 由"风险表"扩展为"**失败语义权威源**"(G3 / G6 / G10 三规则) + 风险表(原 6.1 → 6.2) + 回滚点(原 6.2 → 6.3)重新编号;SKILL.md 改为引用本表。(2) §5.1 plugin 版本号描述 0.5.5 → 0.5.6。**注**:本版本号描述是文档自身的版本号;plugin 主版本号由 `.claude-plugin/plugin.json` 锁定,本批次不修改 plugin.json(由父任务在所有批次完成后统一发版到 0.6.0)。 | zhigang.liu(Claude Code 实施 + 复核) |
+| v0.1.3 | 2026-09-08 | 批次 2 (P1 易修 + ajv 噪音):(1) §2 反链语义由"每次 ingest 完全重建"改为"**追加 + 保留**(v0.5.6 起)"。(2) ajv date-time format WARN 降级:doc/schema/frontmatter.schema.json 把 `format: "date-time"` 替换为等价 pattern,零新增 npm 依赖。**注**:本批次为批次 2 P1 易修内容,R3 是 breaking change(SKILL.md 步骤 12 已显式说明)。 | zhigang.liu(Claude Code 实施 + 复核) |
 
 ---
 
@@ -185,7 +187,7 @@ sources:
 - 按 `### Entities` / `### Concepts` 两个固定子标题分组
 - 每条用目标页 `[[wikilink]]`(裸文件名或 aliases 别名;主推 PRD §10 Q9)
 - 某组空 → 删该子标题;全空 → 删整个区块
-- **每次 ingest 完全重建**,不保留人工条目
+- **v0.5.6 起改为追加模式**:每次 ingest 在区块末尾追加新确认的反链(去重 wikilink 字符串),保留人工写的条目。同 wikilink 重复 → 保留人工条目 + stderr WARN。如需完全重建,先手工删除 `## 相关页面` / `## 来源资料` 区块再跑脚本。
 
 **entity/concept 页 → `## 来源资料`**:
 
@@ -197,8 +199,8 @@ sources:
 ```
 
 - 按 source `title` 排序 wikilink
-- 无 source 引用 → 删整节
-- **每次 ingest 完全重建**,不保留人工条目
+- 无 source 引用 → 区块不存在 + 本次有引用 → 新建区块;区块已存在 → 保留 + 末尾追加
+- **v0.5.6 起改为追加模式**,同 source 页规则
 
 ---
 
@@ -338,7 +340,7 @@ ingest 涉及的依赖:
 ### 5.1 plugin 本体版本号
 
 - `package.json` `version` = 与 `schema.md` 顶部 `plugin 版本` 字段**强一致**
-- 当前 `schema.md 0.5.5` → `package.json 0.5.5`(M2.1 init 落实现时已同步)
+- 当前 `schema.md 0.5.6` → `package.json 0.5.6`(M2.1 init 落实现时已同步,后随 M2.2 升到 0.5.6)
 - M2.2 落地后 → 是否升号待用户拍板(对齐 implement-init.md §5.1);M2.2 **不**强升 minor,除非加了对外可见的新字段或行为
 
 ### 5.2 跨版本兼容
@@ -366,22 +368,39 @@ ingest 涉及的依赖:
 
 ## 6. 风险与回滚点
 
-### 6.1 风险表
+### 6.1 失败语义(权威源;v0.5.6 起 SKILL.md 引用此处)
+
+> **本节是失败语义的唯一权威表**(P3-3 修复:`skills/aeps-llm-wiki-ingest/SKILL.md` 不再独立维护失败语义表,改为引用本节)。SKILL.md 步骤遇到失败时按本表 G3 / G6 / G10 对照处理。
+
+| 规则 ID | 覆盖场景 | 期望行为 | 对应 SKILL.md 步骤 |
+|---|---|---|---|
+| G3 | `convert-to-md.js` spawn 失败(spawnSync 不抛 exit 0 或 exit non-zero);**任意路径 3/4 失败都 FAIL,不降级** | 原文件保留 inbox;batch.json 该条 status=failed;步骤 19 报 FAIL | 步骤 2 |
+| G6 | `build-related-pages.js` ajv schema 校验失败(任意 frontmatter 字段不通过 `frontmatter.schema.json` 校验);entity/concept 任意子页失败 | FAIL,该 page 不入库(不进 knowledge/);stderr WARN;反链略过此页 | 步骤 12 |
+| G10 | preflight 缺依赖 / `--plugin-root` 解析失败 / plugin-root 不存在 | inline ERROR + 精确 `npm install <pkg>` 命令,exit 2,**不自动装**;用户拍板手动装 | 步骤 0(可跳过,inline 兜底) |
+
+> 与旧 SKILL.md 表的差异说明:
+>
+> - 旧 SKILL.md "convert-to-md.js spawn 失败" 行 → 对齐本表 G3(语义扩为"任意路径 3/4 失败都 FAIL")
+> - 旧 SKILL.md "路径 4 paddleocr 未装 → FAIL 不降级" → 是 G3 的子场景
+> - 旧 SKILL.md "build-related-pages 字段不匹配 / ajv 校验失败" → 合并为本表 G6
+> - 旧 SKILL.md "move-to-raw 覆盖 raw 已存在同名" → 不在本表(G3/G6/G10 之外的"用户拍板门"场景,归 SKILL.md 步骤 4 处理)
+
+### 6.2 风险表
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| `convert-to-md.js` spawn 失败(spawnSync 不抛 exit 0) | path 3/4 失败 → 原文件保留 inbox | 每个 spawn 包 try/catch + FAIL 提示用户手动跑底层脚本;`move-to-raw` 步骤前置依赖 `convert-to-md` 完成 |
+| `convert-to-md.js` spawn 失败(spawnSync 不抛 exit 0) → 见 G3 | path 3/4 失败 → 原文件保留 inbox | 每个 spawn 包 try/catch + FAIL 提示用户手动跑底层脚本;`move-to-raw` 步骤前置依赖 `convert-to-md` 完成 |
 | `move-to-raw.js` 覆盖 raw 已存在同名 → 用户误操作 | 旧文件丢失 | 先备份到 `temp/raw_backup_{hash}/` + 原子替换(`os.replace`);SKILL.md 拍板门强制 `[y]/[n]/[d]` |
 | `build-related-pages.js` 双向反链循环(source A → entity X,source B → entity X,且 X 又被 source A 通过 wikilink 引用) | 误判为反链 | 反链只看 frontmatter `sources[].resource` 字段,不解析正文 wikilink;避免循环 |
 | docling 转换慢(11 页 ~82s) | SKILL.md 步骤 2 阻塞 | 路径 3 PDF 优先 anydoc(<1s),docling 仅在 docx/pptx/xlsx 走;SKILL.md 步骤 2 显式提示"docling 转换可能慢" |
-| PaddleOCR 未装 → 路径 4 FAIL | 图片无法 ingest | SKILL.md 步骤 0 探查 `python -c "import paddleocr"`,未装 → 步骤 2 跳过路径 4 拍板门 + 提示用户装 |
-| ajv 校验 entity/concept 子页 frontmatter → 错字段类型 | 反链错 | 用 ajv + `frontmatter.schema.json` 兜底,失败 → 报错退出 + SKILL.md 提示 |
+| PaddleOCR 未装 → 路径 4 FAIL → 见 G3 | 图片无法 ingest | SKILL.md 步骤 0 探查 `python -c "import paddleocr"`,未装 → 步骤 2 跳过路径 4 拍板门 + 提示用户装 |
+| ajv 校验 entity/concept 子页 frontmatter → 错字段类型 → 见 G6 | 反链错 | 用 ajv + `frontmatter.schema.json` 兜底,失败 → 报错退出 + SKILL.md 提示 |
 | `batch.json` 大文件(100+ ingest 文件) → 内存涨 | 性能 | 按需读取 + 限制单次 ingest 上限 50 文件(超过 → 提示分批) |
 | Windows 路径反斜杠 `\` vs `/` 在 frontmatter `source_file` wikilink 渲染失败 | Obsidian 渲染错 | `source_file` 写时统一用 `/`(参考 `gen-page.js` 已用 `/`);`converted_path` 同样 |
 | `temp/ingest-batch-{ts}.json` 残留 → 下次 SKILL.md 误读 | 状态污染 | SKILL.md 步骤 0 检测残留 → 提示用户确认删除;e2e cleanup 自动删 |
-| 跨平台 spawn `.cmd`(Windows) vs 不用 shell(macOS/Linux) | 路径 3/4 失败 | `convert-to-md.js` 派发用 `process.platform === "win32"` 决定 `shell: true`,与 anydoc_pdf_to_md.js 已实现对齐 |
+| 跨平台 spawn `.cmd`(Windows) vs 不用 shell(macOS/Linux) → 见 G3 | 路径 3/4 失败 | `convert-to-md.js` 派发用 `process.platform === "win32"` 决定 `shell: true`,与 anydoc_pdf_to_md.js 已实现对齐 |
 
-### 6.2 回滚点
+### 6.3 回滚点
 
 - **整个 M2.2 没落地前的回滚**:`git checkout HEAD -- scripts/ingest/` 一键回滚 SKILL.md + scripts
 - **单次回滚**:用户发现本次 ingest 错了 → `temp/raw_backup_{hash}/` 找旧版恢复 + `inbox/{file}`(若未删)直接拷回去;`knowledge/sources/<slug>.md` 手动删

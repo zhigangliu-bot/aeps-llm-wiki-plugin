@@ -1,13 +1,47 @@
 ---
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
-plugin-version: 0.5.6
-allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
+plugin-version: 0.6.0
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
+
+## Change History
+
+- 2026-09-08 / 批次 1 / R1 (P0-1):顶部新增"脚本路径约定"段;说明 `${CLAUDE_PLUGIN_ROOT}` 由调用方注入,或用 `--plugin-root` CLI 参数显式传递冗余兜底;明确脚本位于 plugin 仓根的 `scripts/` 下,**不**在 `skills/<skill>/scripts/` 下。
+- 2026-09-08 / 批次 1 / R2 (P0-2):`build-related-pages.js` 支持 `--plugin-root` / `--schema-path` / `--project` CLI 参数,schema 路径按候选列表查找(用户工程 `schema/` > 用户工程 `doc/schema/` > plugin 自检)。
+- 2026-09-08 / 批次 1 / R3 (P0-3):`gen-page.js` 支持 `--plugin-root` CLI 参数,版本号 fallback 从伪零版本字符串(回退兜底)改为占位语义字符串 `"unknown"`(无法定位 plugin 根时的显式标识)。
+- 2026-09-08 / 批次 1 / R4 (P0-1/2/3):命令行全部追加 `--plugin-root ${CLAUDE_PLUGIN_ROOT}` 参数,确保 `${CLAUDE_PLUGIN_ROOT}` env 未注入时仍能跑通。
+- 2026-09-08 / 批次 3 / R1 (P1-3):`init-batch.js` 支持 `--files-file <absolute>` 从文件读 JSON 列表,与 `--files <json>` 互斥(都传/都不传 → ERROR)。SKILL.md 步骤 4 命令行按文件大小选择其一。
+- 2026-09-08 / 批次 3 / R2 (P1-4):`append-log.js` JSON output 增加 `entries: [{file, action, summary}]` 数组,`action ∈ {added, merged, skipped}`。
+- 2026-09-08 / 批次 3 / R3 (P1-6):inline preflight 已内置到所有 ingest/init 脚本顶部,缺包立即 ERROR 并打印精确 `npm install` 命令;旧步骤 0.5 主动调用的 `preflight.js` 降级为可选,与 inline 并存。
+- 2026-09-08 / 批次 3 / R4 (P2-1):`build-related-pages.js` JSON output 增加 `warnings_by_file` 字段,与已有 `warnings` 扁平数组并存。
+- 2026-09-08 / 批次 3 / R5 (P2-3):`aggregate-index.js` 加 `--json` 参数时输出 `by_type` + `by_subdir` 分类统计。
+- 2026-09-08 / 批次 3 / R7 (P2-5):`lint-stub.js` 步骤 19 真做两条规则:R7.1 tags <5 → WARN;R7.2 updated 非 ISO 8601 → ERROR(exit 2)。
+- 2026-09-08 / 批次 4 / P3-2:步骤 0.5 措辞统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装"。
+- 2026-09-08 / 批次 4 / P3-3:"失败语义"段从独立表格改为引用 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处) 权威源(G3 / G6 / G10 三规则)。
+
+## 脚本路径约定(批次 1,2026-09-08)
+
+> **脚本路径约定**:本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin-root;该变量由调用方注入(plugin 自动注入或用户 shell 导出),或通过 `--plugin-root` CLI 参数显式传递冗余兜底。
+
+- 脚本均在 plugin 仓根的 `scripts/` 下,**不**在 `skills/<skill>/scripts/` 下。
+- 默认调用形式:`node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT} ...`(env 已注入)
+- 兜底调用形式:`node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --plugin-root ${CLAUDE_PLUGIN_ROOT} ...`(env 注入失败时显式冗余)
+- `build-related-pages.js` 还支持 `--schema-path <absolute>` 显式覆盖 schema 路径;支持 `--project <绝对路径>` 显式指定用户工程根。
+- `gen-page.js` 还支持 `--project <绝对路径>` 显式指定用户工程根(模板路径解析用)。
+- 当 `${CLAUDE_PLUGIN_ROOT}` env 未注入(plugin loader 未生效 / shell 没 export),`--plugin-root` 是唯一兜底,**必须**显式传。
 
 # /aeps-llm-wiki-ingest
 
 把用户资料从 `inbox/` 迁移到 `raw/{subdir}/`,生成 `knowledge/sources/<slug>.md` 源页,抽取 entity / concept 子页,双向反链,更新 `index.md` / `log.md` / `overview.md` / `glossary.md`。
+
+## Change History
+
+- v0.5.6 (2026-09-08,批次 2 P1 修复):
+  - **move-to-raw 按 slug 重命名**:`batch.files[]` 提供 `slug` 字段后,文件按 `{slug}.{ext}` 落地到 `raw/<subdir>/`,原扩展名保留。已存在同名 slug → SKIP + WARN,不覆盖;slug 非法 → ERROR。详见步骤 4。
+  - **build-related-pages 改追加模式**:`## 相关页面` / `## 来源资料` 区块默认保留人工写的条目,新反链追加在末尾(去重);同 wikilink 重复 → 保留人工条目 + stderr WARN。如需完全重建,先手工删除区块再跑。详见步骤 12。
+  - **gen-page --project 参数**:模板查找新增 `--project <absolute>` 优先级(> `env.WIKI_PROJECT` > `cwd/templates/`);`--project` 显式传入时严格从 `<project>/templates/` 找,找不到 → 清晰 ERROR。详见步骤 6/10。
+  - **ajv date-time WARN 降级**:`doc/schema/frontmatter.schema.json` 把 `format: "date-time"` 替换为等价的 `pattern` 校验,跑 ajv 时不再打印 `unknown format "date-time" ignored` 噪音。零新增 npm 依赖。
 
 ## 触发
 
@@ -50,10 +84,10 @@ ls temp/ingest-batch-*.json 2>/dev/null
 
 对 inbox 每个文件,先让 Claude Code 直接读;能读 → 路径 1/2;不能 → 路径 3/4。
 
-### 步骤 0.5:依赖 preflight(必跑)
+### 步骤 0.5:依赖 preflight(可选,v0.5.6 起)
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --scripts-dir <用户工程根>/scripts --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --scripts-dir <用户工程根>/scripts --json
 ```
 
 读 stdout JSON:
@@ -63,10 +97,12 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --scripts-dir <用户工�
 
 **为什么单独一步**:SKILL.md L253 / L257 已规定不自动 `npm install`,但没规定 preflight 时机,导致用户首次跑步骤 1 才遇到 `Cannot find module 'js-yaml'` 类错误才意识到要装。preflight 把错误前置到流程最早节点。
 
+> **v0.5.6 批次 3 修订**:inline preflight 已内置到所有 ingest/init 脚本顶部(`scripts/lib/preflight.js` 的 `requireDeps` 函数),缺包时脚本启动即 ERROR 并打印精确 `npm install <pkg>` 命令。本步降级为可选,跳过即可(若 LLM 跳步骤 1,inline 仍会拦截)。
+
 ### 步骤 1:扫 inbox
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --inbox inbox/ --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --inbox inbox/ --json
 ```
 
 读 stdout JSON:
@@ -77,7 +113,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --inbox inbox/ --json
 
 ```bash
 # 对每个文件分别调(也可用 --batch 批模式)
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --file inbox/<file> --check-deps --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --file inbox/<file> --check-deps --json
 ```
 
 读 stdout JSON:
@@ -88,7 +124,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --file inbox/<file> --chec
 - PDF 原生失败 → 用 `--route 3` 覆盖默认(SKILL.md 显式重跑)
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --file inbox/foo.pdf --emit-to inbox/ --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --file inbox/foo.pdf --emit-to inbox/ --json
 ```
 
 - 路径 1/2 → 跳过本步
@@ -107,27 +143,40 @@ SKILL.md 与用户对话拍板,**不**写 `infer-intent.js` / `dedupe.js`(LLM �
 ### 步骤 4:创建 batch + 迁 raw/
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js \
+# 文件少(≤10 条)→ 内联 JSON 字符串
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> \
   --files '<scan-inbox JSON 的 files[]>' \
   --emit-dir <用户工程根>/temp/ --json
 ```
 
+```bash
+# 文件多 / 路径含中文+空格 / 转义麻烦 → 落 temp/batch.json,走 --files-file(批次 3 P1-3 修复)
+echo '<scan-inbox JSON 的 files[]>' > temp/batch.json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
+  --project <用户工程根> \
+  --files-file <用户工程根>/temp/batch.json \
+  --emit-dir <用户工程根>/temp/ --json
+```
+
+> `--files` 与 `--files-file` 互斥(二选一,都传/都不传 → ERROR exit 1)。
+
 读 stdout JSON `batch_file`,后续 3 步脚本都用此文件。
 
 ```bash
 # dry-run 先看
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> --batch <batch_file> --json
 
 # 拍板后 --apply (若有同名冲突,先 --decision y|n|d)
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> --batch <batch_file> --decision y --apply --json
 ```
 
 - `[y]` 覆盖:先备份 `temp/raw_backup_{hash}/` + `os.replace()` 原子替换
 - `[n]` 跳过:status=skipped,inbox 文件保留
 - `[d]` 仅删旧副本
+- **v0.5.6 起(批次 2 P1-1)按 slug 重命名**:若 `batch.files[]` 提供 `slug` 字段,文件按 `{slug}.{ext}` 落地(原扩展名保留)。slug 已存在 → SKIP + WARN 不覆盖;slug 非法 → ERROR。
 
 ### 步骤 5:提取要点对话(可"继续"跳过)
 
@@ -138,7 +187,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js \
 LLM 拍板下面 4 个 OKF 推荐字段后传入 `gen-page.js`(对齐 `templates/page-source.md` 模板头部,避免前次 M2.2 落地时的字段缺失 bug):
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type source --slug <slug> \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --project <用户工程根> \
+  --type source --slug <slug> \
   --ext <ext> --subdir <raw_subdir> \
   --title "<title>" \
   --description "<OKF v0.2 §4.1 推荐:一句话 30-80 字概括>" \
@@ -147,6 +197,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type source --slug <slug> \
   --stale-after "<+1 年 ISO 8601>" \
   --source-file '[[<subdir>/<slug>.<ext>|<display>]]' --json
 ```
+
+> **v0.5.6 起必传 `--project`**:模板查找严格从 `<project>/templates/` 读,不传且 cwd 也无 templates/ → ERROR。`--project` 解析顺序:`--project` CLI > `env.WIKI_PROJECT` > `cwd/templates/`(仅当 templates/ 存在)。
 
 参数说明:
 
@@ -177,7 +229,7 @@ LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 ### 步骤 10:建 entity / concept 页 skeleton
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type <entity|concept>.<subtype> --slug <slug> \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --type <entity|concept>.<subtype> --slug <slug> \
   --title "<title>" --json
 ```
 
@@ -187,18 +239,21 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type <entity|concept>.<subtype>
 
 自由发挥。`sources[]` 字段在 gen-page 阶段已写入 plugin 骨架(指向本次 source 页的 resource 路径);若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
 
-### 步骤 12:回填 source 页 `## 相关页面` + entity/concept 页 `## 来源资料`(双向反链,完全重建)
+### 步骤 12:回填 source 页 `## 相关页面` + entity/concept 页 `## 来源资料`(双向反链,**追加 + 保留**)
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> --batch <batch_file> --apply --json
 ```
 
 - 扫所有 source / entity / concept 页 frontmatter
 - source 页 → 写 `## 相关页面(Related Pages)`(Entities / Concepts 分组)
 - entity/concept 页 → 写 `## 来源资料`(按 source title 排序)
-- 每次**完全重建**,不保留人工条目
-- 某组空 → 省子标题;全空 → 省整节
+- **v0.5.6 起改为追加模式**:每次 ingest 在区块末尾追加新确认的反链(去重 wikilink 字符串);**保留** 区块下所有现有条目(含人工补的)。
+- 同 wikilink 重复 → 保留人工条目(可能带更详细批注),stderr WARN `duplicate wikilink [[xxx]] 已在人工条目中存在,保留人工条目`。
+- **若需完全重建**,先手工删除 `## 相关页面(Related Pages)` / `## 来源资料` 区块再跑脚本。
+- 区块不存在 + 本次有反链 → 新建区块;区块不存在 + 本次无反链 → 文件不动(action=`*-unchanged`)。
+- 某组空 → 省子标题;全空 → 省整节(仅当区块不存在时;区块已存在则保留人工条目)。
 
 ### 步骤 13:更新已有 wiki 页
 
@@ -207,7 +262,7 @@ LLM 决定:命名飘合并 / 改链等。
 ### 步骤 14:更新 glossary.md(增量合并)
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
 ```
 
 (本步为 query/synthesize 共享;ingest 跑完调一次,确保 index.md 反映新页)
@@ -223,7 +278,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --j
 ### 步骤 17:追加 log.md(最新在前,ISO 8601)
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> --batch <batch_file> --apply --json
 ```
 
@@ -241,13 +296,19 @@ rm temp/ingest-batch-{ts}.json
 
 调 lint skill(M2.4 实现)校验 C17(模板一致性)/ C18(原生+副本矛盾)/ C19(降级日志);FAIL 必须修复后才算 ingest 完成。
 
-当前为 M2.4 预留 stub:
+当前为 M2.4 预留 stub(v0.5.6 批次 3 P2-5 起真做两条最小规则):
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --project <用户工程根> --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --project <用户工程根> --json
 ```
 
-读 stdout JSON:`linted` 字段反映本次扫到的 knowledge/ 页数;`fail` / `warn` 在 stub 阶段固定为 0;M2.4 真实实现替换 stub 内容,字段含义不变。
+读 stdout JSON:
+
+- `linted` 字段:扫到的 knowledge/ 页数
+- `fail`:规则 R7.2(frontmatter `updated` 非 ISO 8601)失败数;`>0` → exit 2(FAIL 必须修复后才算 ingest 完成)
+- `warn`:规则 R7.1(frontmatter `tags` < 5 条)命中数;`>0` → WARN(建议修复)
+- `warnings_by_file` / `errors_by_file`:聚合到文件级别,SKILL.md 可按路径展示
+- M2.4 真实实现替换 stub 内容,字段含义不变。
 
 ## 拍板门总结
 
@@ -260,15 +321,19 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --project <用户工程�
 | 步骤 5 | 提取要点对话 | 可跳过 |
 | 步骤 18 | 是否删 batch.json | 等用户明确 |
 
-## 失败语义(对齐 implement-ingest.md §6.1)
+## 失败语义(权威源 = implement-ingest.md §6.1)
 
-| 场景 | 行为 |
-|---|---|
-| convert-to-md.js spawn 失败 | 原文件保留 inbox;batch.json status=failed;SKILL.md 步骤 19 报 FAIL |
-| 路径 4 paddleocr 未装 | classify.js 返回 fail:true,exit 2;SKILL.md 询问用户装,或跳过该文件 |
-| move-to-raw 覆盖 raw 已存在 | 强制拍板门 [y/n/d];[y] 必先备份 `temp/raw_backup_{hash}/` |
-| build-related-pages 字段不匹配 | 跳过该 entity/concept,stderr 报 WARN;不破坏 source 页 |
-| ajv 校验 entity/concept frontmatter 失败 | stderr WARN;反链略过此页 |
+> **失败语义表权威源已迁移到 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处)**(v0.5.6 起,P3-3 修复)。
+>
+> 本节不再独立维护失败语义表,改为引用。G3 / G6 / G10 三条规则覆盖:
+>
+> - **G3** `convert-to-md.js` spawn 失败(任意路径 3/4)
+> - **G6** ajv schema 校验失败(任意 frontmatter)
+> - **G10** preflight 缺依赖 / plugin-root 不存在
+>
+> 其他场景(`move-to-raw` 同名冲突等用户拍板门场景)归 SKILL.md 步骤 4 处理,**不**纳入 G3/G6/G10。
+
+
 
 ## 不做什么(SKILL.md 边界)
 
@@ -286,7 +351,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --project <用户工程�
 - 步骤 0-2 之间:**无副作用**,可任意重跑
 - 步骤 4 之前:inbox 文件未动;任意重跑
 - 步骤 4 `--apply` 之后:从 `temp/raw_backup_{hash}/` 恢复
-- 步骤 12 之后:反链写坏 → 重跑 build-related-pages(完全重建覆盖)
+- 步骤 12 之后:反链写坏 → 重跑 build-related-pages(追加模式会累积;需清理 → 手工删除对应 H2 区块再跑)
 - 步骤 17 之后:log.md 写错 → 手改 + 重跑 ingest
 
 ## 引用

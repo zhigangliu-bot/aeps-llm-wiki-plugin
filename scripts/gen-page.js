@@ -5,8 +5,15 @@
 // 用法:
 //   node gen-page.js --type source --slug iso26262 \
 //     --ext pdf --subdir 06_功能安全 \
+//     [--project <用户工程绝对路径>] \
+//     [--plugin-root <plugin 仓根绝对路径>] \
 //     [--source-file '[[06-功能安全/iso26262.pdf|ISO 26262:2018 原文]]'] \
 //     [--title 'ISO 26262:2018 功能安全标准']
+//
+// --project: 用户工程绝对路径;模板路径解析为 <project>/templates/<name>.
+//           解析顺序:--project > env.WIKI_PROJECT > process.cwd()(仅当 cwd/templates/ 存在).
+// --plugin-root: plugin 仓绝对路径;读 .claude-plugin/plugin.json.
+//               解析顺序:--plugin-root > env.CLAUDE_PLUGIN_ROOT > __dirname/../..
 //
 // type 取值: source / entity.{person,organization,project,product,event,place,other}
 //           / concept.{theory,method,field,phenomenon,standard,term,other}
@@ -17,22 +24,50 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireDeps } from "./lib/preflight.js";
+// gen-page.js 不依赖 npm 包(纯 node:fs);inline preflight 用空对象探活
+await requireDeps({});
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---- plugin 版本号 -------------------------------------------------------
 // 从 plugin 本体 .claude-plugin/plugin.json 读取,而不是 scripts/package.json
 // (scripts/package.json 是 scripts 私有包版本,与 plugin 本体版本解耦)
-// 读取失败 → 降级 fallback 到 "0.0.0" + stderr WARN,不阻塞生成
+//
+// 解析顺序(批次 1 修复 P0-3,design.md D1):
+//   1. --plugin-root <absolute> CLI(最高优先级,SKILL.md 显式传)
+//   2. process.env.CLAUDE_PLUGIN_ROOT(env,plugin loader 注入)
+//   3. <import.meta.dirname>/../../.claude-plugin/plugin.json 探测
+//      (脚本在 plugin 仓内被调用时命中,向后兼容老调用方式)
+//   4. fallback 字符串 "unknown"(不是合法 semver,避免被误读为真实版本)
+function resolvePluginRoot(cliArg) {
+  if (cliArg) return resolve(cliArg);
+  if (process.env.CLAUDE_PLUGIN_ROOT) return resolve(process.env.CLAUDE_PLUGIN_ROOT);
+  const candidate = resolve(__dirname, "..", ".claude-plugin", "plugin.json");
+  return existsSync(candidate) ? resolve(__dirname, "..") : null;
+}
+
 function readPluginVersion() {
+  // 用 args 缓存:parseArgs 是模块内函数,这里通过 process.argv 重读一次;
+  // 因为 readPluginVersion 在 renderFrontmatter 中调用,需要在 main 流程里 cache。
+  const cli = (() => {
+    const argv = process.argv.slice(2);
+    const i = argv.indexOf("--plugin-root");
+    return i >= 0 ? argv[i + 1] : null;
+  })();
+  const root = resolvePluginRoot(cli);
+  if (!root) {
+    console.error('WARN: plugin.json 读取失败,fallback "unknown"(未指定 --plugin-root,env CLAUDE_PLUGIN_ROOT 未注入,plugin 仓根探测失败)');
+    return "unknown";
+  }
   try {
-    const pluginJsonPath = resolve(__dirname, "..", ".claude-plugin", "plugin.json");
+    const pluginJsonPath = join(root, ".claude-plugin", "plugin.json");
     const txt = readFileSync(pluginJsonPath, "utf8");
     const json = JSON.parse(txt);
-    return json.version || "0.0.0";
+    return json.version || "unknown";
   } catch (e) {
-    console.error(`WARN: plugin.json 读取失败,fallback "0.0.0": ${e.message}`);
-    return "0.0.0";
+    console.error(`WARN: plugin.json 读取失败(${root}/.claude-plugin/plugin.json),fallback "unknown": ${e.message}`);
+    return "unknown";
   }
 }
 
@@ -90,8 +125,12 @@ const TYPE_TO_DIR = {
 
 // ---- 模板解析 ------------------------------------------------------------
 // 仅提取 frontmatter 字段名骨架 + H2 顺序;不动模板文件
+// 兼容:模板顶部可能有 HTML 注释行(批次 1 模板骨架松绑后,L113-style 提示常用 `<!-- ... -->` 前缀)。
+// 此处只关心 frontmatter 块 + H2 顺序,不解析注释内容。
 function parseTemplate(mdText) {
-  const m = mdText.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  // 跳过开头的注释行(<!-- ... -->)与空行,定位首个 --- 起始
+  const cleaned = mdText.replace(/^(?:<!--[\s\S]*?-->\s*\n)+/, '');
+  const m = cleaned.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!m) throw new Error("template frontmatter parse failed");
   const fmNames = [...m[1].matchAll(/^([a-z_]+):/gm)].map((x) => x[1]);
   const h2s = [...m[2].matchAll(/^## (.+)$/gm)].map((x) => x[1].trim());
@@ -266,14 +305,37 @@ function main() {
     return `page-${type}.md`;
   })();
 
-  // 模板搜索路径:用户工程 templates/ 优先,plugin doc/template/ fallback
-  const candidates = [
-    resolve(process.cwd(), "templates", tplName),
-    resolve(__dirname, "..", "doc", "template", tplName),
-  ];
+  // 用户工程根解析(对齐 design.md D2,批次 2 修复 P1-2):
+  //   1. --project <absolute>(SKILL.md 显式传,最高优先级)
+  //   2. process.env.WIKI_PROJECT(env)
+  //   3. process.cwd()(若 cwd/templates/<name> 存在则采用为 user project root)
+  //   4. 否则回退 plugin doc/template/<name>(plugin 自检路径,向后兼容老调用方式)
+  // 备注:cwd 解析不是"必须存在 templates/ 目录"才采用,而是"模板能在 cwd/templates/<name> 命中"才采用;
+  //      否则继续尝试 plugin 自带模板。这样老调用方式(plugin 仓内跑)继续可用。
+  const projectRoot = (() => {
+    if (args.project) return resolve(String(args.project));
+    if (process.env.WIKI_PROJECT) return resolve(process.env.WIKI_PROJECT);
+    const cwdTemplatesTpl = resolve(process.cwd(), "templates", tplName);
+    if (existsSync(cwdTemplatesTpl)) return process.cwd();
+    return null; // 无显式 project,cwd/templates 也无 → 让下面 candidates 找 plugin 自带
+  })();
+
+  // 模板搜索路径:
+  //   - 若显式 --project → 严格从 <project>/templates/<name> 找(不 fallback plugin 自带);
+  //     这是因为显式指定了用户工程根,模板理应在用户工程的 templates/ 下。
+  //     找不到 → ERROR,提示用户 sync templates 或检查路径。
+  //   - 否则(无 --project)→ 优先 cwd/templates/,fallback plugin doc/template/(向后兼容老调用)
+  const candidates = [];
+  if (args.project || process.env.WIKI_PROJECT) {
+    // 显式 --project / WIKI_PROJECT → 严格模式
+    candidates.push(resolve(projectRoot, "templates", tplName));
+  } else {
+    if (projectRoot) candidates.push(resolve(projectRoot, "templates", tplName));
+    candidates.push(resolve(__dirname, "..", "doc", "template", tplName));
+  }
   const tplPath = candidates.find((p) => existsSync(p));
   if (!tplPath) {
-    console.error(`ERROR: template not found: ${tplName} (looked in ${candidates.join(", ")})`);
+    console.error(`ERROR: template not found: ${tplName} (looked in ${candidates.join(", ")}). Pass --project <absolute> to specify user project root.`);
     process.exit(2);
   }
   const tplText = readFileSync(tplPath, "utf8");
@@ -284,9 +346,10 @@ function main() {
   const out = fm + "\n" + body;
 
   // 输出路径:knowledge/{TYPE_TO_DIR}/{slug}.md 或 --out 指定
+  // 用户工程根用上面解析的 projectRoot,与 templates 路径同源
   const outPath = args.out
     ? resolve(args.out)
-    : resolve(process.cwd(), "knowledge", TYPE_TO_DIR[type], `${args.slug}.md`);
+    : resolve(projectRoot, "knowledge", TYPE_TO_DIR[type], `${args.slug}.md`);
   mkdirSync(dirname(outPath), { recursive: true });
   try {
     writeFileSync(outPath, out, "utf8");

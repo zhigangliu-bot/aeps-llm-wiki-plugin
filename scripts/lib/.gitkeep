@@ -1,0 +1,6 @@
+# scripts/lib/
+
+可复用模块目录。本批次新增:
+
+- `preflight.js` — inline preflight(`requireDeps` 函数)
+- `iso8601.js` — ISO 8601 校验(被 lint-stub 等复用)

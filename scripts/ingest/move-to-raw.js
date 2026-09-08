@@ -6,22 +6,26 @@
  *   node scripts/ingest/move-to-raw.js --project <dir> --batch <batch.json> [--apply] [--json]
  *
  * 行为:
- *   1. 读 batch.json files[] (含 target_subdir 由 SKILL.md 步骤 3 填入)
+ *   1. 读 batch.json files[] (含 target_subdir 由 SKILL.md 步骤 3 填入,可选 slug)
  *   2. 每个文件:
- *      a. 若 raw/{subdir}/{file} 已存在同名 → 强制拍板门 (y/n/d) — 由 SKILL.md 在调用前设置 --decision
- *         [y] 覆盖 (先备份到 temp/raw_backup_{hash}/ + os.replace() 原子替换)
- *         [n] 跳过 (status: skipped, inbox 文件保留)
- *         [d] 仅删旧副本 (status: deleted-old)
- *      b. 同时迁原文件 + .converted.md (若有)
- *      c. 删除 inbox 原文件
- *   3. dry-run 默认 (只输出 diff);--apply 才写盘
+ *      a. 若 batch.json files[] 提供 `slug` 字段 → 重命名为 {slug}.{ext}(原扩展名保留);
+ *         否则保留原文件名
+ *      b. slug 二次校验(若失败 → ERROR):仅允许 ^[a-z0-9][a-z0-9-]*$
+ *      c. 若 raw/{subdir}/{slug}.{ext} 已存在 → SKIP + WARN(不覆盖)
+ *      d. 若 raw/{subdir}/{原文件名} 已存在 + slug 未提供 → 强制拍板门 (y/n/d)
+ *         [y] 覆盖(先备份到 temp/raw_backup_{hash}/ + os.replace() 原子替换)
+ *         [n] 跳过(status: skipped, inbox 文件保留)
+ *         [d] 仅删旧副本(status: deleted-old)
+ *      e. 同时迁原文件 + .converted.md(若有)
+ *      f. 删除 inbox 原文件
+ *   3. dry-run 默认(只输出 diff);--apply 才写盘
  *
- * --decision y|n|d (apply 模式才需要;SKILL.md 拍板后传入)
+ * --decision y|n|d(apply 模式且无 slug 重命名时才需要;SKILL.md 拍板后传入)
  *
  * Exit codes:
  *   0 - 成功
  *   1 - 参数错
- *   2 - 未指定 --decision 且有冲突
+ *   2 - 未指定 --decision 且有冲突 / slug 非法
  *   3 - 写盘失败
  */
 
@@ -29,6 +33,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import crypto from 'node:crypto';
+import { requireDeps } from '../lib/preflight.js';
+await requireDeps({});
 
 async function exists(p) {
   try { await fs.access(p); return true; } catch { return false; }
@@ -79,16 +85,34 @@ async function backupToTemp(project, subdir, file, dryRun, backedUp) {
   return backupDir;
 }
 
+// slug 校验:仅允许 ^[a-z0-9][a-z0-9-]*$(与 page slug 规范一致)
+function validateSlug(slug) {
+  if (typeof slug !== 'string' || slug.length === 0) return false;
+  return /^[a-z0-9][a-z0-9-]*$/.test(slug);
+}
+
 async function moveOne(project, file, decision, dryRun, result) {
-  // file: { path: 'inbox/foo.pdf', target_subdir: '06_功能安全', converted_path: './raw/06_功能安全/foo.pdf.converted.md' }
+  // file: { path: 'inbox/foo.pdf', target_subdir: '06_功能安全', converted_path: './raw/06_功能安全/foo.pdf.converted.md', slug?: 'andrew-ng' }
   const subdir = file.target_subdir;
   if (!subdir) {
     result.failed.push({ file: file.path, reason: 'target_subdir 未指定 (SKILL.md 步骤 3 必填)' });
     return;
   }
-  const inboxPath = path.join(project, 'inbox', path.basename(file.path));
+  // slug 处理:若 batch.files[] 提供 slug → 重命名为 {slug}.{ext};否则保留原文件名
+  const originalName = path.basename(file.path);
+  const ext = path.extname(file.path); // 保留原扩展名(.md / .pdf / .docx 等)
+  let fileName;
+  if (file.slug) {
+    if (!validateSlug(file.slug)) {
+      result.failed.push({ file: file.path, reason: `slug 非法: "${file.slug}"(必须匹配 ^[a-z0-9][a-z0-9-]*$)` });
+      return;
+    }
+    fileName = `${file.slug}${ext}`;
+  } else {
+    fileName = originalName;
+  }
+  const inboxPath = path.join(project, 'inbox', originalName);
   const rawDir = path.join(project, 'raw', subdir);
-  const fileName = path.basename(file.path);
   const destPath = path.join(rawDir, fileName);
 
   // 转换副本(若有)
@@ -98,9 +122,12 @@ async function moveOne(project, file, decision, dryRun, result) {
   if (convRel) {
     // converted_path 是 ./raw/{subdir}/{basename}.{ext}.converted.md
     // 副本原文件路径 = inbox/{basename}.{ext}.converted.md (SKILL.md 步骤 2 转换后写入 inbox)
-    const base = path.basename(file.path, path.extname(file.path));
-    const ext = path.extname(file.path).toLowerCase().replace(/^\./, '');
-    const convFileName = `${base}.${ext}.converted.md`;
+    // 若已按 slug 重命名 → 副本 base 也用 slug
+    const convBase = file.slug
+      ? file.slug
+      : path.basename(file.path, path.extname(file.path));
+    const convExt = path.extname(file.path).toLowerCase().replace(/^\./, '');
+    const convFileName = `${convBase}.${convExt}.converted.md`;
     convInboxPath = path.join(project, 'inbox', convFileName);
     convDestPath = path.join(rawDir, convFileName);
   }
@@ -110,7 +137,21 @@ async function moveOne(project, file, decision, dryRun, result) {
   let backupDir = null;
 
   if (conflict) {
-    // 强制拍板门
+    // slug 重命名模式:已存在 → SKIP + WARN,不覆盖
+    if (file.slug) {
+      result.skipped.push({
+        file: fileName,
+        subdir,
+        reason: `slug 已存在(${file.slug}.${ext.replace(/^\./, '')}),SKIP + WARN`,
+      });
+      result.warnings.push({
+        file: fileName,
+        subdir,
+        reason: `raw/${subdir}/${fileName} 已存在,slug 模式不覆盖`,
+      });
+      return;
+    }
+    // 原文件名模式:强制拍板门
     if (!decision) {
       result.conflicts.push({ file: fileName, subdir, dest: destPath });
       result.failed.push({ file: file.path, reason: 'raw 已存在同名,需 --decision y/n/d' });

@@ -13,16 +13,31 @@
  *   - 已有当天 H2 → 复用;无 → 插入新 H2 (最新在前,按 Q5)
  *   - 不动已有 Init/Creation/LintFix 等条目
  *
+ * JSON output 增加 `entries` 数组(P1-4 批次 3 修复):
+ *   - 每个元素 { file, action, summary }
+ *   - action ∈ { added, merged, skipped }
+ *     - added:    本批次新增条目(当天 H2 新建)
+ *     - merged:   本批次追加到当天 H2(已有当天,合并)
+ *     - skipped:  批次内某文件已处理过(dedupe_key 已存在)
+ *
  * Exit codes:
  *   0 - 成功
  *   1 - 参数错
- *   2 - 写盘失败
+ *   2 - 写盘失败 / 缺依赖
+ *
+ * change history:
+ *   - 0.5.6: P1-4 entries 数组(批次 3)
+ *   - 0.5.6: inline preflight(批次 3)
  */
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import yaml from 'js-yaml';
+import { requireDeps } from '../lib/preflight.js';
+// 批次 3 P1-6: inline preflight 先跑;缺包 → throw 含精确 npm install 命令
+await requireDeps({ 'js-yaml': 'js-yaml' });
+// 动态 import:必须在 requireDeps 之后
+const yaml = (await import('js-yaml')).default;
 
 function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -156,6 +171,46 @@ function buildEntries(files) {
   return lines;
 }
 
+/**
+ * 构造 P1-4 entries 预览数组(每个元素含 file / action / summary)
+ * action 判定:
+ *   - skipped:  f.dedupe_key 非空且已在 log.md 中出现 → 跳过
+ *   - merged:   wasMerged=true(本次追加到已有当天节)
+ *   - added:    wasMerged=false(本次新建当天节)
+ */
+function buildEntriesPreview(files, sectionsOrFlag, today) {
+  // 兼容两种调用:
+  //   - buildEntriesPreview(files, sections, today) 旧调用(忽略)
+  //   - buildEntriesPreview(files, { _wasMerged: boolean }, today) 新调用
+  let wasMerged = false;
+  if (sectionsOrFlag && typeof sectionsOrFlag === 'object' && '_wasMerged' in sectionsOrFlag) {
+    wasMerged = !!sectionsOrFlag._wasMerged;
+  } else if (Array.isArray(sectionsOrFlag)) {
+    wasMerged = sectionsOrFlag.some(s => s.date === today);
+  }
+  const preview = [];
+  for (const f of files) {
+    const fileName = path.basename(f.path);
+    const sub = f.target_subdir || '?';
+    const target = `raw/${sub}/${fileName}`;
+    const slug = path.basename(fileName, path.extname(fileName));
+    let summary;
+    let action;
+    if (f.dedupe_key && f.skipped_dedupe) {
+      action = 'skipped';
+      summary = `dedupe_key 已存在: ${f.dedupe_key}`;
+    } else if (wasMerged) {
+      action = 'merged';
+      summary = `追加到 [${today}] 节:${slug} → ${target}`;
+    } else {
+      action = 'added';
+      summary = `新建 [${today}] 节:${slug} → ${target}`;
+    }
+    preview.push({ file: f.path, action, summary });
+  }
+  return preview;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const project = path.resolve(args.project);
@@ -189,7 +244,18 @@ async function main() {
   const newBody = renderLogSections(sections);
   const newContent = fm ? renderFrontmatterBlock(fm) + '\n' + newBody : newBody;
 
-  const result = { dry_run: dryRun, date: today, entries_added: entries.length, log_path: logPath.replace(/\\/g, '/') };
+  // P1-4 批次 3: 构造 entries 预览数组(action 判定基于"插入前"已存在的 sections)
+  // 注意:上面已经 unshift 了 today,所以这里用一个备份判断"插入前是否已存在"
+  const wasMerged = idx !== -1;
+  const entriesPreview = buildEntriesPreview(batch.files, { _wasMerged: wasMerged }, today);
+
+  const result = {
+    dry_run: dryRun,
+    date: today,
+    entries_added: entries.length,
+    entries: entriesPreview,
+    log_path: logPath.replace(/\\/g, '/'),
+  };
   if (!dryRun) {
     try {
       await fs.writeFile(logPath, newContent, 'utf8');

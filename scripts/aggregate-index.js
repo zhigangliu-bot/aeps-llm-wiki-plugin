@@ -2,7 +2,7 @@
 // PRD §4.1.1:确定性脚本聚合目录,不依赖 LLM.
 //
 // 用法:
-//   node aggregate-index.js [--knowledge ./knowledge] [--dry-run]
+//   node aggregate-index.js [--knowledge ./knowledge] [--dry-run] [--json]
 //
 // 行为:
 //   - 扫 {knowledge}/*.md 之外的子目录(sources/, entities/*, concepts/*, analyses/, comparisons/, syntheses/)
@@ -12,12 +12,22 @@
 //   - 生成/追加 knowledge/glossary.md(从 title + aliases 抽取术语条目;不覆盖用户已写条目)
 //   - 输出 mtime,幂等;同状态连跑两次产物相同
 //
-// exit: 0 OK / 1 参数错
+// JSON stdout 增量(P2-3 批次 3):
+//   - scanned: <number>
+//   - by_type: { 'entity.person': 3, 'concept.field': 4, source: 2, ... }
+//   - by_subdir: { 'sources': 2, 'entities/person': 3, ... }  (可选)
+// --json 显式开启;不带 --json 时 stdout 仍是人类可读 "scanned N pages from ..."
+//
+// exit: 0 OK / 1 参数错 / 2 缺依赖
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import yaml from "js-yaml";
+import { requireDeps } from "./lib/preflight.js";
+// 批次 3 P1-6: inline preflight 先跑;缺包 → throw 含精确 npm install 命令
+await requireDeps({ "js-yaml": "js-yaml" });
+// 动态 import:必须在 requireDeps 之后
+const yaml = (await import("js-yaml")).default;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -264,6 +274,7 @@ function main() {
     return i >= 0 ? resolve(args[i + 1]) : resolve(process.cwd(), "knowledge");
   })();
   const dryRun = args.includes("--dry-run");
+  const jsonMode = args.includes("--json");
 
   if (!existsSync(knowledge)) {
     console.error(`ERROR: knowledge 目录不存在: ${knowledge}`);
@@ -271,6 +282,50 @@ function main() {
   }
 
   const pages = loadAll(knowledge);
+
+  // P2-3 批次 3: by_type 分类统计 + by_subdir 子目录统计
+  const byType = {};
+  const bySubdir = {};
+  for (const p of pages) {
+    const t = p.type || "unknown";
+    byType[t] = (byType[t] || 0) + 1;
+    // subdir = 第一层目录(sources / entities / concepts / analyses / ...);顶层页如 index/overview 归 "root"
+    const rel = p.rel.replace(/\\/g, "/");
+    const subdir = rel.includes("/") ? rel.split("/")[0] : "root";
+    bySubdir[subdir] = (bySubdir[subdir] || 0) + 1;
+  }
+
+  if (jsonMode) {
+    const out = {
+      knowledge: knowledge.replace(/\\/g, "/"),
+      scanned: pages.length,
+      dry_run: dryRun,
+      by_type: byType,
+      by_subdir: bySubdir,
+      written: [],
+    };
+    const idx = renderIndex(knowledge, pages);
+    const ov = renderOverview(pages);
+    const gl = renderGlossary(pages);
+    const writes = [
+      [join(knowledge, "index.md"), idx],
+      [join(knowledge, "overview.md"), ov],
+      [join(knowledge, "glossary.md"), gl],
+    ];
+    for (const [p, c] of writes) {
+      if (dryRun) {
+        out.written.push({ file: p.replace(/\\/g, "/"), bytes: c.length, dry_run: true });
+      } else {
+        mkdirSync(dirname(p), { recursive: true });
+        writeFileSync(p, c, "utf8");
+        out.written.push({ file: p.replace(/\\/g, "/"), bytes: c.length });
+      }
+    }
+    console.log(JSON.stringify(out, null, 2));
+    return;
+  }
+
+  // 默认人类可读 stdout(向后兼容)
   console.log(`scanned ${pages.length} pages from ${knowledge}`);
 
   const idx = renderIndex(knowledge, pages);

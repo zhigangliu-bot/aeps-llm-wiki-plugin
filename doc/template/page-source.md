@@ -1,3 +1,4 @@
+<!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
 type: source
@@ -10,13 +11,15 @@ tags:
   - domain/fusa
   - tec/iso26262-asil-d
   - maturity/standard
+  - layer/bsw-os
+  - phase/architecture
 
 # OKF §4.1 resource
 resource: "./raw/06_功能安全/iso26262.pdf"
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.2"
+  by: "producer/aeps-llm-wiki-plugin/0.6.0"
   at: "2026-09-04T10:30:00Z"
 
 # OKF §5.4 / §5.5 lifecycle

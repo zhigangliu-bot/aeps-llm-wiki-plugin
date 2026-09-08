@@ -1,3 +1,4 @@
+<!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
 type: "entity.person"          # 子类:person / organization / project / product / event / place / other
@@ -9,6 +10,8 @@ tags:
   - domain/ai
   - layer/ai-agent
   - tec/claude
+  - maturity/standard
+  - phase/learning
 
 # OKF §5.1 sources(指向关联的源页/原始资料)
 sources:
@@ -17,7 +20,7 @@ sources:
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.6"
+  by: "producer/aeps-llm-wiki-plugin/0.6.0"
   at: "2026-09-04T11:30:00Z"
 
 # OKF §5.4 lifecycle(可选)

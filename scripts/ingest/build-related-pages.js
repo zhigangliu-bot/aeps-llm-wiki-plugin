@@ -16,7 +16,11 @@
  * 反链判定:扫 entity/concept 页 frontmatter `sources[].resource` 字段,匹配 source 页的 `resource`
  *   (或 absolute path),不解析正文 wikilink (避免循环)
  *
- * 每次 ingest 完全重建,不保留人工条目
+ * v0.5.6 起(批次 2 R3,修复 P1-5):语义从"完全重建"改为"追加 + 保留"。
+ *   - 区块不存在 → 新建,只追加本次确认的反链(去重)
+ *   - 区块已存在 → **保留** 区块下所有现有条目(含人工写的),在末尾追加本次确认的反链(去重)
+ *   - 冲突条目(同 wikilink)→ 保留人工条目(可能含更详细别名/批注),WARN `duplicate, kept manual entry`
+ *   - 若需完全重建 → 手工删除 `## 相关页面(...)` 区块后再跑
  *
  * Exit codes:
  *   0 - 成功
@@ -24,21 +28,88 @@
  *   2 - 写盘失败
  */
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, accessSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import yaml from 'js-yaml';
-import Ajv from 'ajv';
+import { requireDeps } from '../lib/preflight.js';
+// 批次 3 P1-6: inline preflight 先跑;缺包 → throw 含精确 npm install 命令
+await requireDeps({ 'js-yaml': 'js-yaml', ajv: 'ajv' });
+// 动态 import:必须在 requireDeps 之后,否则 ESM 静态解析先抛 ERR_MODULE_NOT_FOUND
+const yaml = (await import('js-yaml')).default;
+const Ajv = (await import('ajv')).default;
 
 // ---- ajv 校验 (对齐 frontmatter.schema.json) ----
 // 失败语义(对齐 SKILL.md §失败语义):
 //   - ajv 加载 schema 失败 → process.exit(2)
 //   - ajv 校验 entity/concept frontmatter 失败 → stderr WARN + 跳过该页(反链不写)
-const SCHEMA_PATH = path.resolve(import.meta.dirname, '..', '..', 'doc', 'schema', 'frontmatter.schema.json');
+//
+// SCHEMA_PATH 解析顺序(批次 1 修复 P0-2,design.md D2):
+//   1. --schema-path <absolute>(CLI 显式覆盖,最高优先级)
+//   2. process.env.WIKI_SCHEMA_PATH(env,可选,本批次不主动文档化)
+//   3. <project>/schema/frontmatter.schema.json(用户工程标准路径)
+//   4. <project>/doc/schema/frontmatter.schema.json(junction 兼容)
+//   5. <plugin-root>/doc/schema/frontmatter.schema.json(plugin 自检,plugin-root 由 D1 解析)
+//
+// project 解析顺序(design.md D2):
+//   - --project <absolute> CLI > process.env.WIKI_PROJECT > process.cwd()
 let ajvValidate = null;
+
+function resolvePluginRoot(cliArg) {
+  if (cliArg) return path.resolve(cliArg);
+  if (process.env.CLAUDE_PLUGIN_ROOT) return path.resolve(process.env.CLAUDE_PLUGIN_ROOT);
+  const candidate = path.resolve(import.meta.dirname, '..', '..', '.claude-plugin', 'plugin.json');
+  try {
+    accessSync(candidate);
+    return path.resolve(import.meta.dirname, '..', '..');
+  } catch {
+    return null;
+  }
+}
+
+function resolveProject(cliArg) {
+  if (cliArg) return path.resolve(cliArg);
+  if (process.env.WIKI_PROJECT) return path.resolve(process.env.WIKI_PROJECT);
+  return path.resolve(process.cwd());
+}
+
+function resolveSchemaCandidates(args) {
+  if (args.schemaPath) return [path.resolve(args.schemaPath)];
+  if (process.env.WIKI_SCHEMA_PATH) return [path.resolve(process.env.WIKI_SCHEMA_PATH)];
+  const project = resolveProject(args.project);
+  const pluginRoot = resolvePluginRoot(args.pluginRoot);
+  const candidates = [
+    path.join(project, 'schema', 'frontmatter.schema.json'),
+    path.join(project, 'doc', 'schema', 'frontmatter.schema.json'),
+  ];
+  if (pluginRoot) {
+    candidates.push(path.join(pluginRoot, 'doc', 'schema', 'frontmatter.schema.json'));
+  }
+  return candidates;
+}
+
+async function pickSchemaPath(candidates) {
+  for (const p of candidates) {
+    try {
+      await fs.access(p);
+      return p;
+    } catch {
+      // continue
+    }
+  }
+  return null;
+}
 
 async function loadValidator() {
   if (ajvValidate) return ajvValidate;
+  const args = currentArgs || {};
+  const candidates = resolveSchemaCandidates(args);
+  const SCHEMA_PATH = await pickSchemaPath(candidates);
+  if (!SCHEMA_PATH) {
+    console.error(`ERROR: 无法定位 frontmatter schema;候选路径:`);
+    for (const p of candidates) console.error(`  - ${p}`);
+    console.error(`解决:用 --schema-path <absolute> 显式指定;或 --project 指向含 schema/ 的用户工程;或 --plugin-root 指向 plugin 仓根`);
+    process.exit(2);
+  }
   let schema;
   try {
     const txt = await fs.readFile(SCHEMA_PATH, 'utf8');
@@ -60,20 +131,28 @@ async function loadValidator() {
   }
 }
 
+// 模块级 args 缓存(loadValidator 在 scanEntityConcept 内异步调用,需要拿到 CLI 解析结果)
+let currentArgs = null;
+
 // 实体 / 概念子目录列表(对齐 doc/schema/schema.md §1.1: 18 叶子 1:1 绑死)
 // entity.concept. 子目录 7 个;concept.* 子目录 7 个
 const ENTITY_DIRS = ['person', 'organization', 'project', 'product', 'event', 'place', 'other'];
 const CONCEPT_DIRS = ['theory', 'method', 'field', 'phenomenon', 'standard', 'term', 'other'];
 
 const RELATED_H2 = '## 相关页面(Related Pages,由 ingest 自动生成)';
+// 同时识别"用户手工标题"——只匹配 `## 相关页面`,允许后缀自定义。
+// 用于 P1-5 修复:手工写过 `## 相关页面(我手工补的)` 也走追加保留。
+const RELATED_H2_PREFIX = '## 相关页面';
 const RELATED_ENTITIES_H3 = '### Entities';
 const RELATED_CONCEPTS_H3 = '### Concepts';
 const SOURCES_H2 = '## 来源资料(由 ingest 自动生成)';
+// 同样兼容用户手工 `## 来源资料` 标题
+const SOURCES_H2_PREFIX = '## 来源资料';
 
 // 反链区块说明文字(对齐 page-source.md L111 / page-entity-*.md L55):
-// 本节由 /aeps-llm-wiki-ingest 双向反链生成,每次 ingest 完全重建,不保留人工添加的条目。
-const RELATED_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据本源页抽取并创建的实体页、概念页生成,每次 ingest **完全重建**,不保留人工添加的条目;没有任何相关页面时省略本节。';
-const SOURCES_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据抽取本页的 `type: source` 源页列表生成,作为 source 页 `## 相关页面(Related Pages)` 的反向链接(双向反链)。每次 ingest **完全重建**,不保留人工添加的条目;没有任何 source 页引用本页时省略本节。';
+// v0.5.6 起改为"追加 + 保留"语义;人工补的条目保留,WARN 重复时让位给人工条目。
+const RELATED_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据本源页抽取并创建的实体页、概念页生成,**追加模式**:每次 ingest 在区块末尾追加新确认的反链(去重),保留人工补的条目;若需完全重建,请先手工删除本节再跑。';
+const SOURCES_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据抽取本页的 `type: source` 源页列表生成,作为 source 页 `## 相关页面(Related Pages)` 的反向链接(双向反链)。**追加模式**:每次 ingest 在区块末尾追加新 source(去重),保留人工补的条目;若需完全重建,请先手工删除本节再跑。';
 
 // ---- frontmatter 解析 ----
 function parseFrontmatter(mdText) {
@@ -161,10 +240,10 @@ async function scanEntityConcept(knowledgeDir) {
       const txt = await fs.readFile(f, 'utf8');
       const { fm, body } = parseFrontmatter(txt);
       if (!fm.type || !fm.type.startsWith('entity.')) continue;
-      if (!validate(fm)) {
+      const invalid = !validate(fm);
+      if (invalid) {
         const errs = (validate.errors || []).map(e => `${e.instancePath || '/'} ${e.message}`).join('; ');
         console.error(`WARN: ${f}: ${errs}`);
-        continue;
       }
       out.push({
         file: f,
@@ -175,6 +254,7 @@ async function scanEntityConcept(knowledgeDir) {
         sources: Array.isArray(fm.sources) ? fm.sources : [],
         fm,
         body,
+        invalid,
       });
     }
   }
@@ -184,10 +264,10 @@ async function scanEntityConcept(knowledgeDir) {
       const txt = await fs.readFile(f, 'utf8');
       const { fm, body } = parseFrontmatter(txt);
       if (!fm.type || !fm.type.startsWith('concept.')) continue;
-      if (!validate(fm)) {
+      const invalid = !validate(fm);
+      if (invalid) {
         const errs = (validate.errors || []).map(e => `${e.instancePath || '/'} ${e.message}`).join('; ');
         console.error(`WARN: ${f}: ${errs}`);
-        continue;
       }
       out.push({
         file: f,
@@ -198,6 +278,7 @@ async function scanEntityConcept(knowledgeDir) {
         sources: Array.isArray(fm.sources) ? fm.sources : [],
         fm,
         body,
+        invalid,
       });
     }
   }
@@ -235,45 +316,109 @@ function renderSourcesBlock(sourceRefs) {
   return lines.join('\n');
 }
 
-// ---- body 区块替换 ----
+// ---- body 区块替换(追加 + 保留语义,v0.5.6 起 P1-5 修复) ----
 /**
- * 删除 body 中已有的 RELATED_H2 / SOURCES_H2 区块(到下一个 H2 或文末)
- * 同步吃掉紧随其后的 `---` 水平线(避免 rebuild 时累积多个)
- * 保留 ## 维护说明 等其他 H2
+ * 在 body 中定位 H2 区块;返回 {start, end} (start 是 H2 行号,end 是下一个 ## 行号或文末)
+ * 若不存在 → 返回 null
+ *
+ * h2Matcher: 精确字符串(如 RELATED_H2)或前缀函数(如 (line) => line.startsWith('## 相关页面'))
  */
-function stripExistingBlock(body, h2Name) {
-  // 匹配以 h2Name 开头的 H2,直到下一个 ## (任意 H2) 或文末
+function findH2Block(body, h2Matcher) {
   const lines = body.split('\n');
-  const out = [];
-  let inBlock = false;
-  let afterBlockEaten = false;  // 是否刚退出 block(用于吃 --- 水平线)
-  for (const line of lines) {
-    if (!inBlock && line.trim() === h2Name) {
-      inBlock = true;
-      afterBlockEaten = false;
-      continue;
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (typeof h2Matcher === 'function' ? h2Matcher(trimmed) : trimmed === h2Matcher) {
+      start = i;
+      break;
     }
-    if (inBlock) {
-      if (/^##\s/.test(line.trim())) {
-        inBlock = false;
-        // 退出 block 后,看下一行是不是 ---
-        afterBlockEaten = true;
-        out.push(line);
-        continue;
-      }
-      // skip until next H2
-      continue;
-    }
-    if (afterBlockEaten && line.trim() === '---') {
-      // 吃掉本行 `---`(残留的旧水平线);但只吃一次
-      afterBlockEaten = false;
-      continue;
-    }
-    afterBlockEaten = false;
-    out.push(line);
   }
-  // 去掉末尾多余空行
-  return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let j = start + 1; j < lines.length; j++) {
+    if (/^##\s/.test(lines[j].trim())) {
+      end = j;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+/**
+ * 提取 wikilink 条目(- [[xxx]] 或 - [[xxx|alias]] 或带行尾批注)的 slug 集合
+ * 行尾可有任意文字(批注 / 标记),但不能紧接着再一个 wikilink
+ */
+function extractWikilinkSlugs(blockText) {
+  const slugs = new Set();
+  for (const line of blockText.split('\n')) {
+    // 匹配 - 后跟 [[xxx]] 或 [[xxx|alias]],后面可有任意行尾文字
+    const m = line.match(/^-\s+\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/);
+    if (m) slugs.add(m[1]);
+  }
+  return slugs;
+}
+
+/**
+ * 对齐 H2 区块末尾:把给定的新 wikilink 条目按 entities/concepts(或 sources)顺序追加到现有区块,
+ *   去重(wikilink 字符串)。
+ * 返回 { newBlock, duplicates }:newBlock 是替换后的完整区块文本;
+ *   duplicates 是与本次确认冲突的人工 wikilink 列表(已保留人工条目,WARN 用)。
+ */
+function appendRelatedEntries(existingBlockText, entities, concepts) {
+  const before = extractWikilinkSlugs(existingBlockText);
+  const newEntities = entities
+    .filter((e) => !before.has(e.slug))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const newConcepts = concepts
+    .filter((c) => !before.has(c.slug))
+    .sort((a, b) => a.title.localeCompare(b.title));
+
+  // 重复检测:本次确认的 wikilink 已存在 → 让位给人工(已保留在原 block)
+  const duplicates = [];
+  for (const e of entities) if (before.has(e.slug)) duplicates.push(e.slug);
+  for (const c of concepts) if (before.has(c.slug)) duplicates.push(c.slug);
+
+  const lines = existingBlockText.replace(/\s+$/, '').split('\n');
+  // 末尾追加(只在有空组时考虑 ### 子标题的重复)
+  if (newEntities.length) {
+    const hasEntitiesH3 = lines.some((l) => l.trim() === RELATED_ENTITIES_H3);
+    if (!hasEntitiesH3) {
+      lines.push('', RELATED_ENTITIES_H3);
+    }
+    for (const e of newEntities) lines.push(`- [[${e.slug}]]`);
+  }
+  if (newConcepts.length) {
+    const hasConceptsH3 = lines.some((l) => l.trim() === RELATED_CONCEPTS_H3);
+    if (!hasConceptsH3) {
+      lines.push('', RELATED_CONCEPTS_H3);
+    }
+    for (const c of newConcepts) lines.push(`- [[${c.slug}]]`);
+  }
+  return { newBlock: lines.join('\n') + '\n', duplicates };
+}
+
+function appendSourcesEntries(existingBlockText, sourceRefs) {
+  const before = extractWikilinkSlugs(existingBlockText);
+  const newRefs = sourceRefs
+    .filter((s) => !before.has(s.slug))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const duplicates = sourceRefs.filter((s) => before.has(s.slug)).map((s) => s.slug);
+
+  const lines = existingBlockText.replace(/\s+$/, '').split('\n');
+  for (const s of newRefs) lines.push(`- [[${s.slug}]]`);
+  return { newBlock: lines.join('\n') + '\n', duplicates };
+}
+
+/**
+ * 在 body 中定位 H2 区块并替换 block 内容(从 start 到 end-1 行替换为 newBlock),
+ * 保留 start+1 行以外的 H2(下一个 ## 仍保留)。
+ */
+function replaceH2Block(body, start, end, newBlock) {
+  const lines = body.split('\n');
+  const before = lines.slice(0, start);
+  const after = lines.slice(end);
+  // 确保 before 末尾空行、after 开头空行
+  return [...before, newBlock, ...after].join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 /**
@@ -302,13 +447,15 @@ function insertBeforeMaintain(body, block) {
 }
 
 function parseArgs(argv) {
-  const args = { project: null, batch: null, apply: false, json: false };
+  const args = { project: null, batch: null, apply: false, json: false, pluginRoot: null, schemaPath: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--project') args.project = argv[++i];
     else if (a === '--batch') args.batch = argv[++i];
     else if (a === '--apply') args.apply = true;
     else if (a === '--json') args.json = true;
+    else if (a === '--plugin-root') args.pluginRoot = argv[++i];
+    else if (a === '--schema-path') args.schemaPath = argv[++i];
   }
   if (!args.project || !args.batch) {
     console.error('ERROR: --project / --batch 必填');
@@ -319,6 +466,7 @@ function parseArgs(argv) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  currentArgs = args;
   const project = path.resolve(args.project);
   const knowledgeDir = path.join(project, 'knowledge');
   const dryRun = !args.apply;
@@ -390,43 +538,83 @@ async function main() {
 
   const writes = [];
 
-  // 6. 重写所有 source 页(完全重建 ## 相关页面 区块)
-  for (const s of sources) {
-    // 仅重建本 batch 涉及的 source 页(性能 + 减少误改)
-    // 但为了"每次完全重建",扫到的所有 source 都重建
-    // 实现策略:对 sources 全量重建
-    const { entities, concepts } = sourceToEc.get(s.slug) || { entities: [], concepts: [] };
-    const block = renderRelatedBlock(entities, concepts);
-
-    // 重写 body
-    let newBody = stripExistingBlock(s.body, RELATED_H2);
-    if (block) {
-      newBody = insertBeforeMaintain(newBody, block);
-    } else {
-      // 全部空 → 省整节(已通过 stripExistingBlock 删掉)
-      newBody = newBody.trimEnd() + '\n';
+  // P2-1 批次 3: 收集 warnings_by_file(供 lint stub 复用)
+  // 扫所有 entity/concept 页,tags 长度 < 5 → WARN(对齐 frontmatter-spec.md §C17 + schema minItems)
+  const warningsByFile = {};
+  const flatWarnings = [];
+  function pushWarning(relPath, msg) {
+    if (!warningsByFile[relPath]) warningsByFile[relPath] = [];
+    warningsByFile[relPath].push(msg);
+    flatWarnings.push(`${relPath}: ${msg}`);
+  }
+  for (const ec of ecPages) {
+    const tags = Array.isArray(ec.fm.tags) ? ec.fm.tags : [];
+    if (tags.length < 5) {
+      pushWarning(ec.relPath, `tags 仅 ${tags.length} 条,需 ≥5 条`);
     }
-    const newContent = renderFrontmatterBlock(s.fm) + '\n' + newBody;
-    writes.push({ file: s.file, content: newContent, action: block ? 'related-updated' : 'related-removed' });
   }
 
-  // 7. 重写所有 entity/concept 页(完全重建 ## 来源资料 区块)
-  for (const ec of ecPages) {
-    const refs = ecToSources.get(ec.relPath) || [];
-    const block = renderSourcesBlock(refs);
-
-    let newBody = stripExistingBlock(ec.body, SOURCES_H2);
-    if (block) {
-      newBody = insertBeforeMaintain(newBody, block);
+  // 6. 追加 + 保留:source 页 ## 相关页面 区块
+  //   - 不存在 → 新建标准 block(只在 ## 维护说明 前插入)
+  //   - 已存在 → 解析现有 wikilink,在末尾追加本次确认的新反链(去重),保留人工条目
+  for (const s of sources) {
+    const { entities, concepts } = sourceToEc.get(s.slug) || { entities: [], concepts: [] };
+    let newBody = s.body;
+    let action;
+    const existing = findH2Block(s.body, (l) => l === RELATED_H2 || l.startsWith(RELATED_H2_PREFIX));
+    if (existing) {
+      // 抽取 H2 到下一 H2 之间的文本
+      const lines = s.body.split('\n');
+      const blockText = lines.slice(existing.start, existing.end).join('\n');
+      const { newBlock, duplicates } = appendRelatedEntries(blockText, entities, concepts);
+      newBody = replaceH2Block(s.body, existing.start, existing.end, newBlock);
+      for (const d of duplicates) {
+        pushWarning(s.relPath, `duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
+        console.error(`WARN: ${s.relPath}: duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
+      }
+      action = 'related-appended';
+    } else if (entities.length || concepts.length) {
+      const block = renderRelatedBlock(entities, concepts);
+      newBody = insertBeforeMaintain(s.body, block);
+      action = 'related-created';
     } else {
-      newBody = newBody.trimEnd() + '\n';
+      // 全部空,无区块也无新增 → 不动
+      action = 'related-unchanged';
+    }
+    const newContent = renderFrontmatterBlock(s.fm) + '\n' + newBody;
+    writes.push({ file: s.file, content: newContent, action });
+  }
+
+  // 7. 追加 + 保留:entity/concept 页 ## 来源资料 区块
+  for (const ec of ecPages) {
+    if (ec.invalid) continue;  // ajv 校验失败 → 跳过反链写(批次 3 P2-1:但仍进 warnings_by_file)
+    const refs = ecToSources.get(ec.relPath) || [];
+    let newBody = ec.body;
+    let action;
+    const existing = findH2Block(ec.body, (l) => l === SOURCES_H2 || l.startsWith(SOURCES_H2_PREFIX));
+    if (existing) {
+      const lines = ec.body.split('\n');
+      const blockText = lines.slice(existing.start, existing.end).join('\n');
+      const { newBlock, duplicates } = appendSourcesEntries(blockText, refs);
+      newBody = replaceH2Block(ec.body, existing.start, existing.end, newBlock);
+      for (const d of duplicates) {
+        pushWarning(ec.relPath, `duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
+        console.error(`WARN: ${ec.relPath}: duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
+      }
+      action = 'sources-appended';
+    } else if (refs.length) {
+      const block = renderSourcesBlock(refs);
+      newBody = insertBeforeMaintain(ec.body, block);
+      action = 'sources-created';
+    } else {
+      action = 'sources-unchanged';
     }
     const newContent = renderFrontmatterBlock(ec.fm) + '\n' + newBody;
-    writes.push({ file: ec.file, content: newContent, action: block ? 'sources-updated' : 'sources-removed' });
+    writes.push({ file: ec.file, content: newContent, action });
   }
 
   // 8. 写盘(或 dry-run)
-  const result = { dry_run: dryRun, writes: [], errors: [] };
+  const result = { dry_run: dryRun, writes: [], errors: [], warnings: flatWarnings, warnings_by_file: warningsByFile };
   for (const w of writes) {
     result.writes.push({
       file: norm(w.file),

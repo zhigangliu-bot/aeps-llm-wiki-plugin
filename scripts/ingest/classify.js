@@ -27,6 +27,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { requireDeps } from '../lib/preflight.js';
+await requireDeps({});
 
 const PATH_MAP = {
   // 路径 0 (老格式,convert-to-md.js 走 LibreOffice 预归一化)

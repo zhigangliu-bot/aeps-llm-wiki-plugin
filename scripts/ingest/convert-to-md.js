@@ -25,6 +25,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { requireDeps } from '../lib/preflight.js';
+await requireDeps({});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS_ROOT = path.resolve(__dirname, '..');

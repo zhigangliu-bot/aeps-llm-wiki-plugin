@@ -1,6 +1,7 @@
+<!-- 提示:本页是 plugin 自定义 reserved filename(OKF §8 index.md),无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。 -->
 # 项目名 Wiki 主目录
 
-> **plugin 版本**:0.5.2
+> **plugin 版本**:0.6.0
 > **最近更新**:2026-09-04T10:30:00Z
 > **自动生成**:本文件由 `/aeps-llm-wiki-init` 与 `/aeps-llm-wiki-ingest` 维护,不要手工编辑。
 >

@@ -60,7 +60,7 @@ const RAW_SUBDIRS = [
 ];
 
 // ponytail: 4 top-level knowledge index templates — initial frontmatter per implement-init.md §2.1
-const PLUGIN_VERSION = '0.5.5';
+const PLUGIN_VERSION = '0.6.0';
 
 function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');

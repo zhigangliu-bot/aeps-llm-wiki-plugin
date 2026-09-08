@@ -14,6 +14,7 @@
 | 2026-09-05 | zhigangliu-bot | 开头权威顺序声明重写:**人读规范 (`frontmatter-spec.md`) 提升为唯一权威**;`frontmatter.schema.json` (机器读) 必须向本文件对齐,字段定义/约束/描述不一致时以本文件为准。同步修改 `doc/schema/schema.md` 开头权威顺序声明,保持两处一致。 |
 | 2026-09-05 | zhigangliu-bot | §4.2 `tags:` 数量约束由"最少 3 条"调整为"最少 5 条",与 `frontmatter.schema.json` 的 `minItems: 5` 及 `tag-spec.md` §8 Lint 阈值对齐(原 3 条会导致 Lint < 5 的 WARN 区间与 Schema 合规区间错位) |
 | 2026-09-05 | zhigangliu-bot | 全文档清除 `<>` 占位符(详见 §0.1 编写铁律);frontmatter 字段值改双引号字符串、`tags` 改多行 YAML list、`generated` 改多行嵌套;正文占位符改 `【...】` 形式,模板变量改 `{name}` 大括号形式 |
+| 2026-09-08 | zhigangliu-bot | 批次 4 (P3-1):§4.3.1 + §7 + §10.1 + §10.2 共 4 处 `producer/aeps-llm-wiki-plugin/<旧版本号>` 示例统一升级为 0.5.6;无字段语义变化 |
 
 ### 0.1 编写铁律(YAML / Obsidian Properties 兼容性)
 
@@ -241,7 +242,7 @@ OKF 标准下 `type` 取值**开放**(§4.1),消费方 MUST NOT reject 未知 ty
 
 ```yaml
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.2"
+  by: "producer/aeps-llm-wiki-plugin/0.6.0"
   at: "2026-09-05T10:30:00Z"
 ```
 
@@ -589,7 +590,7 @@ description: One row per completed customer order across all channels.
 resource: https://example.com/data/orders
 tags: [sales, orders, revenue]
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.2"
+  by: "producer/aeps-llm-wiki-plugin/0.6.0"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"
@@ -609,7 +610,7 @@ description: Headline income-statement figures for a fiscal year.
 tags: [finance, income-statement]
 status: stable
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.5.2"
+  by: "producer/aeps-llm-wiki-plugin/0.6.0"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"

@@ -14,6 +14,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { requireDeps } from '../lib/preflight.js';
+await requireDeps({});
 
 const IGNORED_NAMES = new Set(['.gitkeep', '.DS_Store', 'README.md', 'Thumbs.db']);
 const IGNORED_PREFIX = '.'; // 隐藏文件

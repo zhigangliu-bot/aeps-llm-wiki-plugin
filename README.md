@@ -2,9 +2,17 @@
 
 > **一个 Claude Code plugin,把 Karpathy LLM Wiki + Google OKF v0.2 + Obsidian 整合成一个本地知识库工具链。**
 
-![plugin version](https://img.shields.io/badge/version-0.5.6-blue)
+![plugin version](https://img.shields.io/badge/version-0.6.0-blue)
 ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 ![node](https://img.shields.io/badge/node-%E2%89%A520.0.0-brightgreen)
+
+---
+
+## Change History
+
+| 版本 | 日期 | 变更 |
+|---|---|---|
+| 0.5.6 | 2026-09-08 | 批次 4 (P3 文档与版本一致):删除过期升级提示(0.5.4 → 0.5.5 模板);安装章节加"plugin 内置 preflight,缺包即停 + 不自动 install"统一描述(P3-2);`scripts/check-version-consistency.js` 新增,CI 兜底扫描版本号字串(P3-1) |
 
 ---
 
@@ -40,6 +48,8 @@
 # 在 Claude Code 中加载 plugin
 claude --plugin-dir aeps-llm-wiki-plugin
 ```
+
+> **依赖说明**:plugin **不自动安装** 任何 npm 包。首次跑 `init` / `ingest` 时,若发现缺包,plugin 内置 preflight 立即 ERROR 并打印精确的 `npm install <pkg>` 命令,用户拍板手动装。详见 `skills/<skill>/SKILL.md` 步骤 0.5 + P3-2 修复。
 
 ### 2. 初始化新项目
 
@@ -166,7 +176,7 @@ aeps-llm-wiki-plugin/
 2. 一致 → 静默,session 正常初始化(**无打扰**)
 3. 不一致 → `git pull --ff-only origin main` 自动拉取;成功后通过 `hookSpecificOutput.additionalContext` 在 session 开头告知你已升级:
    ```
-   📦 aeps-llm-wiki 已升级(0.5.4 → 0.5.5)。当前 session 仍使用旧代码,运行 `/reload-plugins` 后生效。
+   📦 aeps-llm-wiki 已升级(旧版本 → 当前版本)。当前 session 仍使用旧代码,运行 `/reload-plugins` 后生效。
    ```
 4. 拉取失败 → 在 session 开头告知你手动处理:
    ```
@@ -227,7 +237,7 @@ node scripts/init/test/e2e.js
 
 ### 坑 1:远端 force-push 会破坏 cache 的 `git pull --ff-only`
 
-**场景**:我们在 plugin 仓做了一次 `git push --force-with-lease`(为了清理老 init/test 目录的提交历史)。用户的 cache 仓(`~/.claude/plugins/cache/.../0.5.5/`)本来 `git pull --ff-only origin main` 应该一路顺畅,**但因为远端历史被改写**,本地 HEAD 找不到 ancestor,fast-forward 失败 → 永远停在老 commit,hook 报 `pull-failed`,session 开头一直骚扰用户「请手动 pull」。
+**场景**:我们在 plugin 仓做了一次 `git push --force-with-lease`(为了清理老 init/test 目录的提交历史)。用户的 cache 仓(`~/.claude/plugins/cache/.../0.5.6/`)本来 `git pull --ff-only origin main` 应该一路顺畅,**但因为远端历史被改写**,本地 HEAD 找不到 ancestor,fast-forward 失败 → 永远停在老 commit,hook 报 `pull-failed`,session 开头一直骚扰用户「请手动 pull」。
 
 **修复**:hook 检测到 `pull --ff-only` 失败时,**不立刻报错**,而是 fallback 跑 `git fetch origin main` + `git reset --hard origin/main`。前提是 working tree 干净(若有未提交改动,reset 会失败,这时才报 `diverged-reset-failed` 让用户手动处理)。
 
@@ -280,7 +290,7 @@ hook 退化成 `detect-failed` → 静默退出,**用户根本不知道有更新
 
 **临时手动同步**(如果你等不及修复):
 ```bash
-cd "C:/Users/ThinkPad/.claude/plugins/cache/aeps-public-marketplace/aeps-llm-wiki-plugin/0.5.5"
+cd "C:/Users/ThinkPad/.claude/plugins/cache/aeps-public-marketplace/aeps-llm-wiki-plugin/0.5.6"
 CLAUDE_PLUGIN_ROOT="$(pwd)" node scripts/update-check/check.js --pull
 ```
 
