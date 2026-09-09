@@ -129,78 +129,145 @@ const TYPE_TO_DIR = {
 };
 
 // ---- 模板解析 ------------------------------------------------------------
-// 仅提取 frontmatter 字段名骨架 + H2 顺序;不动模板文件
+// 提取 frontmatter 块原文(含注释行 / 字段顺序)+ H2 顺序;不动模板文件
 // 兼容:模板顶部可能有 HTML 注释行(批次 1 模板骨架松绑后,L113-style 提示常用 `<!-- ... -->` 前缀)。
-// 此处只关心 frontmatter 块 + H2 顺序,不解析注释内容。
+// 此处关心 frontmatter 块(原文)+ H2 顺序,不解析注释内容。
 function parseTemplate(mdText) {
   // 跳过开头的注释行(<!-- ... -->)与空行,定位首个 --- 起始
   const cleaned = mdText.replace(/^(?:<!--[\s\S]*?-->\s*\n)+/, '');
   const m = cleaned.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!m) throw new Error("template frontmatter parse failed");
-  const fmNames = [...m[1].matchAll(/^([a-z_]+):/gm)].map((x) => x[1]);
+  const fmBlock = m[1];          // frontmatter 块原文(注释行 + 字段顺序保留)
+  const fmNames = [...fmBlock.matchAll(/^([a-z_.]+):/gim)].map((x) => x[1]);
   const h2s = [...m[2].matchAll(/^## (.+)$/gm)].map((x) => x[1].trim());
-  return { fmNames, h2s };
+  return { fmBlock, fmNames, h2s };
 }
 
-// ---- 渲染 frontmatter ----------------------------------------------------
-function renderFrontmatter(type, args) {
+// ---- frontmatter 占位符替换 ----------------------------------------------
+// 模板 frontmatter 块里用 $KEY 标记派生字段;本函数按 placeholders 字典整体字符串替换。
+// 设计原则:模板是字段名 / 字段顺序 / 注释行的**唯一事实源**,脚本只填值,不改顺序。
+// 占位符语法:
+//   - 整行替换:key: $KEY        → key: <value>
+//   - 行内替换:by: ".../$VER..." → by: ".../<version>..."(字符串里任意位置)
+//   - 多行替换:$SOURCES / $SOURCES_USED / $ALIASES 整体替换为对应 YAML 块
+//
+// ponytail:保留所有注释行(以 # 开头)和字段顺序;不调用 YAML 解析器,
+// 直接字符串替换 —— YAML parser 会把 list / object 强转,破坏可读性。
+//
+// 空值处理:占位符为空时 → 整行删除(避免 `key: ` 这种 YAML 不合法残留)。
+// 多行占位符($SOURCES / $SOURCES_USED / $ALIASES)空值时同样整行删。
+function renderFrontmatter(type, fmBlock, placeholders) {
+  let out = fmBlock;
+  // 多行占位符白名单:这些占位符可能占据 `key: $KEY` 整行,且替换后是多行 YAML list
+  const multiLineKeys = new Set(["SOURCES", "SOURCES_USED", "ALIASES"]);
+
+  for (const [key, value] of Object.entries(placeholders)) {
+    // 整 token 匹配:避免 $VER 误命中 $VERSION(前者不是占位符,后者是)
+    const re = new RegExp(`\\$${key}\\b`, "g");
+    if (value == null || value === "") {
+      // 空值 → 整行删除
+      // 两种形态:
+      //   1. key: $KEY        → 删整行
+      //   2. "$KEY"           → 行内,删占位符后整行变为空 → 删整行
+      //   3. $SOURCES(多行占位符独占一行)→ 删整行
+      out = out.replace(
+        new RegExp(`^[^\\n]*\\$${key}\\b[^\\n]*\\n`, "gm"),
+        ""
+      );
+    } else {
+      out = out.replace(re, String(value));
+      // 替换后,如果该行是 `key: <多行值>`(value 含换行),保持原状;
+      // 如果是 `key: <单行值>` 也保持原状。
+      // 但需要修正:多行占位符(如 $SOURCES)被替换为多行 YAML list,
+      // 模板里是 `sources: $SOURCES` 单行 → 替换后变成 `sources: \n  - foo\n  - bar`,
+      // YAML 合法(list 作为 block scalar),保持。
+    }
+  }
+  return ["---", out, "---"].join("\n");
+}
+
+// ---- 派生占位符字典 ------------------------------------------------------
+// 把 PATH_MAP / 时间 / plugin 版本号 / args 折算成 placeholders 字典,
+// 供 renderFrontmatter 按 $KEY 替换。type 用于多类型分支(analysis / source 等)。
+function derivePlaceholders(type, args) {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const ext = (args.ext || "").toLowerCase().replace(/^\./, "");
   const map = PATH_MAP[ext] || null;
-  const converter = args.converter || (map ? map.converter : "null");
-  const native = args.native_text !== undefined
-    ? String(args.native_text)
-    : (map ? String(map.native_text) : "true");
-  const converted = args.converted_path !== undefined
-    ? args.converted_path
-    : (map && map.converted ? map.converted(args.slug, args.subdir || "", ext) : "null");
+  const subdir = args.subdir || "";
 
-  const lines = [];
-  lines.push("---");
-  lines.push(`type: ${type}`);
-  if (args.title) lines.push(`title: "${args.title}"`);
-  if (args.description) lines.push(`description: "${args.description}"`);
-  if (args.tags) {
-    lines.push("tags:");
-    for (const t of args.tags.split(",")) lines.push(`  - ${t.trim()}`);
-  }
+  const ph = {
+    NOW: now,
+    VERSION: readPluginVersion(),
+    TITLE: args.title || args.slug,
+    DESCRIPTION: args.description || "",
+    SUMMARY: args.summary || "",
+    STALE_AFTER: args.stale_after || "",
+  };
+
+  // type 字段:source 直接填,entity.* / concept.* 保留 args.type 子类
   if (type === "source") {
-    if (args.resource) lines.push(`resource: "${args.resource}"`);
-    else if (ext) lines.push(`resource: "./raw/${args.subdir || ""}/${args.slug}.${ext}"`);
+    ph.TYPE = "source";
+    ph.SLUG = args.slug;
+    ph.EXT = ext || "md";
+    ph.SUBDIR = subdir;
+    ph.RESOURCE = args.resource
+      || (ext ? `./raw/${subdir}/${args.slug}.${ext}` : "");
+    // source_file:wikilink 形式 `[[{subdir}/{slug}.{ext}|{title}]]`,空 title 时省略 `|alias`
+    const sFile = args.source_file
+      || (ext ? `[[${subdir}/${args.slug}.${ext}${args.title ? `|${args.title}` : ""}]]` : "");
+    ph.SOURCE_FILE = sFile;
+    const converter = args.converter || (map ? map.converter : "null");
+    const native = args.native_text !== undefined
+      ? String(args.native_text)
+      : (map ? String(map.native_text) : "true");
+    const converted = args.converted_path !== undefined
+      ? args.converted_path
+      : (map && map.converted ? map.converted(args.slug, subdir, ext) : null);
+    ph.CONVERTER = converter;
+    ph.NATIVE_TEXT = native;
+    ph.CONVERTED_PATH = converted == null ? "null" : `"${converted}"`;
   } else {
-    // analysis / comparison / synthesis 多源用 sources[]
-    if (args.sources_used) {
-      lines.push("sources_used:");
-      for (const s of args.sources_used.split(",")) lines.push(`  - ${s.trim()}`);
+    // entity.* / concept.* / analysis / comparison / synthesis
+    ph.TYPE = args.type || type;
+    // sources:多行 YAML list 块
+    if (args.sources) {
+      // 用户显式传 → 直接用(支持字符串或数组)
+      const arr = Array.isArray(args.sources) ? args.sources : String(args.sources).split(",").map((s) => s.trim());
+      ph.SOURCES = arr.map((s) => `  - ${s}`).join("\n");
+    } else {
+      ph.SOURCES = "";   // 模板里 sources: $SOURCES 整行被替换为空 → YAML 无 sources 字段
     }
-    // analysis 专属必填字段(对齐 page-analysis.md L32-37)
-    if (type === "analysis" && args.answer_to) {
-      lines.push(`answer_to: "${args.answer_to}"`);
+    if (Array.isArray(args.aliases) && args.aliases.length > 0) {
+      ph.ALIASES = args.aliases.map((a) => `  - ${JSON.stringify(a)}`).join("\n");
+    } else if (typeof args.aliases === "string" && args.aliases.trim()) {
+      ph.ALIASES = args.aliases.split(",").map((a) => `  - ${JSON.stringify(a.trim())}`).join("\n");
+    } else {
+      ph.ALIASES = "";
     }
-    // analysis / comparison / synthesis 必填 sources_count
+  }
+
+  // analysis / comparison / synthesis 必填 sources_count
+  if (["analysis", "comparison", "synthesis"].includes(type)) {
     if (args.sources_count) {
-      lines.push(`sources_count: ${args.sources_count}`);
+      ph.SOURCES_COUNT = args.sources_count;
     } else if (args.sources_used) {
-      // 没显式传 → 用 sources_used 数组长度
-      lines.push(`sources_count: ${args.sources_used.split(",").length}`);
+      ph.SOURCES_COUNT = String(args.sources_used.split(",").length);
+    } else {
+      ph.SOURCES_COUNT = "0";
     }
   }
-  lines.push("generated:");
-  lines.push(`  by: "producer/aeps-llm-wiki-plugin/${readPluginVersion()}"`);
-  lines.push(`  at: "${now}"`);
-  lines.push(`status: stable`);
-  if (args.stale_after) lines.push(`stale_after: "${args.stale_after}"`);
-  if (type === "source") {
-    if (args.source_file) lines.push(`source_file: "${args.source_file}"`);
-    lines.push(`format: ${ext || "md"}`);
-    lines.push(`converter: ${converter}`);
-    lines.push(`native_text: ${native}`);
-    lines.push(`converted_path: ${converted === null || converted === "null" ? "null" : `"${converted}"`}`);
+  // analysis 专属必填
+  if (type === "analysis") {
+    ph.ANSWER_TO = args.answer_to || "";
+    // sources_used:多行 YAML list 块
+    if (args.sources_used) {
+      const arr = args.sources_used.split(",").map((s) => s.trim());
+      ph.SOURCES_USED = arr.map((s) => `  - ${s}`).join("\n");
+    } else {
+      ph.SOURCES_USED = "";
+    }
   }
-  lines.push(`updated: "${now}"`);
-  if (args.summary) lines.push(`summary: "${args.summary}"`);
-  lines.push("---");
-  return lines.join("\n");
+  return ph;
 }
 
 // ---- 渲染正文骨架 --------------------------------------------------------
@@ -344,7 +411,9 @@ function main() {
   const tplText = readFileSync(tplPath, "utf8");
   const tpl = parseTemplate(tplText);
 
-  const fm = renderFrontmatter(type, args);
+  // v0.6.1:frontmatter 由模板 fmBlock 原文 + 占位符替换生成(模板是字段顺序 / 注释的唯一事实源)
+  const placeholders = derivePlaceholders(type, args);
+  const fm = renderFrontmatter(type, tpl.fmBlock, placeholders);
   const body = renderBody(type, tpl, args);
   const out = fm + "\n" + body;
 
@@ -375,15 +444,12 @@ function main() {
         console.error(`ERROR: 解析现有 frontmatter 失败: ${e.message}`);
         process.exit(3);
       }
-      // 把现有 frontmatter 当成 args 来源 + 新 args 覆盖;再 renderFrontmatter 一次得到完整新 fm
-      // 但 renderFrontmatter 用 args.* 取值;为不破坏,构造 merged args
+      // 把现有 frontmatter 当成 args 来源 + 新 args 覆盖;再 derivePlaceholders 一次得到完整新 fm
       // normalize: tags / sources_used / aliases 等可能 array(YAML 解析)也可能 string(CLI 传)
-      //   → renderFrontmatter 期望 string,.split(',')
       const mergedArgs = { ...existingFm, ...args };
-      for (const k of ['tags', 'sources_used', 'aliases']) {
-        if (Array.isArray(mergedArgs[k])) mergedArgs[k] = mergedArgs[k].join(',');
-      }
-      const newFm = renderFrontmatter(type, mergedArgs);
+      // YAML load 已经把 list 转 array,CLI 传 string — derivePlaceholders 已统一处理
+      const newPh = derivePlaceholders(type, mergedArgs);
+      const newFm = renderFrontmatter(type, tpl.fmBlock, newPh);
       const existingBody = m[2];
       const patched = newFm + "\n" + existingBody;
       try {

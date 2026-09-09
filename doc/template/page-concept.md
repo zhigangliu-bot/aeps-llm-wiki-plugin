@@ -1,9 +1,9 @@
 <!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
-type: "concept.theory"          # 子类:theory / method / field / phenomenon / standard / term / other
-title: "LLM Wiki 模式"
-description: "由 Andréj Karpathy 提出的基于 LLM 长期维护个人知识库的方法论:LLM 读源 → 写 wiki → 人策展。"
+type: $TYPE
+title: "$TITLE"
+description: "$DESCRIPTION"
 # OKF §4.1 tags(plugin 强化为 6 轴字典约束,详见 doc/template/tag-spec.md —— 本文件 tags: 行权威来源)
 tags:
   - docform/technical-doc
@@ -14,31 +14,23 @@ tags:
   - phase/concept
 
 # OKF §5.1 sources(指向关联的源页/原始资料)
-sources:
-  - id: karpathy-tweet
-    resource: "https://x.com/karpathy/status/..."
-    author: "human:karpathy"
-  - id: self-related
-    resource: ./knowledge/entities/person/andrej-karpathy.md
+sources: $SOURCES
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
-  at: "2026-09-04T12:00:00Z"
+  by: "producer/aeps-llm-wiki-plugin/$VERSION"
+  at: "$NOW"
 
 # OKF §5.4 / §5.5 lifecycle(可选)
 status: stable
-stale_after: "2027-09-04T00:00:00Z"
+stale_after: "$STALE_AFTER"
 
 # plugin 推荐字段
-updated: "2026-09-04T12:00:00Z"
-summary: "LLM Wiki 模式将 LLM 作为知识整理的执行者,人作为策展人,产出累积、互相链接、可长期演进的 markdown 知识库。"
+updated: "$NOW"
+summary: "$SUMMARY"
 
 # plugin 推荐字段(Obsidian 原生别名机制)
-aliases:
-  - "LLM Wiki"
-  - "LLM-Wiki"
-  - "Karpathy LLM Wiki"
+aliases: $ALIASES
 ---
 
 # LLM Wiki 模式

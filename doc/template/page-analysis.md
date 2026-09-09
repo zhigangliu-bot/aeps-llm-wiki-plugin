@@ -2,8 +2,8 @@
 ---
 # OKF v0.2 §4.1 必填字段
 type: analysis
-title: "S32G vs NXP S32K3 在车身控制器选型上的权衡"
-description: "基于 wiki 已有 S32G / S32K3 实体页与功能安全概念页,综合推演两类芯片在车身控制器选型中的适用场景。"
+title: "$TITLE"
+description: "$DESCRIPTION"
 # OKF §4.1 tags(plugin 强化为 6 轴字典约束,详见 doc/template/tag-spec.md —— 本文件 tags: 行权威来源)
 tags:
   - docform/technical-doc
@@ -14,33 +14,24 @@ tags:
   - maturity/analysis
 
 # OKF §5.1 sources(原 query 引用的 wiki 页)
-sources:
-  - id: s32g-entity
-    resource: ./knowledge/entities/product/s32g.md
-  - id: s32k3-entity
-    resource: ./knowledge/entities/product/s32k3.md
-  - id: autosar-concepts
-    resource: ./knowledge/concepts/standard/autosar.md
+sources: $SOURCES
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
-  at: "2026-09-04T14:00:00Z"
+  by: "producer/aeps-llm-wiki-plugin/$VERSION"
+  at: "$NOW"
 
 # OKF §5.4 lifecycle(可选)
 status: stable
 
 # plugin 扩展字段(G11 M1 + M2,analysis 专属必填)
-answer_to: "S32G vs NXP S32K3 在车身控制器选型上怎么选?"
-sources_used:
-  - ./knowledge/entities/product/s32g.md
-  - ./knowledge/entities/product/s32k3.md
-  - ./knowledge/concepts/standard/autosar.md
-sources_count: 3
+answer_to: "$ANSWER_TO"
+sources_used: $SOURCES_USED
+sources_count: $SOURCES_COUNT
 
 # plugin 推荐字段
-updated: "2026-09-04T14:00:00Z"
-summary: "**问题**:S32G vs NXP S32K3 在车身控制器选型上怎么选?S32G 偏网关域,S32K3 偏车身控制域;核心差异在算力(应用处理器 vs 微控制器)、功能安全等级(ASIL D vs ASIL B)和软件栈(AUTOSAR Adaptive vs Classic)。"
+updated: "$NOW"
+summary: "$SUMMARY"
 ---
 
 # S32G vs NXP S32K3 在车身控制器选型上的权衡

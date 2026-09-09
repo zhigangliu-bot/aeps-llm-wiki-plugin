@@ -2,8 +2,8 @@
 ---
 # OKF v0.2 §4.1 必填字段
 type: synthesis
-title: "汽车功能安全体系综合"
-description: "整合 wiki 内 ISO 26262 / ASIL 分解 / 硬件架构度量 / 软件单元测试等所有相关概念的综合页。"
+title: "$TITLE"
+description: "$DESCRIPTION"
 # OKF §4.1 tags(plugin 强化为 6 轴字典约束,详见 doc/template/tag-spec.md —— 本文件 tags: 行权威来源)
 tags:
   - docform/technical-doc
@@ -14,32 +14,22 @@ tags:
   - layer/bsw-os
 
 # OKF §5.1 sources(综合引用的所有相关 wiki 页)
-sources:
-  - id: iso26262-concept
-    resource: ./knowledge/concepts/standard/iso-26262.md
-  - id: asil-concept
-    resource: ./knowledge/concepts/term/asil.md
-  - id: autosar-concept
-    resource: ./knowledge/concepts/standard/autosar.md
-  - id: hardware-metric-concept
-    resource: ./knowledge/concepts/method/hardware-architecture-metric.md
-  - id: sw-unit-test-concept
-    resource: ./knowledge/concepts/method/software-unit-testing.md
+sources: $SOURCES
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
-  at: "2026-09-04T16:00:00Z"
+  by: "producer/aeps-llm-wiki-plugin/$VERSION"
+  at: "$NOW"
 
 # OKF §5.4 lifecycle(可选)
 status: stable
 
 # plugin 扩展字段
-sources_count: 5
+sources_count: $SOURCES_COUNT
 
 # plugin 推荐字段
-updated: "2026-09-04T16:00:00Z"
-summary: "汽车功能安全体系以 ISO 26262 为核心,围绕 ASIL 等级分解、硬件架构度量、软件单元测试三大支柱展开,本综合页整合 wiki 内全部相关概念。"
+updated: "$NOW"
+summary: "$SUMMARY"
 ---
 
 # 汽车功能安全体系综合

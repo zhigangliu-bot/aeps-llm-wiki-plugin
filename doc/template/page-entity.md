@@ -1,9 +1,9 @@
 <!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
-type: "entity.person"          # 子类:person / organization / project / product / event / place / other
-title: "Andréj Karpathy"
-description: "前特斯拉 AI 总监、OpenAI 创始成员,提出 LLM Wiki 模式的研究者。"
+type: $TYPE
+title: "$TITLE"
+description: "$DESCRIPTION"
 # OKF §4.1 tags(plugin 强化为 6 轴字典约束,详见 doc/template/tag-spec.md —— 本文件 tags: 行权威来源)
 tags:
   - docform/study-notes
@@ -14,26 +14,22 @@ tags:
   - phase/learning
 
 # OKF §5.1 sources(指向关联的源页/原始资料)
-sources:
-  - id: self-source
-    resource: ./raw/08_AI与AI工程/karpathy-bio.md
+sources: $SOURCES
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
-  at: "2026-09-04T11:30:00Z"
+  by: "producer/aeps-llm-wiki-plugin/$VERSION"
+  at: "$NOW"
 
 # OKF §5.4 lifecycle(可选)
 status: stable
 
 # plugin 推荐字段
-updated: "2026-09-04T11:30:00Z"
-summary: "Karpathy 是 LLM-Wiki 理念的提出者,本实体页整理其代表工作与对个人知识管理的影响。"
+updated: "$NOW"
+summary: "$SUMMARY"
 
 # plugin 推荐字段(Obsidian 原生别名机制)
-aliases:
-  - "Andréj Karpathy"
-  - "Karpathy"
+aliases: $ALIASES
 ---
 
 # Andréj Karpathy

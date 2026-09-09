@@ -2,10 +2,10 @@
 ---
 # OKF v0.2 §4.1 必填字段
 type: source
-title: "ISO 26262:2018 功能安全标准"
-description: "ISO 26262 道路车辆功能安全国际标准第 2 版(2018),定义汽车电子电气系统全生命周期功能安全要求。"
+title: "$TITLE"
+description: "$DESCRIPTION"
 
-# OKF §4.1 tags (标准 YAML List 语法，去除了内部的 <>)
+# OKF §4.1 tags (标准 YAML List 语法;值为示例,生成时保留全部或精简到 ≥ 5 条)
 tags:
   - docform/standard-spec
   - domain/fusa
@@ -15,27 +15,27 @@ tags:
   - phase/architecture
 
 # OKF §4.1 resource
-resource: "./raw/06_功能安全/iso26262.pdf"
+resource: "./raw/$SUBDIR/$SLUG.$EXT"
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
-  at: "2026-09-04T10:30:00Z"
+  by: "producer/aeps-llm-wiki-plugin/$VERSION"
+  at: "$NOW"
 
 # OKF §5.4 / §5.5 lifecycle
 status: stable
-stale_after: "2027-09-04T00:00:00Z"
+stale_after: "$STALE_AFTER"
 
 # plugin 扩展字段
-source_file: "[[06-功能安全/iso26262.pdf|ISO 26262:2018 原文]]"
-format: pdf
-converter: "auto"
-native_text: "auto"
-converted_path: "auto"
+source_file: "$SOURCE_FILE"
+format: $EXT
+converter: $CONVERTER
+native_text: $NATIVE_TEXT
+converted_path: $CONVERTED_PATH
 
 # plugin 推荐字段
-updated: "2026-09-04T10:30:00Z"
-summary: "ISO 26262 是汽车功能安全领域的核心国际标准,本资料覆盖 Part 1-10 全生命周期 V 模型、ASIL 等级分解、硬件架构度量、软件单元测试要求等。"
+updated: "$NOW"
+summary: "$SUMMARY"
 ---
 # ISO 26262:2018 功能安全标准
 

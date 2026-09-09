@@ -2,8 +2,8 @@
 ---
 # OKF v0.2 §4.1 必填字段
 type: comparison
-title: "LayerZero vs Wormhole 跨链机制对比"
-description: "两条主流跨链桥实现机制的安全模型、信任假设、性能与生态差异。"
+title: "$TITLE"
+description: "$DESCRIPTION"
 # OKF §4.1 tags(plugin 强化为 6 轴字典约束,详见 doc/template/tag-spec.md —— 本文件 tags: 行权威来源)
 tags:
   - docform/technical-doc
@@ -14,28 +14,22 @@ tags:
   - phase/architecture
 
 # OKF §5.1 sources(对比的两个对象 wiki 页)
-sources:
-  - id: lz-entity
-    resource: ./knowledge/entities/product/layerzero.md
-  - id: wh-entity
-    resource: ./knowledge/entities/product/wormhole.md
-  - id: cross-chain-theory
-    resource: ./knowledge/concepts/theory/cross-chain-bridge.md
+sources: $SOURCES
 
 # OKF §5.2 generated
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
-  at: "2026-09-04T15:00:00Z"
+  by: "producer/aeps-llm-wiki-plugin/$VERSION"
+  at: "$NOW"
 
 # OKF §5.4 lifecycle(可选)
 status: stable
 
 # plugin 扩展字段
-sources_count: 3
+sources_count: $SOURCES_COUNT
 
 # plugin 推荐字段
-updated: "2026-09-04T15:00:00Z"
-summary: "LayerZero 走 Ultra Light Node 预言机轻客户端,Wormhole 走 Guardian 多签守护网络;两者在信任假设、性能、跨链消息安全性上各有取舍。"
+updated: "$NOW"
+summary: "$SUMMARY"
 ---
 
 # LayerZero vs Wormhole 跨链机制对比
