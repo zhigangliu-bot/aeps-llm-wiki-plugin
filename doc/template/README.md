@@ -130,6 +130,7 @@
 | 规则 | 适用类型 | 行为 |
 |---|---|---|
 | 3 节骨架硬约束 | `source` | 必含 `## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`;缺一 FAIL。`analysis` / `comparison` / `synthesis` / `entity.*` / `concept.*` v0.5.7 起**不锁 H2 骨架**,lint 仅校验 `> 引用:` 行(analysis 唯一保留硬约束) |
+| **自由追加节(占位骨架 ## 阅读路线,v0.5.9 起)** | `source` | `## 重点摘录` 之前**必须**至少有 1 个 H2 节(WARN,lint C21)。LLM 读完源文件后,先问『这篇有什么独特结构』再用 1-N 个 H2 节呈现;占位骨架节名 `## 阅读路线` 强烈建议改名(演讲/标准/白皮书/论文常见节名见模板);极短源文件可保留占位名 + 一句豁免说明。所有自由追加节**强制溯源** |
 | 禁用 `## 摘要` / `## Summary` | 所有 type | 长摘要走 frontmatter `summary` 字段;FAIL on 残留 |
 | `comparison` 必填 `sources` | `comparison` | FAIL on 缺失 |
 | `synthesis` `sources_count` < 3 | `synthesis` | WARN(避免空综合) |
