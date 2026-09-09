@@ -357,6 +357,76 @@ function extractWikilinkSlugs(blockText) {
   return slugs;
 }
 
+// ponytail: v0.6.2 起,gen-page.js 步骤 7 / page-source.md L129-137 会在 ## 相关页面 区块
+// 留占位行(【本节由 ... 自动生成 ...】 + 空 ### Entities/Concepts H3 + 【自动填充 ...】)。
+// LLM 完稿后这些占位若不清掉,会留在正文中影响阅读。appendRelatedEntries 入口先剥掉,
+// 然后再追加本次确认的 wikilink(去重)。占位识别严格:行首【行尾】 + 内容含"自动生成/自动填充"。
+// 不误伤 LLM 自写的 [来源不足,需人工复核] 等。
+const PLACEHOLDER_LINE_RE = /^【[^】]*(自动生成|自动填充)[^】]*】\s*$/;
+const H3_LINE_RE = /^###\s+/;
+const WIKILINK_LINE_RE = /^-\s+\[\[/;
+
+// 从 H2 区块文本中剥掉:占位行 + 空 H3(下面没 wikilink)及其附属占位行
+function stripPlaceholderLines(blockText) {
+  const lines = blockText.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    // 1) 占位行 → 直接丢
+    if (PLACEHOLDER_LINE_RE.test(t)) {
+      i++;
+      continue;
+    }
+    // 2) H3 行(### Entities/Concepts 等) → 看后续是否空组
+    if (H3_LINE_RE.test(t)) {
+      // 收集 H3 后到下一个 H2/H3/文末 的内容
+      const groupStart = out.length;
+      out.push(lines[i]);
+      i++;
+      let hasWikilink = false;
+      // 扫 H3 块直到下一个 H2/H3
+      while (i < lines.length) {
+        const lt = lines[i].trim();
+        if (H3_LINE_RE.test(lt) || /^##\s/.test(lt)) break;
+        if (PLACEHOLDER_LINE_RE.test(lt)) {
+          // 占位行 → 丢,不进 out
+          i++;
+          continue;
+        }
+        if (WIKILINK_LINE_RE.test(lt)) {
+          hasWikilink = true;
+          out.push(lines[i]);
+        } else {
+          // 空行 / 其他文本(LLM 写的批注)
+          out.push(lines[i]);
+        }
+        i++;
+      }
+      if (!hasWikilink) {
+        // 空 H3 段:删掉 H3 及其下所有附属行(占位 + 空行 + 其他)
+        out.splice(groupStart, out.length - groupStart);
+      }
+      continue;
+    }
+    out.push(lines[i]);
+    i++;
+  }
+  // 折叠连续 ≥2 个空行为 1 个(保留块内单空行)
+  const collapsed = [];
+  let blankRun = 0;
+  for (const l of out) {
+    if (l.trim() === '') {
+      blankRun++;
+      if (blankRun <= 1) collapsed.push(l);
+    } else {
+      blankRun = 0;
+      collapsed.push(l);
+    }
+  }
+  return collapsed.join('\n');
+}
+
 /**
  * 对齐 H2 区块末尾:把给定的新 wikilink 条目按 entities/concepts(或 sources)顺序追加到现有区块,
  *   去重(wikilink 字符串)。
@@ -364,7 +434,9 @@ function extractWikilinkSlugs(blockText) {
  *   duplicates 是与本次确认冲突的人工 wikilink 列表(已保留人工条目,WARN 用)。
  */
 function appendRelatedEntries(existingBlockText, entities, concepts) {
-  const before = extractWikilinkSlugs(existingBlockText);
+  // ponytail: 先剥占位行 / 空 H3 段(v0.6.2,见上方 stripPlaceholderLines 注释)
+  const cleaned = stripPlaceholderLines(existingBlockText);
+  const before = extractWikilinkSlugs(cleaned);
   const newEntities = entities
     .filter((e) => !before.has(e.slug))
     .sort((a, b) => a.title.localeCompare(b.title));
@@ -377,7 +449,7 @@ function appendRelatedEntries(existingBlockText, entities, concepts) {
   for (const e of entities) if (before.has(e.slug)) duplicates.push(e.slug);
   for (const c of concepts) if (before.has(c.slug)) duplicates.push(c.slug);
 
-  const lines = existingBlockText.replace(/\s+$/, '').split('\n');
+  const lines = cleaned.replace(/\s+$/, '').split('\n');
   // 末尾追加(只在有空组时考虑 ### 子标题的重复)
   if (newEntities.length) {
     const hasEntitiesH3 = lines.some((l) => l.trim() === RELATED_ENTITIES_H3);
