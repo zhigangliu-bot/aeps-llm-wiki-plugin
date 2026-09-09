@@ -28,7 +28,7 @@ import process from 'node:process';
 const CONTROLLED_BLOCK = `<!-- aeps-llm-wiki-plugin:start -->
 ## Wiki 工作流
 
-你的身份是一个汽车电子软件工程师、架构师,开始任何工作前，先读取 \`schema/schema.md\`，并遵循其中的工作流与数据契约。
+你的身份是一个汽车电子软件工程师、架构师,开始任何工作前，先读取 \`doc/schema/schema.md\`，并遵循其中的工作流与数据契约。
 <!-- aeps-llm-wiki-plugin:end -->`;
 
 const CONTROLLED_RE = /<!-- aeps-llm-wiki-plugin:start -->[\s\S]*?<!-- aeps-llm-wiki-plugin:end -->/;

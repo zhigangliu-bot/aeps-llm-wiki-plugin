@@ -4,6 +4,7 @@
  *
  * Does NOT touch existing files. Only creates missing directories and .gitkeep markers.
  * Also writes 4 top-level knowledge index files (index/overview/glossary/log) on first run.
+ * v0.5.8 起:5 顶层(inbox/raw/scripts/doc/knowledge);doc/ 下 schema/ templates/ 由 sync-files.js 递归建。
  *
  * Usage:
  *   node scripts/init/build-skeleton.js --project <dir> [--plugin-root <dir>] [--dry-run]
@@ -18,7 +19,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-const TOP_DIRS = ['inbox', 'raw', 'scripts', 'templates', 'schema', 'knowledge'];
+const TOP_DIRS = ['inbox', 'raw', 'scripts', 'doc', 'knowledge']; // v0.5.8 起 schema/templates 移到 doc/ 下
 
 const KNOWLEDGE_LEAF_DIRS = [
   'sources',

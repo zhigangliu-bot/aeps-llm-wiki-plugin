@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin —— Frontmatter Template 总览
 
-本目录是 plugin 的 frontmatter **唯一权威模板来源**。init 时拷贝到用户项目的 `{project}/templates/`,SKILL.md 生成页时读对应 `page-{type}.md`。
+本目录是 plugin 的 frontmatter **唯一权威模板来源**。init 时拷贝到用户项目的 `{project}/doc/templates/`(v0.5.8 起 doc/ 层级,与 plugin 仓对齐),SKILL.md 生成页时读对应 `page-{type}.md`。
 
 > **权威顺序**:OKF v0.2 > **`doc/schema/frontmatter-spec.md`(人读字段规范,唯一权威)** > `doc/schema/frontmatter.schema.json`(机器读,跟随 spec) > `README.md`(本目录人读入口,总览) > `doc/schema/schema.md`(工作流入口)
 >
@@ -189,11 +189,11 @@
 
 按 PRD §4.1,init skill 跑时:
 
-1. **整目录拷贝** `doc/template/` → `{user-project}/templates/`
-2. **同时拷贝** `doc/schema/` → `{user-project}/schema/`
-3. SKILL.md 在用户工程内**优先读本地** `templates/page-{type}.md`,plugin 仓库仅作 fallback
+1. **整目录拷贝** `doc/template/` → `{user-project}/doc/templates/`(v0.5.8 起 doc/ 层级)
+2. **同时拷贝** `doc/schema/` → `{user-project}/doc/schema/`
+3. SKILL.md 在用户工程内**优先读本地** `doc/templates/page-{type}.md`,plugin 仓库仅作 fallback
 
-**关键纪律**:`{user-project}/templates/` 不是死文件。re-run init 时**不覆盖已有模板**(PRD §4.1 同步策略表写明),只补建缺失模板。这是为了让用户可以在自己工程里改模板而不被 plugin 升级冲掉。
+**关键纪律**:`{user-project}/doc/templates/` 不是死文件。re-run init 时**不覆盖已有模板**(PRD §4.1 同步策略表写明),只补建缺失模板。这是为了让用户可以在自己工程里改模板而不被 plugin 升级冲掉。
 
 ### 6.4 运行时:5 个 skill 各自的读写关系
 

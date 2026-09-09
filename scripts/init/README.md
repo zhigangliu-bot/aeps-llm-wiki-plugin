@@ -6,9 +6,9 @@
 
 | 脚本 | 职责 |
 |---|---|
-| `detect-state.js` | 探测 `{project}/` 是否含 6 顶层 + `.gitkeep`,输出 `state: fresh\|reentry` |
-| `build-skeleton.js` | 首次启用:建 6 顶层 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引 |
-| `sync-files.js` | 幂等再入:按 sync 策略表覆盖 / 保留 / 补建 / 字典追加 |
+| `detect-state.js` | 探测 `{project}/` 是否含 5 顶层 + `.gitkeep`(v0.5.8 起),输出 `state: fresh\|reentry` + `legacyDirs`(老用户遗留 `schema/` `templates/`) |
+| `build-skeleton.js` | 首次启用:建 5 顶层 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引(`doc/{schema,templates}/` 由 sync-files.js 递归建) |
+| `sync-files.js` | 幂等再入:老用户遗留目录迁移(merge,doc 优先)+ 按 sync 策略表覆盖 / 保留 / 补建 / 字典追加 |
 | `patch-claude-md.js` | 幂等管理 `{project}/CLAUDE.md` 受控区块(start/end 标记) |
 | `sync-report.js` | 综合输出 init 摘要(added/updated/skipped/warned) |
 

@@ -18,6 +18,7 @@
 | v0.5.1 | 2026-09-08 | **已知缺陷(hook 未生效)**:Claude Code 跑 SessionStart hook 时**未注入 `CLAUDE_PLUGIN_ROOT` env 变量**(实测 unset),hook 进入 R4 静默分支 return 0,session 开头无任何告知、无 pull 动作。`.in_use/{pid}` 标记可证明 hook 进程确实跑了,但因 plugin 根定位失败 → 完全无效。**未改代码**,仅记录;修复留待 v0.5.2 task(planning 阶段:把 plugin 根定位从「单 env」改为「cwd 兜底 + 向上找 .claude-plugin/plugin.json」) |
 | v0.5.6 | 2026-09-08 | **模板骨架全面松绑**(对齐 Karpathy LLM Wiki 模式「LLM 读源 + 人策展」+ 用户反馈「模板限制 LLM 自我发挥」):(1) `entity.*` / `concept.*` 14 个差异化骨架模板删除,合并为 1 个 `page-entity.md` / `page-concept.md` 通用模板;子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。(2) `analysis` 3 节专属骨架废除,正文完全自由发挥,仅保留 `> 引用:` 行与 `sources_used` 一致这一唯一硬约束;lint C4 改为 WARN/不锁。(3) `comparison` / `synthesis` 正文硬推荐 H2(`## 维度对比表` / `## 体系总览` 等)废除,正文完全自由发挥;`sources:` 必填与 `sources_count` ≥ 3 仍保留。(4) `source` 模板不动 —— 3 节必选 + 自由追加节本来就是混合骨架,符合「raw 层忠实摘录」语义。(5) AC-11 重写:analysis 落档仅校验 `> 引用:` 行存在性 + `sources_used` 一致性,**不再**要求 3 节骨架存在。同步改动:`scripts/gen-page.js` 改 entity/concept 模板选择逻辑(7 子类 → 1 通用);`skills/aeps-llm-wiki-ingest/SKILL.md` 步骤 10 / `doc/design/implement-ingest.md` §引用 / `doc/template/README.md` §3+§5+§6.1+§6.4 / `doc/template/tag-spec.md` §1 / `doc/template/concept-entities-spec.md` §2+§3 全部同步。新增 `doc/template/CHANGELOG.md` 记模板变更。**Lint 强度变化**(对齐 user feedback):entity/concept/comparison/synthesis 4 类 wiki 页结构约束由「H2 FAIL」变为「frontmatter + 链接 + `> 引用:`」三重校验,LLM 写作自由大幅提升。 |
 | v0.5.7-draft | 2026-09-08 | 批次 4 (P3 文档与版本一致)落地记录(P3-1 / P3-2 / P3-3 / P3-4 全部修复完成);不动 PRD 主体语义,仅记录批次变更。**注**:本表版本号是 PRD 自身语义版本号,与 `.claude-plugin/plugin.json` 锁定的主版本号解耦;plugin.json 由父任务在所有批次完成后统一发版到 0.6.0 |
+| v0.5.8 | 2026-09-09 | **breaking — doc/ 层级对齐**(批次 5 P4-1):用户工程根目录从 6 顶层改为 5 顶层 + `doc/` 子目录布局;`schema/` `templates/` 移到 `doc/` 下;re-run init 自动迁移老用户遗留目录(merge,doc 优先,空目录自动删,非空保留 + WARN);`patch-claude-md.js` 受控区块文案指向 `doc/schema/schema.md`;`build-related-pages.js --schema-path` 候选从 3 项收敛为 2 项;`gen-page.js` 模板查找路径更新 + 取消 cwd 兜底;SKILL.md 路径布局表全量更新。详见 trellis task `09-08-batch4-p3-doc-level/` |
 
 ---
 
@@ -92,14 +93,13 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 ### 4.1 Init skill
 
 - **触发**:`/aeps-llm-wiki-init`(首次启用或已存在项目再次启用,后者走"幂等再入",见下方)
-- **目录名约定**(硬约束,无参数):`inbox/` `raw/` `scripts/` `schema/` `templates/` `knowledge/` **六个**顶层目录名**全部固定默认**(顺序按契约→执行流:`schema/` 是 frontmatter 契约,放 `templates/` 之前),init 不接受 `--xxx-dir` 之类的目录名参数;子目录名见 §6.1
+- **目录名约定**(硬约束,无参数,v0.5.8 起):`inbox/` `raw/` `scripts/` `doc/` `knowledge/` **五个**顶层目录名**全部固定默认**;`doc/` 下含 `schema/` + `templates/` 两个子目录(合计 7 个目录,顶层 5 + 子层 2)。init 不接受 `--xxx-dir` 之类的目录名参数;子目录名见 §6.1
 - **必须**(首次启用,**全栈建好**):
   1. **创建 `{project}/inbox/`**:放 `README.md`(从 `doc/template/inbox-readme.md`) + `.gitkeep`
   2. **创建 `{project}/raw/`**:放 `README.md`(从 `doc/template/rawdir-spec.md`) + `.gitkeep`;**预建 15 类子目录,每个放 `.gitkeep`**
   3. **创建 `{project}/scripts/`**:从 plugin 本体 `scripts/` 目录下**所有文件**拷贝过去(具体文件清单由实现侧按目录扫描决定,不写入本文档)
-  4. **创建 `{project}/templates/`**：从 plugin 本体 `doc/template/` 目录下拷贝所有文件过去
-  5. **创建 `{project}/schema/`**：从 plugin 本体 `doc/schema/` 目录下拷贝所有文件过去
-  6. **创建 `{project}/knowledge/`**:
+  4. **创建 `{project}/doc/`**(v0.5.8 起为顶层):`doc/` 下含 `schema/` + `templates/` 子目录;`doc/templates/` 从 plugin 本体 `doc/template/` 目录下拷贝所有文件过去;`doc/schema/` 从 plugin 本体 `doc/schema/` 目录下拷贝所有文件过去
+  5. **创建 `{project}/knowledge/`**:
      - `index.md` + `overview.md` + `glossary.md` + `log.md`(从对应模板)
      - **预建 18 个叶子存储目录**(`sources/` + `entities/{person,organization,project,product,event,place,other}/` + `concepts/{theory,method,field,phenomenon,standard,term,other}/` + `analyses/` + `comparisons/` + `syntheses/`;算术 1+7+7+1+1+1=18),**每个叶子目录放 `.gitkeep`**
 - **必须**（已存在项目再次启用，**幂等再入**）：
@@ -116,13 +116,17 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
     | `knowledge/glossary.md`              | 从`doc/template/` 复制空模板。                         | 按字典同步：只追加 plugin 新增内容，不恢复用户主动删除的内容。 |
     | `inbox/README.md`                    | 从`doc/template/` 复制。                               | 覆盖为 plugin 当前版本提示文案。                               |
     | `raw/README.md`                      | 从`doc/template/` 复制。                               | 按字典同步，只追加新的分类规则。                               |
-    | `templates/page-*.md`                | 从`doc/template/` 复制全部页面模板。                   | 缺失模板补建；已有模板不覆盖。                                 |
-    | `templates/README.md`                | 从`doc/template/` 复制。                               | 覆盖为 plugin 当前版本说明。                                   |
-    | `templates/concept-entities-spec.md` | 从`doc/template/` 复制。                               | 按字典同步，只追加新的子类判定示例。                           |
-    | `templates/tag-spec.md`              | 从`doc/template/` 复制。                               | 按字典同步，只追加新的 tag 模板。                              |
+    | `doc/templates/page-*.md`            | 从`doc/template/` 复制全部页面模板。                   | 缺失模板补建；已有模板不覆盖。                                 |
+    | `doc/templates/README.md`            | 从`doc/template/` 复制。                               | 覆盖为 plugin 当前版本说明。                                   |
+    | `doc/templates/concept-entities-spec.md` | 从`doc/template/` 复制。                          | 按字典同步，只追加新的子类判定示例。                           |
+    | `doc/templates/tag-spec.md`          | 从`doc/template/` 复制。                               | 按字典同步，只追加新的 tag 模板。                              |
     | `scripts/*`                          | 从 plugin 的`scripts/` 复制全部脚本。                  | 缺失脚本补建；已有脚本不覆盖。                                 |
-    | `schema/*`                           | 从`doc/schema/` 复制全部 schema 文件。                 | 覆盖为 plugin 当前版本文件。                                   |
+    | `doc/schema/*`                       | 从`doc/schema/` 复制全部 schema 文件。                 | 覆盖为 plugin 当前版本文件。                                   |
+    | **老用户迁移(v0.5.8 起)**            |                                                       |                                                                |
+    | `root schema/`                       | 不创建。                                               | **整体迁移到 `doc/schema/`**(merge,doc 优先);空目录删,非空保留 + WARN。 |
+    | `root templates/`                    | 不创建。                                               | **整体迁移到 `doc/templates/`**(merge,doc 优先);空目录删,非空保留 + WARN。 |
   - 完成后向用户报告 sync 摘要：追加条数、覆盖文件、补建目录。
+  - **老用户迁移**(v0.5.8 起,re-run 时新增):若 `detect-state.js` 探到根目录遗留 `schema/` 或 `templates/`(说明用户在 v0.5.7 之前 init 过),自动执行迁移:`root schema/` → `doc/schema/`(merge,doc 优先,仅补缺失文件);`root templates/` → `doc/templates/`(同语义);src 空目录自动删除;src 非空保留 + WARN(提示用户手动 `git rm`)。迁移算法实现见 design.md §3。**不**主动 git 操作(对齐 PRD §8 风险「plugin 不强制 git 操作」)。
   - **最后**，幂等维护用户工程根目录的 `CLAUDE.md`：
 
     - 没有 `CLAUDE.md` 时创建文件并写入以下受控区块；已有文件时在末尾追加该区块。
@@ -134,7 +138,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
       <!-- aeps-llm-wiki-plugin:start -->
       ## Wiki 工作流
 
-      你的身份是一个汽车电子软件工程师、架构师,开始任何工作前，先读取 `schema/schema.md`，并遵循其中的工作流与数据契约。
+      你的身份是一个汽车电子软件工程师、架构师,开始任何工作前，先读取 `doc/schema/schema.md`，并遵循其中的工作流与数据契约。
       <!-- aeps-llm-wiki-plugin:end -->
       ```
   - `CLAUDE.md` 不纳入上表文件同步策略；重复运行 init 时按上述规则幂等维护。
@@ -150,11 +154,11 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 | 1   | 建 inbox/      | 从`doc/template/inbox-readme.md` 拷 README                                   | `inbox/README.md` + `inbox/.gitkeep`                                           | 否                             |
 | 2   | 建 raw/        | 拷字典副本 + 预建 15 类子目录                                                  | `raw/rawdir-spec.md` + `raw/{01_EE架构,...,15_算法}/.gitkeep` × 15            | 否                             |
 | 3   | 建 scripts/    | 从 plugin 本体`scripts/` 目录**所有文件**拷贝(清单由实现期决定)        | `scripts/*`(整目录递归)                                                          | 否                             |
-| 4   | 建 templates/  | 从`doc/template/` 全拷                                                       | `templates/*`(整目录递归)                                                        | 否                             |
-| 5   | 建 schema/     | 从`doc/schema/` 全拷                                                         | `schema/*`(整目录递归)                                                           | 否                             |
+| 4   | 建 doc/templates/  | 从`doc/template/` 全拷                                                 | `doc/templates/*`(整目录递归)                                                | 否                             |
+| 5   | 建 doc/schema/     | 从`doc/schema/` 全拷                                                    | `doc/schema/*`(整目录递归)                                                   | 否                             |
 | 6   | 建 knowledge/  | 首次:建 index/overview/glossary/log + 预建 18 个叶子目录;幂等:按同步策略表分流 | `knowledge/{index,overview,glossary,log}.md` + 18 叶子 `.gitkeep` 或同步后文件 | 否                             |
-| 7   | 维护 CLAUDE.md | 幂等管理 plugin 受控区块(规则见上)                                             | `{project}/CLAUDE.md` 受控区块                                                   | 否                             |
-| 8   | sync 摘要报告  | 打印覆盖 / 追加 / 跳过清单                                                     | `stdout`                                                                         | **是**(报告后 init 完成) |
+| 7   | 维护 CLAUDE.md | 幂等管理 plugin 受控区块(**v0.5.8 起文案指向 `doc/schema/schema.md`**)        | `{project}/CLAUDE.md` 受控区块                                                   | 否                             |
+| 8   | sync 摘要报告  | 打印迁移 / 覆盖 / 追加 / 跳过清单                                          | `stdout`                                                                         | **是**(报告后 init 完成) |
 
 > 实现期细节(脚本契约 / 职责分层 / SKILL.md 硬约束)见 [design.md §4](./design.md)。
 
@@ -397,9 +401,9 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 ### 6.1 知识库目录结构(默认)
 
-6 顶层固定:`inbox/` `raw/` `scripts/` `schema/` `templates/` `knowledge/`(init 不接受目录名参数;详见 §4.1)。
+5 顶层固定(v0.5.8 起):`inbox/` `raw/` `scripts/` `doc/` `knowledge/`(init 不接受目录名参数;详见 §4.1);`doc/` 下含 `schema/` + `templates/` 2 个子目录(与 plugin 仓 `doc/` 子目录对齐;plugin 仓 `doc/template/` 单数 vs 用户工程 `doc/templates/` 复数为可接受差异,见 design.md §2)。
 
-**raw/ 预建 15 类子目录**(编号前缀 `\d+_`,init 时按 `templates/rawdir-spec.md` 字典建):`01_EE架构 / 02_芯片 / 03_通信与网络 / 04_操作系统与中间件 / 05_软件工程 / 06_功能安全 / 07_信息安全 / 08_AI与AI工程 / 09_域控制器 / 10_会议与活动 / 11_开发工具 / 12_法规_标准_政策 / 13_流程体系 / 14_测试与验证 / 15_算法`
+**raw/ 预建 15 类子目录**(编号前缀 `\d+_`,init 时按 `doc/templates/rawdir-spec.md` 字典建):`01_EE架构 / 02_芯片 / 03_通信与网络 / 04_操作系统与中间件 / 05_软件工程 / 06_功能安全 / 07_信息安全 / 08_AI与AI工程 / 09_域控制器 / 10_会议与活动 / 11_开发工具 / 12_法规_标准_政策 / 13_流程体系 / 14_测试与验证 / 15_算法`
 
 **knowledge/ 预建 18 个叶子存储目录**(`1 + 7 + 7 + 1 + 1 + 1 = 18`):
 
@@ -427,7 +431,7 @@ LLM 时代做个人 / 团队知识沉淀,有两个互补的范式 + 一个不可
 
 - `doc/schema/frontmatter-spec.md` —— frontmatter 字段规范(人读权威)
 - `doc/schema/frontmatter.schema.json` —— 机器读,跟随 spec 对齐
-- 用户工程 `schema/schema.md` —— Agent 执行工作流入口
+- 用户工程 `doc/schema/schema.md` —— Agent 执行工作流入口
 
 ---
 

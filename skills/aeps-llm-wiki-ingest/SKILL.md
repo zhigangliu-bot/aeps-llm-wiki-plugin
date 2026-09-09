@@ -19,6 +19,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 - 2026-09-08 / 批次 3 / R7 (P2-5):`lint-stub.js` 步骤 19 真做两条规则:R7.1 tags <5 → WARN;R7.2 updated 非 ISO 8601 → ERROR(exit 2)。
 - 2026-09-08 / 批次 4 / P3-2:步骤 0.5 措辞统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装"。
 - 2026-09-08 / 批次 4 / P3-3:"失败语义"段从独立表格改为引用 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处) 权威源(G3 / G6 / G10 三规则)。
+- 2026-09-08 / 批次 5 (P4-1):**breaking** —— 路径布局表更新(`schema/` → `doc/schema/`,`templates/` → `doc/templates/`);`build-related-pages.js --schema-path` 候选从 3 项收敛为 2 项(用户工程 `doc/schema/` > plugin 自检);`gen-page.js --project` 模板查找改为 `<project>/doc/templates/`,取消 cwd 兜底。
 
 ## 脚本路径约定(批次 1,2026-09-08)
 
@@ -40,7 +41,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 - v0.5.6 (2026-09-08,批次 2 P1 修复):
   - **move-to-raw 按 slug 重命名**:`batch.files[]` 提供 `slug` 字段后,文件按 `{slug}.{ext}` 落地到 `raw/<subdir>/`,原扩展名保留。已存在同名 slug → SKIP + WARN,不覆盖;slug 非法 → ERROR。详见步骤 4。
   - **build-related-pages 改追加模式**:`## 相关页面` / `## 来源资料` 区块默认保留人工写的条目,新反链追加在末尾(去重);同 wikilink 重复 → 保留人工条目 + stderr WARN。如需完全重建,先手工删除区块再跑。详见步骤 12。
-  - **gen-page --project 参数**:模板查找新增 `--project <absolute>` 优先级(> `env.WIKI_PROJECT` > `cwd/templates/`);`--project` 显式传入时严格从 `<project>/templates/` 找,找不到 → 清晰 ERROR。详见步骤 6/10。
+  - **gen-page --project 参数**:模板查找 `--project <absolute>` 优先级(> `env.WIKI_PROJECT`;v0.5.8 起取消 cwd 兜底);`--project` 显式传入时严格从 `<project>/doc/templates/` 找,找不到 → 清晰 ERROR。详见步骤 6/10。
   - **ajv date-time WARN 降级**:`doc/schema/frontmatter.schema.json` 把 `format: "date-time"` 替换为等价的 `pattern` 校验,跑 ajv 时不再打印 `unknown format "date-time" ignored` 噪音。零新增 npm 依赖。
 
 ## 触发
@@ -53,12 +54,12 @@ plugin 仓根目录与 sync-files 同步出的用户工程根目录布局不同,
 
 | plugin 仓根 | 用户工程根 | sync 行为(sync-files.js) |
 |---|---|---|
-| `doc/schema/` | `schema/` | overwrite(SYNC-6) |
-| `doc/template/` | `templates/` | backfill missing;preserve existing |
+| `doc/schema/` | `doc/schema/` | overwrite(SYNC-6) |
+| `doc/template/` | `doc/templates/`(复数,可接受差异) | backfill missing;preserve existing |
 | `scripts/` | `scripts/` | backfill missing;preserve existing |
 | `.claude-plugin/` | — | 不进用户工程(由 plugin loader 处理) |
 
-历史背景:用户曾误以为 `doc/schema/` 应跟 `schema/` 一样,用过 `junction doc/schema → schema` 兜底;实际 plugin 仓路径正确,问题在于认知错位。
+v0.5.8 起用户工程文档层与 plugin 仓对齐(都在 `doc/` 下),脚本路径不再需要区分两套命名空间。历史背景:旧布局用户工程根是平级的 `schema/` `templates/`,曾引发脚本路径混淆与 `junction doc/schema → schema` 误用;v0.5.8 已根治。
 
 ## 设计原则(必读)
 
@@ -198,7 +199,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --source-file '[[<subdir>/<slug>.<ext>|<display>]]' --json
 ```
 
-> **v0.5.6 起必传 `--project`**:模板查找严格从 `<project>/templates/` 读,不传且 cwd 也无 templates/ → ERROR。`--project` 解析顺序:`--project` CLI > `env.WIKI_PROJECT` > `cwd/templates/`(仅当 templates/ 存在)。
+> **v0.5.6 起必传 `--project`(v0.5.8 起路径为 doc/ 层级)**:模板查找严格从 `<project>/doc/templates/` 读,找不到 → ERROR。`--project` 解析顺序:`--project` CLI > `env.WIKI_PROJECT`(v0.5.8 起取消 cwd 兜底)。
 
 参数说明:
 

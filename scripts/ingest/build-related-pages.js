@@ -43,12 +43,11 @@ const Ajv = (await import('ajv')).default;
 //   - ajv 加载 schema 失败 → process.exit(2)
 //   - ajv 校验 entity/concept frontmatter 失败 → stderr WARN + 跳过该页(反链不写)
 //
-// SCHEMA_PATH 解析顺序(批次 1 修复 P0-2,design.md D2):
+// SCHEMA_PATH 解析顺序(v0.5.8 起,design.md D2):
 //   1. --schema-path <absolute>(CLI 显式覆盖,最高优先级)
-//   2. process.env.WIKI_SCHEMA_PATH(env,可选,本批次不主动文档化)
-//   3. <project>/schema/frontmatter.schema.json(用户工程标准路径)
-//   4. <project>/doc/schema/frontmatter.schema.json(junction 兼容)
-//   5. <plugin-root>/doc/schema/frontmatter.schema.json(plugin 自检,plugin-root 由 D1 解析)
+//   2. process.env.WIKI_SCHEMA_PATH(env,可选)
+//   3. <project>/doc/schema/frontmatter.schema.json(用户工程 v0.5.8 起标准路径)
+//   4. <plugin-root>/doc/schema/frontmatter.schema.json(plugin 自检,plugin-root 由 D1 解析)
 //
 // project 解析顺序(design.md D2):
 //   - --project <absolute> CLI > process.env.WIKI_PROJECT > process.cwd()
@@ -77,8 +76,8 @@ function resolveSchemaCandidates(args) {
   if (process.env.WIKI_SCHEMA_PATH) return [path.resolve(process.env.WIKI_SCHEMA_PATH)];
   const project = resolveProject(args.project);
   const pluginRoot = resolvePluginRoot(args.pluginRoot);
+  // ponytail: v0.5.8 起去掉 <project>/schema/ 候选(用户工程根不再有 schema/,只在 doc/schema/)。
   const candidates = [
-    path.join(project, 'schema', 'frontmatter.schema.json'),
     path.join(project, 'doc', 'schema', 'frontmatter.schema.json'),
   ];
   if (pluginRoot) {
@@ -107,7 +106,7 @@ async function loadValidator() {
   if (!SCHEMA_PATH) {
     console.error(`ERROR: 无法定位 frontmatter schema;候选路径:`);
     for (const p of candidates) console.error(`  - ${p}`);
-    console.error(`解决:用 --schema-path <absolute> 显式指定;或 --project 指向含 schema/ 的用户工程;或 --plugin-root 指向 plugin 仓根`);
+    console.error(`解决:用 --schema-path <absolute> 显式指定;或 --project 指向含 doc/schema/ 的用户工程;或 --plugin-root 指向 plugin 仓根`);
     process.exit(2);
   }
   let schema;

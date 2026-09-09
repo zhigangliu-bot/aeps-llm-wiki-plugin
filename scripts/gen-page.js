@@ -10,8 +10,8 @@
 //     [--source-file '[[06-功能安全/iso26262.pdf|ISO 26262:2018 原文]]'] \
 //     [--title 'ISO 26262:2018 功能安全标准']
 //
-// --project: 用户工程绝对路径;模板路径解析为 <project>/templates/<name>.
-//           解析顺序:--project > env.WIKI_PROJECT > process.cwd()(仅当 cwd/templates/ 存在).
+// --project: 用户工程绝对路径;模板路径解析为 <project>/doc/templates/<name>(v0.5.8 起 doc/ 层级).
+//           解析顺序:--project > env.WIKI_PROJECT(v0.5.8 起取消 cwd 兜底,AC-6).
 // --plugin-root: plugin 仓绝对路径;读 .claude-plugin/plugin.json.
 //               解析顺序:--plugin-root > env.CLAUDE_PLUGIN_ROOT > __dirname/../..
 //
@@ -305,32 +305,27 @@ function main() {
     return `page-${type}.md`;
   })();
 
-  // 用户工程根解析(对齐 design.md D2,批次 2 修复 P1-2):
+  // 用户工程根解析(对齐 design.md D2,批次 2 修复 P1-2,v0.5.8 起 templates/ → doc/templates/):
   //   1. --project <absolute>(SKILL.md 显式传,最高优先级)
   //   2. process.env.WIKI_PROJECT(env)
-  //   3. process.cwd()(若 cwd/templates/<name> 存在则采用为 user project root)
-  //   4. 否则回退 plugin doc/template/<name>(plugin 自检路径,向后兼容老调用方式)
-  // 备注:cwd 解析不是"必须存在 templates/ 目录"才采用,而是"模板能在 cwd/templates/<name> 命中"才采用;
-  //      否则继续尝试 plugin 自带模板。这样老调用方式(plugin 仓内跑)继续可用。
+  //   3. 否则回退 plugin doc/template/<name>(plugin 自检路径,向后兼容老调用方式)
+  // ponytail: v0.5.8 起取消 cwd 兜底(cwd 不可靠;AC-6)。显式 --project 必须从 <project>/doc/templates/ 找。
   const projectRoot = (() => {
     if (args.project) return resolve(String(args.project));
     if (process.env.WIKI_PROJECT) return resolve(process.env.WIKI_PROJECT);
-    const cwdTemplatesTpl = resolve(process.cwd(), "templates", tplName);
-    if (existsSync(cwdTemplatesTpl)) return process.cwd();
-    return null; // 无显式 project,cwd/templates 也无 → 让下面 candidates 找 plugin 自带
+    return null;
   })();
 
   // 模板搜索路径:
-  //   - 若显式 --project → 严格从 <project>/templates/<name> 找(不 fallback plugin 自带);
-  //     这是因为显式指定了用户工程根,模板理应在用户工程的 templates/ 下。
+  //   - 若显式 --project → 严格从 <project>/doc/templates/<name> 找(v0.5.8 起 doc/ 子目录)
   //     找不到 → ERROR,提示用户 sync templates 或检查路径。
-  //   - 否则(无 --project)→ 优先 cwd/templates/,fallback plugin doc/template/(向后兼容老调用)
+  //   - 否则(无 --project)→ 优先 projectRoot/doc/templates/,fallback plugin doc/template/(向后兼容老调用)
   const candidates = [];
   if (args.project || process.env.WIKI_PROJECT) {
     // 显式 --project / WIKI_PROJECT → 严格模式
-    candidates.push(resolve(projectRoot, "templates", tplName));
+    candidates.push(resolve(projectRoot, "doc", "templates", tplName));
   } else {
-    if (projectRoot) candidates.push(resolve(projectRoot, "templates", tplName));
+    if (projectRoot) candidates.push(resolve(projectRoot, "doc", "templates", tplName));
     candidates.push(resolve(__dirname, "..", "doc", "template", tplName));
   }
   const tplPath = candidates.find((p) => existsSync(p));

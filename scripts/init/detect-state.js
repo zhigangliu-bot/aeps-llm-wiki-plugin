@@ -17,7 +17,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-const TOP_DIRS = ['inbox', 'raw', 'scripts', 'templates', 'schema', 'knowledge'];
+const TOP_DIRS = ['inbox', 'raw', 'scripts', 'doc', 'knowledge'];
+const LEGACY_DIRS = ['schema', 'templates']; // v0.5.8 前老用户根目录遗留
 const GITKEEP = '.gitkeep';
 
 function parseArgs(argv) {
@@ -41,11 +42,11 @@ async function exists(p) {
 async function detect(project) {
   const projectAbs = path.resolve(project);
   if (!(await exists(projectAbs))) {
-    return { state: 'fresh', missing: [...TOP_DIRS], present: [], error: 'project_dir_not_found', project: projectAbs };
+    return { state: 'fresh', missing: [...TOP_DIRS], present: [], legacyDirs: [], error: 'project_dir_not_found', project: projectAbs };
   }
   const stat = await fs.stat(projectAbs);
   if (!stat.isDirectory()) {
-    return { state: 'fresh', missing: [...TOP_DIRS], present: [], error: 'not_a_directory', project: projectAbs };
+    return { state: 'fresh', missing: [...TOP_DIRS], present: [], legacyDirs: [], error: 'not_a_directory', project: projectAbs };
   }
   const missing = [];
   const present = [];
@@ -58,9 +59,14 @@ async function detect(project) {
       missing.push(d);
     }
   }
-  // ponytail: reentry only if all 6 top dirs have .gitkeep; otherwise fresh
-  const state = missing.length === 0 ? 'reentry' : 'fresh';
-  return { state, missing, present, project: projectAbs };
+  // ponytail: v0.5.8 起探根目录遗留 schema/ templates/(老用户)
+  const legacyDirs = [];
+  for (const d of LEGACY_DIRS) {
+    if (await exists(path.join(projectAbs, d))) legacyDirs.push(d);
+  }
+  // ponytail: reentry only if all 5 top dirs have .gitkeep AND no legacy dirs; otherwise fresh
+  const state = (missing.length === 0 && legacyDirs.length === 0) ? 'reentry' : 'fresh';
+  return { state, missing, present, project: projectAbs, legacyDirs };
 }
 
 async function main() {

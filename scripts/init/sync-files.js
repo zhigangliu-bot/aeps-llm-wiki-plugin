@@ -2,20 +2,21 @@
 /**
  * sync-files.js - Idempotent file sync from plugin to project per prd.md §4.1 sync table.
  *
- * Strategy mapping (per prd.md §4.1):
+ * Strategy mapping (per prd.md §4.1 sync table, v0.5.8):
  *   - inbox/README.md              : overwrite (plugin current)
  *   - raw/README.md                : overwrite (plugin current)
- *   - templates/README.md          : overwrite (plugin current)
- *   - templates/page-*.md          : backfill missing; preserve existing
- *   - templates/tag-spec.md        : dictionary append (append-only, don't restore user deletions)
- *   - templates/concept-entities-spec.md : dictionary append
- *   - templates/rawdir-spec.md     : backfill missing; preserve existing
+ *   - doc/templates/README.md      : overwrite (plugin current)
+ *   - doc/templates/page-*.md      : backfill missing; preserve existing
+ *   - doc/templates/tag-spec.md    : dictionary append (append-only, don't restore user deletions)
+ *   - doc/templates/concept-entities-spec.md : dictionary append
+ *   - doc/templates/rawdir-spec.md : backfill missing; preserve existing
  *   - scripts/*                    : backfill missing; preserve existing
- *   - schema/*                     : overwrite (plugin current)
+ *   - doc/schema/*                 : overwrite (plugin current)
  *   - knowledge/index.md           : preserve (don't touch user content)
  *   - knowledge/overview.md        : preserve
  *   - knowledge/glossary.md        : preserve
  *   - knowledge/log.md             : append Init record (only on first creation, not on every re-run)
+ *   - LEGACY migration (v0.5.8): root schema/ templates/ -> doc/{schema,templates}/ (merge, doc 优先; src 空目录自动删; src 非空保留 + WARN)
  *
  * Note: knowledge/log.md append-on-every-init would create duplication. The prd.md
  * sync table says "Append plugin-generated records, do not delete existing" — interpretation:
@@ -112,6 +113,16 @@ async function sync(args) {
   const skipped = [];
   const warned = [];
 
+  // 0. (v0.5.8) LEGACY MIGRATION — root schema/ templates/ → doc/{schema,templates}/
+  // Merge 语义:doc/ 优先(已有不覆盖),src 仅补缺失。空 src 自动删,非空 src 保留 + WARN。
+  const migrated = await migrateLegacyDirs(project, dryRun, warned);
+  // doc/ 顶层 .gitkeep(build-skeleton 首次建;老用户迁移路径可能没跑过 → 这里兜底)
+  const docKeep = path.join(project, 'doc', '.gitkeep');
+  if (!(await exists(docKeep)) && !dryRun) {
+    await fs.mkdir(path.dirname(docKeep), { recursive: true });
+    await fs.writeFile(docKeep, '');
+  }
+
   // 1. inbox/README.md — overwrite from plugin doc/template/inbox-readme.md
   // ponytail: there's no inbox-readme.md in current template dir; copy rawdir-spec pattern.
   // We use a minimal inline template because plugin doc/template/ has no inbox-readme currently.
@@ -134,9 +145,10 @@ async function sync(args) {
     if (await exists(rawReadmeDst)) updated.push(rawReadmeDst);
   }
 
-  // 3. templates/* — backfill missing; preserve existing (except README which overwrites)
+  // 3. doc/templates/* — backfill missing; preserve existing (except README which overwrites)
+  // v0.5.8 起路径:plugin doc/template/ → user doc/templates/(plugin 单数 vs 用户复数为可接受差异)
   const tmplSrc = path.join(pluginRoot, 'doc', 'template');
-  const tmplDst = path.join(project, 'templates');
+  const tmplDst = path.join(project, 'doc', 'templates');
   if (await exists(tmplSrc)) {
     const entries = await fs.readdir(tmplSrc, { withFileTypes: true });
     for (const e of entries) {
@@ -181,9 +193,9 @@ async function sync(args) {
     await copyTreeBackfill(scriptsSrc, scriptsDst, dryRun, added, skipped);
   }
 
-  // 5. schema/* — overwrite (SYNC-6)
+  // 5. doc/schema/* — overwrite (SYNC-6, v0.5.8 起路径移到 doc/ 下)
   const schemaSrc = path.join(pluginRoot, 'doc', 'schema');
-  const schemaDst = path.join(project, 'schema');
+  const schemaDst = path.join(project, 'doc', 'schema');
   if (await exists(schemaSrc)) {
     await overwriteTree(schemaSrc, schemaDst, dryRun, updated, skipped);
   }
@@ -196,17 +208,83 @@ async function sync(args) {
   return {
     project,
     dryRun,
+    migrated,
     added,
     updated,
     skipped,
     warned,
     counts: {
+      migrated: migrated.length,
       added: added.length,
       updated: updated.length,
       skipped: skipped.length,
       warned: warned.length,
     },
   };
+}
+
+// ponytail: v0.5.8 新增。root schema/ templates/ → doc/{schema,templates}/ move 迁移。
+// 语义:doc/ 优先(已有同名 → 删 src 冗余文件;src 独有 → move 过去)。空 src 自动删,非空 src 保留 + WARN。
+async function migrateLegacyDirs(project, dryRun, warned) {
+  const migrated = [];
+  for (const name of ['schema', 'templates']) {
+    const src = path.join(project, name);
+    const dst = path.join(project, 'doc', name);
+    if (!(await exists(src))) continue;
+    if (!(await exists(dst))) {
+      if (!dryRun) await fs.mkdir(dst, { recursive: true });
+    }
+    let moved = 0;
+    moved += await moveTreeMerge(src, dst, dryRun);
+    migrated.push({ from: `./${name}`, to: `./doc/${name}`, files_count: moved });
+    // 删 src 空目录(只剩 .gitkeep 也视为空;其余非空保留 + WARN,不主动 git 操作)
+    try {
+      const remain = (await fs.readdir(src)).filter(n => n !== '.gitkeep');
+      if (remain.length === 0) {
+        if (!dryRun) await fs.rm(src, { recursive: true });
+      } else {
+        warned.push({
+          src: `./${name}`,
+          reason: 'non_empty_legacy_dir',
+          message: `请手动处理遗留目录 ${name}/(含 ${remain.length} 项;若 git 跟踪,git rm 后再 git add doc/${name}/)`,
+        });
+      }
+    } catch { /* ignore race */ }
+  }
+  return migrated;
+}
+
+async function moveTreeMerge(srcRoot, dstRoot, dryRun) {
+  if (!(await exists(dstRoot))) {
+    if (!dryRun) await fs.mkdir(dstRoot, { recursive: true });
+  }
+  let counter = 0;
+  const entries = await fs.readdir(srcRoot, { withFileTypes: true });
+  for (const e of entries) {
+    if (e.name === '.gitkeep') continue;
+    const srcP = path.join(srcRoot, e.name);
+    const dstP = path.join(dstRoot, e.name);
+    if (e.isDirectory()) {
+      counter += await moveTreeMerge(srcP, dstP, dryRun);
+      // 子目录搬空后删掉(只剩/不含 .gitkeep)
+      try {
+        const remain = (await fs.readdir(srcP)).filter(n => n !== '.gitkeep');
+        if (remain.length === 0 && !dryRun) await fs.rm(srcP, { recursive: true });
+      } catch { /* ignore */ }
+    } else {
+      if (await exists(dstP)) {
+        // dst 已有同名(plugin sync 版本)→ src 文件冗余,删除
+        if (!dryRun) await fs.rm(srcP);
+      } else {
+        if (!dryRun) {
+          await fs.mkdir(path.dirname(dstP), { recursive: true });
+          await fs.rename(srcP, dstP);
+        }
+        counter++;
+      }
+    }
+  }
+  return counter;
 }
 
 async function copyTreeBackfill(srcRoot, dstRoot, dryRun, added, skipped) {

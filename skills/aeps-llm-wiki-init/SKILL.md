@@ -13,6 +13,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Ba
 - 2026-09-08 / 批次 3 / R3 (P1-6):inline preflight 已内置到所有 ingest/init 脚本顶部,缺包立即 ERROR 并打印精确 `npm install` 命令;旧的 `scripts/ingest/preflight.js` 仍保留(SKILL.md ingest 步骤 0.5 可继续主动调用),与 inline 并存不冲突。
 - 2026-09-08 / 批次 4 / P3-2:新增步骤 0 依赖 preflight(inline 内置,可选显式跑),统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装";后续步骤 1-7 重新编号。
 - 2026-09-08 / 批次 4 / P3-1:frontmatter `plugin-version` 字段从旧版本字符串升级为 0.5.6(对齐 plugin.json)。
+- 2026-09-08 / 批次 5 (P4-1):**breaking** —— 用户工程根从 6 顶层改为 5 顶层 + `doc/` 子目录布局(`schema/` `templates/` → `doc/schema/` `doc/templates/`);`detect-state.js` 输出新增 `legacyDirs` 字段;re-run init 自动迁移老用户遗留目录(merge,doc 优先;空目录删,非空保留 + WARN);`patch-claude-md.js` 受控区块文案指向 `doc/schema/schema.md`;`sync-files.js` 输出新增 `migrated` 字段。
 
 ## 脚本路径约定(批次 1,2026-09-08)
 
@@ -25,19 +26,19 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Ba
 
 # /aeps-llm-wiki-init
 
-初始化用户的 wiki 项目工程,生成 6 顶层目录 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引模板。已存在工程走幂等再入(只补缺失,不覆盖用户内容)。
+初始化用户的 wiki 项目工程,生成 5 顶层目录 + `doc/{schema,templates}/` 2 子目录 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引模板。已存在工程走幂等再入(只补缺失,不覆盖用户内容);v0.5.7 之前的老工程自动迁移遗留目录到 `doc/` 下。
 
-## 路径布局(plugin 仓 vs 用户工程)
+## 路径布局(plugin 仓 vs 用户工程,v0.5.8 起)
 
-init skill 把 plugin 仓的 `doc/` + `scripts/` 同步到用户工程根,**目标路径与 plugin 仓源路径故意不同**(用户工程没有 `doc/` 前缀):
+init skill 把 plugin 仓的 `doc/{schema,template}/` + `scripts/` 同步到用户工程 `doc/` 下;**用户工程与 plugin 仓的「文档」层级 1:1 对齐**(消除脚本路径混淆):
 
 | plugin 仓根 | 用户工程根 | sync 行为 |
 |---|---|---|
-| `doc/schema/` | `schema/` | overwrite |
-| `doc/template/` | `templates/` | backfill missing;preserve existing |
+| `doc/schema/` | `doc/schema/` | overwrite |
+| `doc/template/` | `doc/templates/`(复数,可接受差异) | backfill missing;preserve existing |
 | `scripts/` | `scripts/` | backfill missing;preserve existing |
 
-不要把 plugin 仓 `doc/schema/` 跟用户工程 `schema/` 视为同一目录的别名 — 它们是 sync-files.js 故意分开的命名空间。脚本运行时用 `import.meta.dirname` 解析 plugin 仓路径,不依赖 cwd。
+**老用户迁移**(v0.5.7 之前 init 过的工程):`detect-state.js` 探到根目录遗留 `schema/` `templates/` → `sync-files.js` 自动 merge 到 `doc/{schema,templates}/`(doc 优先,仅补缺失);空目录自动删,非空保留 + WARN 提示用户手动 `git rm`。
 
 ## 触发
 
@@ -70,6 +71,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js --project <用户工程�
 - `state: "fresh"` → 走步骤 2-7 完整流程
 - `state: "reentry"` → 走步骤 4-7 同步策略表
 - `missing: [...]` → 提示用户缺哪些顶层目录(首次启用必走完整流程)
+- `legacyDirs: ["schema","templates",...]` → 老用户迁移(步骤 4 sync-files.js 自动执行,无需单独步骤);`legacyDirs: []` → 正常
 
 ### 步骤 2:首次启用 dry-run 预览
 
@@ -87,7 +89,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js --project <dir> --plug
 node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js --project <dir> --plugin-root ${CLAUDE_PLUGIN_ROOT} --json
 ```
 
-JSON 含 `counts.gitkeepTotal`(应为 39=6+18+15)+ `created[]` 列表。
+JSON 含 `counts.gitkeepTotal`(应为 38=5+18+15)+ `created[]` 列表。
 
 ### 步骤 4:同步策略文件(scripts/templates/schema)
 
@@ -97,10 +99,11 @@ JSON 含 `counts.gitkeepTotal`(应为 39=6+18+15)+ `created[]` 列表。
 node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js --project <dir> --plugin-root ${CLAUDE_PLUGIN_ROOT} --json
 ```
 
-JSON 含 `added / updated / skipped / warned` 4 数组 + 计数。
+JSON 含 `migrated / added / updated / skipped / warned` 5 数组 + 计数。
 
-- 首次启用:`added` 应有 templates/page-*.md、tag-spec.md、concept-entities-spec.md、rawdir-spec.md 等
-- 幂等再入:`updated` 应含 schema/* 全量覆盖 + templates/README.md 覆盖 + inbox/raw README 覆盖;`skipped` 应含用户已改的 templates/page-*.md
+- 首次启用:`added` 应有 doc/templates/page-*.md、tag-spec.md、concept-entities-spec.md、rawdir-spec.md 等;`migrated` 应为空
+- 老用户迁移:`migrated` 应含 `{from:"./schema", to:"./doc/schema", ...}` 与 `{from:"./templates", to:"./doc/templates", ...}`;若 `warned` 有 `non_empty_legacy_dir` → 摘要时提醒用户手动 `git rm` 遗留目录
+- 幂等再入:`updated` 应含 doc/schema/* 全量覆盖 + doc/templates/README.md 覆盖 + inbox/raw README 覆盖;`skipped` 应含用户已改的 doc/templates/page-*.md
 
 ### 步骤 5:CLAUDE.md 受控区块
 
