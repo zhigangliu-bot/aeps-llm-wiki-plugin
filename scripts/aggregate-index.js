@@ -8,8 +8,9 @@
 //   - 扫 {knowledge}/*.md 之外的子目录(sources/, entities/*, concepts/*, analyses/, comparisons/, syntheses/)
 //   - 读 frontmatter (type / title / description / tags / id / aliases),不动正文
 //   - 按 type + 子类聚合,生成 knowledge/index.md
-//   - 生成 knowledge/overview.md(只列 type + count,不写内容)
 //   - 生成/追加 knowledge/glossary.md(从 title + aliases 抽取术语条目;不覆盖用户已写条目)
+//   - v0.6.2 起 **不再** 写入 knowledge/overview.md:overview 改由 LLM 在 ingest 大图变化时维护,
+//     骨架来自 plugin 仓 `doc/template/page-overview.md`(见 scripts/init/build-skeleton.js)
 //   - 输出 mtime,幂等;同状态连跑两次产物相同
 //
 // JSON stdout 增量(P2-3 批次 3):
@@ -23,6 +24,8 @@
 // change history:
 //   - 0.6.0: P0-#3 (issue #3) — index.md / overview.md / glossary.md 注入最小 frontmatter
 //     (type/title/updated/generated/status/tags)。旧版只有 `---` 水平线,lint R7.2 fail。
+//   - 0.6.2: 移除 overview.md 写入。overview 由 LLM 按 doc/template/page-overview.md 骨架维护,
+//     聚合脚本不再覆写(避免 LLM 大图被计数列表覆盖)。
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
@@ -253,25 +256,16 @@ function renderSourceLine(p) {
   return `${link}${desc}${tail ? ` ${tail}` : ""}`;
 }
 
+// ponytail: v0.6.2 起 overview.md 改由 LLM 在 ingest 大图变化时维护,聚合脚本不再覆写。
+// 计数信息已迁移到 index.md(sources / entities / concepts / syntheses / comparisons / analyses
+// 各自一节,带 type · count),所以保留 `renderOverview` 仅在 json 模式下供 stdout 调试输出。
 function renderOverview(pages) {
   const lines = [];
-  lines.push(renderAggregateFrontmatter("overview", "项目 Wiki 大图(overview)"));
-  lines.push("# 项目 Wiki 大图(overview)");
-  lines.push("");
-  lines.push("> **自动生成**:本文件由 `scripts/aggregate-index.js` 维护。");
-  lines.push("");
-  lines.push("---");
-  lines.push("");
   for (const [type, dir] of TYPE_DIRS) {
     const items = pages.filter((p) => p.type === type);
     const label = type.replace(".", " · ");
     lines.push(`- **${label}**: ${items.length} 篇`);
   }
-  lines.push("");
-  lines.push("---");
-  lines.push("");
-  lines.push("参见 [index](./index.md) 查看完整目录。");
-  lines.push("");
   return lines.join("\n");
 }
 
@@ -355,11 +349,10 @@ function main() {
       written: [],
     };
     const idx = renderIndex(knowledge, pages);
-    const ov = renderOverview(pages);
     const gl = renderGlossary(pages);
+    // ponytail: v0.6.2+ overview.md 不再写入,见 renderOverview 注释
     const writes = [
       [join(knowledge, "index.md"), idx],
-      [join(knowledge, "overview.md"), ov],
       [join(knowledge, "glossary.md"), gl],
     ];
     for (const [p, c] of writes) {
@@ -379,12 +372,11 @@ function main() {
   console.log(`scanned ${pages.length} pages from ${knowledge}`);
 
   const idx = renderIndex(knowledge, pages);
-  const ov = renderOverview(pages);
   const gl = renderGlossary(pages);
 
+  // ponytail: v0.6.2+ overview.md 不再写入,见 renderOverview 注释
   const writes = [
     [join(knowledge, "index.md"), idx],
-    [join(knowledge, "overview.md"), ov],
     [join(knowledge, "glossary.md"), gl],
   ];
 

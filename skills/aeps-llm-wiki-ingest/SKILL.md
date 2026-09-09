@@ -20,6 +20,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 - 2026-09-08 / 批次 4 / P3-2:步骤 0.5 措辞统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装"。
 - 2026-09-08 / 批次 4 / P3-3:"失败语义"段从独立表格改为引用 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处) 权威源(G3 / G6 / G10 三规则)。
 - 2026-09-08 / 批次 5 (P4-1):**breaking** —— 路径布局表更新(`schema/` → `doc/schema/`,`templates/` → `doc/templates/`);`build-related-pages.js --schema-path` 候选从 3 项收敛为 2 项(用户工程 `doc/schema/` > plugin 自检);`gen-page.js --project` 模板查找改为 `<project>/doc/templates/`,取消 cwd 兜底。
+- 2026-09-09 / 批次 7 (v0.6.2):overview.md 改由 LLM 维护。`scripts/aggregate-index.js` 停止写入 overview.md(不再被计数列表覆盖);`scripts/init/build-skeleton.js` 改读 plugin 仓 `doc/template/page-overview.md` 作为初始骨架。步骤 16 重新描述为"读 `doc/templates/page-overview.md` 骨架,LLM 增量维护"。
 - 2026-09-09 / 批次 6 (issue #1/#2/#3/#4):**P0/P1 bug 修复** ——
   - **#1 init-batch.js 保留 LLM 拍板字段**(slug/target_subdir/route/converter/native_text/converted_path/...):旧版 map 重写 file 静默丢为 null,导致下游 move-to-raw fail "target_subdir 未指定"。改 spread LLM 输入 + 脚本必需默认值覆盖。**步骤 4 命令行确认**:LLM 步骤 3 拍板的 `target_subdir` / `slug` 必填;`--files` / `--files-file` JSON 内 LLM 决策字段会透传到 batch.files[]。
   - **#2 gen-page.js 加 `--patch-frontmatter-only` flag**:旧版 `--out` 重跑会覆盖 LLM 已填正文为占位符。**步骤 7 改为**:写完正文后**不要**重跑 `gen-page.js --out`,改用 `gen-page.js --out foo.md --patch-frontmatter-only --summary "..." --title "..."` 只 patch frontmatter,正文原样保留。目标文件不存在 → fallback 全量生成(WARN)。
@@ -296,7 +297,13 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLU
 
 ### 步骤 16:更新 overview.md
 
-仅大图变化时由 LLM 决定;通常由 aggregate-index.js 自动重建。
+**v0.6.2 起不再由 aggregate-index.js 自动重建**。overview.md 改由 LLM 在"大图变化时"(新增 source / 完成 synthesis / 累计 analyses > 10 等)按 plugin 仓 `doc/template/page-overview.md` 骨架(在用户工程为 `doc/templates/page-overview.md`)增量更新:
+
+- 保留已有骨架(一句话定位 / 主题领域分布 / 知识成熟度 / 未覆盖领域 / 维护 五节)
+- 按当前 knowledge/ 实际状态刷新"主题领域分布"与"知识成熟度"两节的引用
+- "未覆盖领域"由 LLM 读 log.md 近 30 天 query + knowledge/ 缺口自行判断
+
+aggregate-index.js 不再覆写 overview.md,避免 LLM 维护的大图被计数列表覆盖。
 
 ### 步骤 17:追加 log.md(最新在前,ISO 8601)
 

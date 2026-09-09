@@ -15,9 +15,12 @@
  *   2 - partial failure (some mkdirs failed; rolled back created entries)
  */
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOP_DIRS = ['inbox', 'raw', 'scripts', 'doc', 'knowledge']; // v0.5.8 起 schema/templates 移到 doc/ 下
 
@@ -71,16 +74,17 @@ function nowIso() {
 // ponytail: 4 top-level knowledge index templates — 无 frontmatter, 对齐 page-{index,overview,glossary,log}.md 模板。
 // 这 4 个文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内(详见 doc/template/README.md §6.1)。
 // v0.6.1 起去掉硬塞的 frontmatter:与模板事实源对齐,避免 OKF reader 误判为普通页参与全局聚合。
+//
+// v0.6.2 起:overview.md 不再硬编码骨架,而是从 plugin 仓 `doc/template/page-overview.md`
+// 读真实模板(LLM 在 ingest 大图变化时填充内容;`aggregate-index.js` 已停止覆写 overview.md)。
+// 其余 3 个(index/glossary/log)继续走硬编码,因为 page-{index,overview,glossary,log}.md
+// 模板目前只覆盖了 overview 的 Karpathy 风格骨架,index/glossary/log 内容由脚本直接拼更可控。
 const INDEX_TEMPLATES = {
   'index.md': ({ title }) => `# ${title} Wiki 主目录
 
 > 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 增量维护。
 
 参见 [overview](./overview.md) 查看大图。
-`,
-  'overview.md': ({ title }) => `# ${title} Wiki 大图
-
-> 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 在大图变化时更新。
 `,
   'glossary.md': ({ title }) => `# ${title} Wiki 术语表
 
@@ -95,6 +99,32 @@ const INDEX_TEMPLATES = {
 **Init**: 用户项目 wiki 初始化,生成 ${KNOWLEDGE_LEAF_DIRS.length} 个叶子存储目录 + ${RAW_SUBDIRS.length} 个 raw 子目录 + 4 份管理文件
 `,
 };
+
+// ponytail: overview.md 骨架读 plugin 仓 `doc/template/page-overview.md`,失败回退到最小骨架。
+// plugin-root 解析优先级:`--plugin-root` CLI > `CLAUDE_PLUGIN_ROOT` env > __dirname/../..(同仓)
+function resolvePluginRoot(args) {
+  if (args.pluginRoot) return path.resolve(args.pluginRoot);
+  if (process.env.CLAUDE_PLUGIN_ROOT) return path.resolve(process.env.CLAUDE_PLUGIN_ROOT);
+  // ponytail:__dirname = scripts/init/,plugin-root = 上两级
+  return path.resolve(__dirname, '..', '..');
+}
+
+function loadOverviewTemplate(pluginRoot) {
+  const tplPath = path.join(pluginRoot, 'doc', 'template', 'page-overview.md');
+  try {
+    let txt = readFileSync(tplPath, 'utf8');
+    // ponytail:剥掉文档开头的 HTML 注释行(与 gen-page.js 的 parseTemplate 行为对齐,否则
+    // 文件首行是 `<!-- ... -->`,触发 reserved-filename 测试 `startsWith('# ')` 失败)
+    txt = txt.replace(/^[\t ]*<!--[\s\S]*?-->\s*\r?\n/, '');
+    return txt;
+  } catch (err) {
+    // ponytail:兜底骨架,plugin 仓无 page-overview.md 时仍能生成(保留旧行为)
+    return `# Wiki 大图
+
+> 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 在大图变化时更新。
+`;
+  }
+}
 
 function parseArgs(argv) {
   const args = { project: null, pluginRoot: null, dryRun: false, title: null };
@@ -165,9 +195,18 @@ async function buildSkeleton(args) {
   }
 
   // 4 top-level knowledge index files (only if not exists — preserves user content per SYNC-7)
+  // overview.md 走 plugin 仓 `doc/template/page-overview.md` 骨架(v0.6.2+);其余 3 个走 INDEX_TEMPLATES
+  const pluginRoot = resolvePluginRoot(args);
+  const overviewTemplate = loadOverviewTemplate(pluginRoot);
   for (const [name, tpl] of Object.entries(INDEX_TEMPLATES)) {
     const fAbs = path.join(project, 'knowledge', name);
     const isNew = await writeFile(fAbs, tpl({ at, title }), dryRun, created);
+    if (!isNew) skipped.push(fAbs);
+  }
+  // overview.md 单独写:读 plugin 仓骨架
+  {
+    const fAbs = path.join(project, 'knowledge', 'overview.md');
+    const isNew = await writeFile(fAbs, overviewTemplate, dryRun, created);
     if (!isNew) skipped.push(fAbs);
   }
 
@@ -180,7 +219,8 @@ async function buildSkeleton(args) {
       topDirs: TOP_DIRS.length,
       knowledgeLeaves: KNOWLEDGE_LEAF_DIRS.length,
       rawSubdirs: RAW_SUBDIRS.length,
-      indexFiles: Object.keys(INDEX_TEMPLATES).length,
+      // ponytail: v0.6.2+ overview.md 单独从 plugin 仓模板读,不算 INDEX_TEMPLATES;+1 保留 4 件总数
+      indexFiles: Object.keys(INDEX_TEMPLATES).length + 1,
       gitkeepTotal: TOP_DIRS.length + KNOWLEDGE_LEAF_DIRS.length + RAW_SUBDIRS.length,
     },
   };
