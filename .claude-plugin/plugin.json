@@ -1,6 +1,6 @@
 {
   "name": "aeps-llm-wiki",
-  "version": "0.6.0",
+  "version": "0.6.3",
   "description": "Claude Code plugin: Karpathy LLM Wiki + Google OKF v0.2 + Obsidian local knowledge base toolchain for automotive embedded software engineers.",
   "author": {
     "name": "zhigangliu-bot"

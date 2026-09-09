@@ -24,8 +24,16 @@
 // change history:
 //   - 0.6.0: P0-#3 (issue #3) — index.md / overview.md / glossary.md 注入最小 frontmatter
 //     (type/title/updated/generated/status/tags)。旧版只有 `---` 水平线,lint R7.2 fail。
+//     ⚠ 此修复过度泛化,踩到 OKF §3.2 reserved filenames(index.md/log.md) 与 plugin 扩展
+//     reserved filenames(glossary.md/overview.md),见 §3.3 frontmatter-spec.md。
 //   - 0.6.2: 移除 overview.md 写入。overview 由 LLM 按 doc/template/page-overview.md 骨架维护,
 //     聚合脚本不再覆写(避免 LLM 大图被计数列表覆盖)。
+//   - 0.6.3 (issue #5 fix):index.md / glossary.md 停止注入 frontmatter(对齐 OKF §3.2 +
+//     frontmatter-spec.md §3.3 的 reserved-filename 约定)。改为读
+//     `doc/template/page-{index,glossary}.md` 骨架 + 变量替换 `{plugin 版本}` / `{最近更新}`。
+//     触发链:lint R7.1/R7.2 未豁免 reserved filename → ingest SKILL 步骤 19 FAIL →
+//     用户/agent 反向给 reserved file 补 frontmatter 才过 → 污染 reserved file
+//     (本次同步修 lint-stub.js 加 R7.3 检测 + reserved 豁免)。
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
@@ -148,15 +156,44 @@ function readPluginVersion() {
   return "unknown";
 }
 
+// v0.6.3: reserved filenames(index.md / glossary.md)改读 doc/template/page-{index,glossary}.md
+// 骨架 + 变量替换,不再注入 frontmatter(对齐 OKF §3.2 + frontmatter-spec.md §3.3)。
+// 候选链与 gen-page.js / build-skeleton.js 同构(--plugin-root > $CLAUDE_PLUGIN_ROOT > __dirname 上溯)。
+function resolveTemplateCandidates(name) {
+  const argv = process.argv.slice(2);
+  const i = argv.indexOf("--plugin-root");
+  const out = [];
+  if (i >= 0) out.push(resolve(argv[i + 1], "doc", "template", name));
+  if (process.env.CLAUDE_PLUGIN_ROOT) out.push(resolve(process.env.CLAUDE_PLUGIN_ROOT, "doc", "template", name));
+  out.push(resolve(__dirname, "..", "doc", "template", name));
+  return out;
+}
+
+// ponytail: 只替换两行元信息(模板 `**plugin 版本**:X.Y.Z` / `**最近更新**:ISO 8601` 两行尾部的值),
+// 模板保留默认值(开箱即用,不依赖脚本),脚本做整行尾部值替换。
+// 模板里 {数量} 形式的大括号占位符由 renderIndex/renderGlossary 循环拼实际计数(避免"所有 H2 节显示同一个数")。
+function loadTemplateAndReplaceVars(name, vars) {
+  const candidates = resolveTemplateCandidates(name);
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    let tpl = readFileSync(p, "utf8");
+    // 整行匹配,避免误伤正文里的 "plugin 版本" 字样
+    tpl = tpl.replace(/^> \*\*plugin 版本\*\*:.+$/m, `> **plugin 版本**:${vars.pluginVersion}`);
+    tpl = tpl.replace(/^> \*\*最近更新\*\*:.+$/m, `> **最近更新**:${vars.now}`);
+    return tpl;
+  }
+  throw new Error(
+    `无法定位模板 ${name};候选路径都试过:\n  - ${candidates.join("\n  - ")}\n` +
+    `请确认 plugin 仓 doc/template/ 下存在 ${name},或用 --plugin-root / $CLAUDE_PLUGIN_ROOT 显式指定。`
+  );
+}
+
 function renderIndex(rootDir, pages) {
-  const lines = [];
-  lines.push(renderAggregateFrontmatter("index", "项目 Wiki 主目录"));
-  lines.push("# 项目 Wiki 主目录");
-  lines.push("");
-  lines.push("> **自动生成**:本文件由 `scripts/aggregate-index.js` 维护。**不要手工编辑**。");
-  lines.push("");
-  lines.push("---");
-  lines.push("");
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const vars = { pluginVersion: readPluginVersion(), now };
+  // v0.6.3: 模板 header 替代 frontmatter push;模板自身已含 H1 / 提示注释 / auto-gen 段
+  const header = loadTemplateAndReplaceVars("page-index.md", vars);
+  const lines = [header];
   // Sources 按 frontmatter `resource` 路径解析的 raw/{subdir}/ 分组;子目录名去 \d+_ 前缀
   // 每条 [[wikilink|alias]] + frontmatter status + tags(直接来自 source,不做包装)
   const sources = pages.filter((p) => p.type === "source");
@@ -271,14 +308,11 @@ function renderOverview(pages) {
 
 function renderGlossary(pages) {
   // 简单词典:每页 title + aliases 作为术语,首次出现的写一份;不覆盖用户已有条目
-  const lines = [];
-  lines.push(renderAggregateFrontmatter("glossary", "项目 Wiki 术语表(glossary)"));
-  lines.push("# 项目 Wiki 术语表(glossary)");
-  lines.push("");
-  lines.push("> **自动生成**:本文件由 `scripts/aggregate-index.js` 维护;术语从各页 `title` + `aliases` 抽取,**不覆盖用户手写条目**。");
-  lines.push("");
-  lines.push("---");
-  lines.push("");
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const vars = { pluginVersion: readPluginVersion(), now };
+  // v0.6.3: 模板 header 替代 frontmatter push
+  const header = loadTemplateAndReplaceVars("page-glossary.md", vars);
+  const lines = [header];
 
   const seen = new Map();
   for (const p of pages) {

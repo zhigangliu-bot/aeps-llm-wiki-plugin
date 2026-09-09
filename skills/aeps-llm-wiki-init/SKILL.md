@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-init
 description: 初始化 aeps-llm-wiki 知识库目录结构(首次启用 / 幂等再入)
-plugin-version: 0.6.0
+plugin-version: 0.6.3
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/patch-claude-md.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-report.js*)
 ---
 

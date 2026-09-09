@@ -42,6 +42,12 @@
  *   - **不引入新依赖**:仅用 node:fs / node:path / node:process / scripts/lib/*(iso8601 复用)。
  *
  * change history:
+ *   - 0.6.3 (issue #6 fix):reserved filenames (index.md / log.md / overview.md / glossary.md)
+ *     豁免 R7.1 / R7.2(对齐 frontmatter-spec.md §3.3 plugin 扩展 reserved 约定);
+ *     新增 R7.3 (WARN):reserved filename 误含 frontmatter → 报告,不改文件。
+ *     触发链:lint R7.1/R7.2 未豁免 reserved → ingest SKILL 步骤 19 FAIL →
+ *     agent 反向给 reserved file 补 frontmatter 才过 → 污染 reserved file
+ *     (本次同步修 aggregate-index.js 不再注入 frontmatter)。
  *   - 0.5.9: 加 C21(source 页 ## 重点摘录 之前缺自由追加节 WARN);scanKnowledgePages 同步带 body
  *   - 0.5.6: P2-5 真做两条规则(tags<5 WARN + updated ISO 8601 ERROR)(批次 3)
  *   - 0.5.6: inline preflight(批次 3)
@@ -63,6 +69,16 @@ const MIN_TAGS_LENGTH = 5; // 对齐 doc/schema/frontmatter.schema.json tags min
 // (page-source.md v0.5.9 起把"自由追加节"从注释软指引升级为占位骨架 ## 阅读路线,
 //  强制 LLM 读完源文件后先问『这篇有什么独特结构』再写正文)
 const REQUIRED_BEFORE_KEY = '## 重点摘录';
+
+// v0.6.3: reserved filenames 按 frontmatter-spec.md §3.3 plugin 扩展 + OKF §3.2 不携带 frontmatter。
+// 豁免 R7.1 / R7.2(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义);
+// 新增 R7.3 (WARN) 检测 reserved file 误含 frontmatter(报告不改文件,让用户 / 聚合脚本自决)。
+const RESERVED_FILENAMES = new Set([
+  'index.md',      // OKF §3.2
+  'log.md',        // OKF §3.2
+  'overview.md',   // plugin 扩展
+  'glossary.md',   // plugin 扩展
+]);
 
 function parseFrontmatter(mdText) {
   const m = mdText.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -142,6 +158,20 @@ async function main() {
   const flatErrors = [];
 
   for (const p of pages) {
+    // v0.6.3: reserved filenames 走专属 R7.3 检查,跳过 R7.1 / R7.2(对齐 frontmatter-spec.md §3.3)
+    const basename = p.relPath.split('/').pop();
+    if (RESERVED_FILENAMES.has(basename)) {
+      if (p.fm && Object.keys(p.fm).length > 0) {
+        const templateName = basename.replace(/\.md$/, '');
+        const msg = `R7.3 reserved filename 不应携带 frontmatter(按 frontmatter-spec.md §3.3;参考 doc/template/page-${templateName}.md 模板);当前含 ${Object.keys(p.fm).length} 个字段`;
+        if (!warningsByFile[p.relPath]) warningsByFile[p.relPath] = [];
+        warningsByFile[p.relPath].push(msg);
+        flatWarnings.push(`${p.relPath}: ${msg}`);
+      }
+      // C21 在 reserved file 上天然不触发(fm.type 不是 'source'),无需额外 continue 标记
+      continue;
+    }
+
     const tags = Array.isArray(p.fm.tags) ? p.fm.tags : [];
     const updated = p.fm.updated;
 

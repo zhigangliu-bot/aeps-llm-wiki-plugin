@@ -15,6 +15,7 @@
 | 2026-09-05 | zhigangliu-bot | §4.2 `tags:` 数量约束由"最少 3 条"调整为"最少 5 条",与 `frontmatter.schema.json` 的 `minItems: 5` 及 `tag-spec.md` §8 Lint 阈值对齐(原 3 条会导致 Lint < 5 的 WARN 区间与 Schema 合规区间错位) |
 | 2026-09-05 | zhigangliu-bot | 全文档清除 `<>` 占位符(详见 §0.1 编写铁律);frontmatter 字段值改双引号字符串、`tags` 改多行 YAML list、`generated` 改多行嵌套;正文占位符改 `【...】` 形式,模板变量改 `{name}` 大括号形式 |
 | 2026-09-08 | zhigangliu-bot | 批次 4 (P3-1):§4.3.1 + §7 + §10.1 + §10.2 共 4 处 `producer/aeps-llm-wiki-plugin/<旧版本号>` 示例统一升级为 0.5.6;无字段语义变化 |
+| 2026-09-09 | zhigangliu-bot | 批次 8 (v0.6.3):§3.3 新增 plugin 扩展 reserved filenames 子节(overview.md / glossary.md);明确 4 个 reserved filenames(index/log/overview/glossary)均不携带 frontmatter;引用 `scripts/ingest/lint-stub.js` R7.3 检测 + `scripts/aggregate-index.js` v0.6.3 起读模板不注 frontmatter 行为。修复 issue #5/#6。 |
 
 ### 0.1 编写铁律(YAML / Obsidian Properties 兼容性)
 
@@ -132,6 +133,35 @@ bundle 是一个 markdown 文件树,目录组织由生产者按知识内容自�
 | `index.md` | 目录索引,见 §6.1 |
 | `log.md` | 变更日志,见 §6.2 |
 
+### 3.3 plugin 扩展保留文件名(v0.6.3 起)
+
+plugin 在 OKF §3.2 基础上扩展 2 个保留文件名,**同样不得携带 frontmatter**:
+
+| 文件名 | 用途 | 模板 |
+|--------|------|------|
+| `overview.md` | 项目大图(LLM 在 ingest 大图变化时维护) | `doc/template/page-overview.md` |
+| `glossary.md` | 项目术语表(`aggregate-index.js` 增量维护) | `doc/template/page-glossary.md` |
+
+plugin 的 4 个 reserved filenames 合计:
+
+- `index.md`(OKF §3.2)
+- `log.md`(OKF §3.2)
+- `overview.md`(plugin 扩展)
+- `glossary.md`(plugin 扩展)
+
+**共同约束**(OKF §6.1 + 模板注释):4 个文件均**不携带 frontmatter**。结构化正文(标题 / 分组 / 链接列表)是其唯一组织方式。
+
+**lint 联动**(v0.6.3 起,`scripts/ingest/lint-stub.js`):
+
+- reserved filename 跳过 R7.1(tags<5)/ R7.2(updated 非 ISO 8601)(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
+- 新增 **R7.3(WARN)**:reserved filename 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**
+
+**plugin 脚本行为**(v0.6.3 起):
+
+- `scripts/aggregate-index.js` 读 `doc/template/page-{index,glossary}.md` 骨架生成 index.md / glossary.md,**不再注入 frontmatter**(修复 issue #5)
+- `scripts/ingest/append-log.js` 维护 log.md,无 frontmatter
+- overview.md 自 v0.6.2 起由 LLM 在 ingest 大图变化时维护,无 frontmatter
+
 ### 3.3 bundle 分布形态
 
 bundle 可按以下任意方式分发:
@@ -242,7 +272,7 @@ OKF 标准下 `type` 取值**开放**(§4.1),消费方 MUST NOT reject 未知 ty
 
 ```yaml
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
+  by: "producer/aeps-llm-wiki-plugin/0.6.3"
   at: "2026-09-05T10:30:00Z"
 ```
 
@@ -590,7 +620,7 @@ description: One row per completed customer order across all channels.
 resource: https://example.com/data/orders
 tags: [sales, orders, revenue]
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
+  by: "producer/aeps-llm-wiki-plugin/0.6.3"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"
@@ -610,7 +640,7 @@ description: Headline income-statement figures for a fiscal year.
 tags: [finance, income-statement]
 status: stable
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.0"
+  by: "producer/aeps-llm-wiki-plugin/0.6.3"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"

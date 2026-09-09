@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
-plugin-version: 0.6.0
+plugin-version: 0.6.3
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
@@ -24,8 +24,11 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 - 2026-09-09 / 批次 6 (issue #1/#2/#3/#4):**P0/P1 bug 修复** ——
   - **#1 init-batch.js 保留 LLM 拍板字段**(slug/target_subdir/route/converter/native_text/converted_path/...):旧版 map 重写 file 静默丢为 null,导致下游 move-to-raw fail "target_subdir 未指定"。改 spread LLM 输入 + 脚本必需默认值覆盖。**步骤 4 命令行确认**:LLM 步骤 3 拍板的 `target_subdir` / `slug` 必填;`--files` / `--files-file` JSON 内 LLM 决策字段会透传到 batch.files[]。
   - **#2 gen-page.js 加 `--patch-frontmatter-only` flag**:旧版 `--out` 重跑会覆盖 LLM 已填正文为占位符。**步骤 7 改为**:写完正文后**不要**重跑 `gen-page.js --out`,改用 `gen-page.js --out foo.md --patch-frontmatter-only --summary "..." --title "..."` 只 patch frontmatter,正文原样保留。目标文件不存在 → fallback 全量生成(WARN)。
-  - **#3 aggregate-index.js 聚合页注入最小 frontmatter**:index.md / overview.md / glossary.md 加 `type` / `title` / `updated` (ISO 8601) / `generated` / `status: stable` / `tags` 5 项;旧版只有 `---` 水平线,lint R7.2 FAIL。**步骤 14-16 行为不变**(脚本输出新格式,聚合内容照旧)。
+  - **#3 aggregate-index.js 聚合页注入最小 frontmatter**:index.md / overview.md / glossary.md 加 `type` / `title` / `updated` (ISO 8601) / `generated` / `status: stable` / `tags` 5 项;旧版只有 `---` 水平线,lint R7.2 FAIL。**步骤 14-16 行为不变**(脚本输出新格式,聚合内容照旧)。⚠ 后续批次 8(#5)修复:此修复过度泛化,踩到 OKF §3.2 reserved filenames + plugin 扩展 reserved filenames(index/log/overview/glossary 均不应携带 frontmatter)。
   - **#4 append-log.js wikilink 优先用 slug**:旧版用 inbox 原文件名 basename,slug 重命名后 wikilink 指向不存在文件。改 `resolveDisplaySlug(file) → file.slug || path.basename(path, ext)`。**步骤 17 命令行确认**:LLM 步骤 3 必填 `slug`(已经必填,本次只改显示逻辑)。
+- 2026-09-09 / 批次 8 (v0.6.3):**reserved filenames frontmatter 误注入修复**(issue #5/#6)——
+  - **#5 aggregate-index.js 不再给 index.md / glossary.md 注入 frontmatter**(对齐 OKF §3.2 + `frontmatter-spec.md §3.3`);改为读 `doc/template/page-{index,glossary}.md` 骨架 + 整行替换 `**plugin 版本**` / `**最近更新**` 两个元信息行。`renderAggregateFrontmatter()` 函数保留(供未来扩展)。`overview.md` 自 v0.6.2 起已由 LLM 维护,`log.md` 由 `append-log.js` 维护,均不在 `aggregate-index.js` 写盘范围。**步骤 14-15 行为不变**(脚本输出无 frontmatter 版本,SKILL.md 解析 JSON 不受影响)。
+  - **#6 lint-stub.js 新增 R7.3(reserved filename 误含 frontmatter WARN)**;R7.1(tags<5)/ R7.2(updated 非 ISO 8601)在 reserved filenames 上不触发(对齐 §3.3)。reserved filenames = `index.md` / `log.md` / `overview.md` / `glossary.md`。触发链:#3 给 reserved 注入 frontmatter → #4 不动它 → #5 修脚本 → #6 修 lint 配套,避免 SKILL 步骤 19 反向操作。**步骤 19 规则清单扩展**。
 
 ## 脚本路径约定(批次 1,2026-09-08)
 
@@ -327,7 +330,7 @@ rm temp/ingest-batch-{ts}.json
 
 调 lint skill(M2.4 实现)校验 C17(模板一致性)/ C18(原生+副本矛盾)/ C19(降级日志);FAIL 必须修复后才算 ingest 完成。
 
-当前为 M2.4 预留 stub(v0.5.6 批次 3 P2-5 起真做两条最小规则):
+当前为 M2.4 预留 stub(v0.5.6 批次 3 P2-5 起真做两条最小规则 + v0.6.3 批次 8 起新增 R7.3):
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --project <用户工程根> --json
@@ -337,9 +340,18 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 
 - `linted` 字段:扫到的 knowledge/ 页数
 - `fail`:规则 R7.2(frontmatter `updated` 非 ISO 8601)失败数;`>0` → exit 2(FAIL 必须修复后才算 ingest 完成)
-- `warn`:规则 R7.1(frontmatter `tags` < 5 条)命中数;`>0` → WARN(建议修复)
+- `warn`:规则 R7.1(frontmatter `tags` < 5 条)+ **R7.3(reserved filename 误含 frontmatter)** + C21 命中数;`>0` → WARN(建议修复)
 - `warnings_by_file` / `errors_by_file`:聚合到文件级别,SKILL.md 可按路径展示
 - M2.4 真实实现替换 stub 内容,字段含义不变。
+
+**v0.6.3 起 reserved filenames 豁免**(对齐 `doc/schema/frontmatter-spec.md §3.3` plugin 扩展 reserved + OKF §3.2):
+
+- reserved filenames:**`index.md` / `log.md` / `overview.md` / `glossary.md`**
+- **不参与** R7.1(tags < 5)/ R7.2(updated 非 ISO 8601)(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
+- 新增 **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
+- C21(只对 `type: source` 触发)对 reserved file 天然不触发(其 `fm.type` 不为 `'source'`),无需额外豁免
+
+触发链背景:issue #3 修复(`aggregate-index.js` 注入 frontmatter)未考虑 reserved filenames,导致 R7.2 在 reserved file 上 FAIL → SKILL 步骤 19 不得不反向补 frontmatter 才过 lint。issue #5 修脚本不注 + issue #6 修 lint 豁免,链路打通。
 
 ## 拍板门总结
 
