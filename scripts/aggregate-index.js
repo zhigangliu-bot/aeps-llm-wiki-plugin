@@ -19,6 +19,10 @@
 // --json 显式开启;不带 --json 时 stdout 仍是人类可读 "scanned N pages from ..."
 //
 // exit: 0 OK / 1 参数错 / 2 缺依赖
+//
+// change history:
+//   - 0.6.0: P0-#3 (issue #3) — index.md / overview.md / glossary.md 注入最小 frontmatter
+//     (type/title/updated/generated/status/tags)。旧版只有 `---` 水平线,lint R7.2 fail。
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
@@ -98,8 +102,52 @@ function loadAll(rootDir) {
   return out;
 }
 
+// v0.6.0 (issue #3 fix):聚合页(index/overview/glossary)缺 frontmatter → OKF §4 必填。
+// 复用同一份最小 frontmatter 模板:type / title / updated / generated / status / tags
+function renderAggregateFrontmatter(type, title) {
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  return [
+    "---",
+    `type: ${type}`,
+    `title: "${title}"`,
+    `updated: "${now}"`,
+    `generated:`,
+    `  by: "producer/aeps-llm-wiki-plugin/${readPluginVersion()}"`,
+    `  at: "${now}"`,
+    `status: stable`,
+    `tags:`,
+    `  - docform/${type}`,
+    `  - domain/knowledge-management`,
+    `  - layer/${type}`,
+    `  - maturity/stable`,
+    `  - phase/maintained`,
+    "---",
+    "",
+  ].join("\n");
+}
+
+// readPluginVersion 与 gen-page.js 同源(plugin 本体 .claude-plugin/plugin.json),
+// 但 aggregate-index.js 不读 plugin.json 时容易 fallback "0.0.0";这里独立内联解析。
+function readPluginVersion() {
+  const argv = process.argv.slice(2);
+  const i = argv.indexOf("--plugin-root");
+  const candidates = [];
+  if (i >= 0) candidates.push(resolve(argv[i + 1], ".claude-plugin", "plugin.json"));
+  if (process.env.CLAUDE_PLUGIN_ROOT) candidates.push(resolve(process.env.CLAUDE_PLUGIN_ROOT, ".claude-plugin", "plugin.json"));
+  candidates.push(resolve(__dirname, "..", ".claude-plugin", "plugin.json"));
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    try {
+      const j = JSON.parse(readFileSync(p, "utf8"));
+      if (j.version) return j.version;
+    } catch { /* fallthrough */ }
+  }
+  return "unknown";
+}
+
 function renderIndex(rootDir, pages) {
   const lines = [];
+  lines.push(renderAggregateFrontmatter("index", "项目 Wiki 主目录"));
   lines.push("# 项目 Wiki 主目录");
   lines.push("");
   lines.push("> **自动生成**:本文件由 `scripts/aggregate-index.js` 维护。**不要手工编辑**。");
@@ -207,6 +255,7 @@ function renderSourceLine(p) {
 
 function renderOverview(pages) {
   const lines = [];
+  lines.push(renderAggregateFrontmatter("overview", "项目 Wiki 大图(overview)"));
   lines.push("# 项目 Wiki 大图(overview)");
   lines.push("");
   lines.push("> **自动生成**:本文件由 `scripts/aggregate-index.js` 维护。");
@@ -229,6 +278,7 @@ function renderOverview(pages) {
 function renderGlossary(pages) {
   // 简单词典:每页 title + aliases 作为术语,首次出现的写一份;不覆盖用户已有条目
   const lines = [];
+  lines.push(renderAggregateFrontmatter("glossary", "项目 Wiki 术语表(glossary)"));
   lines.push("# 项目 Wiki 术语表(glossary)");
   lines.push("");
   lines.push("> **自动生成**:本文件由 `scripts/aggregate-index.js` 维护;术语从各页 `title` + `aliases` 抽取,**不覆盖用户手写条目**。");

@@ -25,6 +25,9 @@
  * change history:
  *   - 0.5.6: P1-3 --files-file 互斥校验(批次 3)
  *   - 0.5.6: inline preflight(批次 3)
+ *   - 0.6.0: P0-#1 (issue #1) — 保留 LLM 拍板字段(slug/target_subdir/route/...):
+ *     旧版 map 重写 file 会把所有 LLM 决策字段静默丢为 null,导致下游 move-to-raw
+ *     fail with "target_subdir 未指定"。改为 spread LLM 输入 + 脚本必需默认值覆盖。
  */
 
 import { promises as fs } from 'node:fs';
@@ -106,25 +109,21 @@ async function main() {
   const batchId = `ingest-batch-${ts}`;
   const batchFile = path.join(tempDir, `${batchId}.json`);
 
-  // 初始状态总线:每个文件预填入 path/size/ext/mtime,留空字段由后续脚本填
+  // 初始状态总线:先吃 LLM 输入的所有字段(保留拍板决策 slug/target_subdir/route/...),
+  // 再补脚本必需的默认值(moved/status 等不能被 LLM 覆盖)。v0.6.0 起 issue #1 fix:
+  // 旧版用 whitelist 重写 file,会把 LLM 拍板的 slug/target_subdir 静默丢为 null。
   const startedAt = nowIso();
   const files = inputFiles.map((f) => ({
-    path: f.path,
+    ...f, // 透传 LLM 决策字段(slug / target_subdir / route / converter / native_text / converted_path / 等)
+    path: f.path, // 必填,覆盖可能的 null
     size: f.size || 0,
     ext: f.ext,
     mtime: f.mtime || null,
-    // 由 classify.js 填
-    route: null,
-    converter: null,
-    native_text: null,
-    // 由 SKILL.md 步骤 3 填
-    target_subdir: null,
-    // 由 move-to-raw.js 填
-    target_raw_path: null,
-    converted_path: null,
-    converted_emitted: false,
+    // 脚本必需默认值(LLM 误传也覆盖)
     moved: false,
     status: 'pending',
+    converted_emitted: f.converted_emitted ?? false,
+    target_subdir: f.target_subdir ?? null, // SKILL.md 步骤 3 LLM 拍板
   }));
 
   const batch = {

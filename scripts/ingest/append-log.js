@@ -28,6 +28,8 @@
  * change history:
  *   - 0.5.6: P1-4 entries 数组(批次 3)
  *   - 0.5.6: inline preflight(批次 3)
+ *   - 0.6.0: P1-#4 (issue #4) — wikilink 优先用 file.slug 而非 path basename:
+ *     旧版用 inbox 原文件名 basename → slug 重命名后 wikilink 指向不存在文件
  */
 
 import { promises as fs } from 'node:fs';
@@ -152,20 +154,45 @@ function renderLogSections(sections) {
 }
 
 /**
+ * 解析 file 的「显示名」:优先用 file.slug,否则 fallback 到 path basename 去扩展名
+ * v0.6.0 (issue #4 fix):旧版用 path basename,slug 重命名后 wikilink 指向不存在文件
+ */
+function resolveDisplaySlug(f) {
+  if (f.slug) return f.slug;
+  const ext = path.extname(f.path);
+  return path.basename(f.path, ext);
+}
+
+/**
+ * 解析 file 的「目标 raw 文件名」:优先用 file.slug(扩展名保留),否则 fallback target_raw_path / path basename
+ * 用于 log.md **Ingest** 行的 `→ raw/<subdir>/<name>` 段
+ */
+function resolveTargetFileName(f) {
+  if (f.slug) {
+    const ext = path.extname(f.path);
+    return ext ? `${f.slug}${ext}` : f.slug;
+  }
+  if (f.target_raw_path) return path.basename(f.target_raw_path);
+  return path.basename(f.path);
+}
+
+/**
  * 构造本次 ingest 的日志条目
  * 形如:
- *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo.pdf (+ .converted.md);新建 [[foo]] [[bar]]
+ *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 [[foo-slug]]
  */
 function buildEntries(files) {
   const lines = [];
   for (const f of files) {
-    const fileName = path.basename(f.path);
+    const inboxName = path.basename(f.path); // inbox 来源保留原文件名
+    const slug = resolveDisplaySlug(f);
+    const targetName = resolveTargetFileName(f);
     const sub = f.target_subdir || '?';
-    const target = `raw/${sub}/${fileName}`;
-    let entry = `**Ingest**: inbox/${fileName} → ${target}`;
+    const target = `raw/${sub}/${targetName}`;
+    let entry = `**Ingest**: inbox/${inboxName} → ${target}`;
     if (f.converted_path) entry += ` (+ .converted.md)`;
     entry += ';新建 ';
-    entry += `[[${path.basename(fileName, path.extname(fileName))}]]`;
+    entry += `[[${slug}]]`;
     lines.push(entry);
   }
   return lines;
@@ -190,10 +217,10 @@ function buildEntriesPreview(files, sectionsOrFlag, today) {
   }
   const preview = [];
   for (const f of files) {
-    const fileName = path.basename(f.path);
+    const slug = resolveDisplaySlug(f);
+    const targetName = resolveTargetFileName(f);
     const sub = f.target_subdir || '?';
-    const target = `raw/${sub}/${fileName}`;
-    const slug = path.basename(fileName, path.extname(fileName));
+    const target = `raw/${sub}/${targetName}`;
     let summary;
     let action;
     if (f.dedupe_key && f.skipped_dedupe) {

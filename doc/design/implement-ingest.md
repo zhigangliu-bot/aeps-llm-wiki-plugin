@@ -1,7 +1,7 @@
 # aeps-llm-wiki-plugin — implement-ingest (M2.2)
 
-> **状态**:frozen(v0.1.0)
-> **冻结日期**:2026-09-07
+> **状态**:frozen(v0.1.0,v0.1.4 起解冻同步 4 bug 修复,见 Change History)
+> **冻结日期**:2026-09-07(v0.1.4 解冻日:2026-09-09)
 > **作者**:zhigang.liu(由 Claude Code 起草)
 > **上游契约**:`prd.md v0.4.1`(已冻结)+ `design.md v0.1.1`(已冻结)+ `schema.md v0.5.5`(工作流入口)+ `frontmatter-spec.md`(字段权威)+ `tag-spec.md v1.0`(tag 字典)
 > **范围**:仅 `aeps-llm-wiki-ingest` skill 实现细节;init / query / lint / synthesize 各有独立 `implement-{skill}.md`,**本文件不交叉污染**
@@ -17,6 +17,7 @@
 | v0.1.1 | 2026-09-07 | M2.2 落地:7 个 scripts/ingest/* 脚本 + lint-stub 占位 + 8 个测试文件(40 → 43 用例,均 pass);build-related-pages.js 加 ajv 校验 + 删 TYPE_DIRS 死代码;classify.js 加 `--route <2\|3>`;测试 `os.tmpdir()` → 项目 `temp/`;`scripts/ingest/test/fixtures/` 创目录 + sample-source.md/sample-note.txt;同步升 plugin 版本 0.5.5 → 0.5.6(plugin.json + schema.md 顶部 + schema.md Change History) | zhigang.liu(Claude Code 实施 + 复核) |
 | v0.1.2 | 2026-09-08 | 批次 4 (P3 文档与版本一致):(1) §6.1 由"风险表"扩展为"**失败语义权威源**"(G3 / G6 / G10 三规则) + 风险表(原 6.1 → 6.2) + 回滚点(原 6.2 → 6.3)重新编号;SKILL.md 改为引用本表。(2) §5.1 plugin 版本号描述 0.5.5 → 0.5.6。**注**:本版本号描述是文档自身的版本号;plugin 主版本号由 `.claude-plugin/plugin.json` 锁定,本批次不修改 plugin.json(由父任务在所有批次完成后统一发版到 0.6.0)。 | zhigang.liu(Claude Code 实施 + 复核) |
 | v0.1.3 | 2026-09-08 | 批次 2 (P1 易修 + ajv 噪音):(1) §2 反链语义由"每次 ingest 完全重建"改为"**追加 + 保留**(v0.5.6 起)"。(2) ajv date-time format WARN 降级:doc/schema/frontmatter.schema.json 把 `format: "date-time"` 替换为等价 pattern,零新增 npm 依赖。**注**:本批次为批次 2 P1 易修内容,R3 是 breaking change(SKILL.md 步骤 12 已显式说明)。 | zhigang.liu(Claude Code 实施 + 复核) |
+| v0.1.4 | 2026-09-09 | **解冻** 批次 6 (issue #1/#2/#3/#4 修复):用户 GitHub issue 报告的 4 个 P0/P1 bug — `(1)` `init-batch.js` 保留 LLM 拍板字段(slug/target_subdir/route/...):旧版 map 重写 file 静默丢为 null 导致下游 move-to-raw fail `(2)` `gen-page.js` 加 `--patch-frontmatter-only` flag:只 patch frontmatter 不动正文,解决 SKILL.md 步骤 7 "重跑 --out 覆盖正文" 痛点 `(3)` `aggregate-index.js` 注入最小 frontmatter(type/title/updated/generated/status/tags)到 index/overview/glossary.md,解决 lint R7.2 fail `(4)` `append-log.js` wikilink 优先用 file.slug 而非 inbox 原文件名 basename。**解冻范围**:仅 §1.1 契约表 4 脚本行 + §1.3 复用表 gen-page 条款;§0/2/3/4/5/6 不动。**配套**:SKILL.md Change History 批次 6 + 3 个新测试 (gen-page-patch-fm / aggregate-index-frontmatter / append-log-slug) + 1 个扩测试 (init-batch 保留字段) + fixture 更新 (`## YYYY-MM-DD` → `## [YYYY-MM-DD]`,对齐 v0.5.6 起约定)。**plugin 主版本号**:plugin.json 当前已是 0.6.0(本批次前 issue 报告时已升级),本次不需动作。 | zhigang.liu(Claude Code 实施 + 复核) |
 
 ---
 
@@ -87,10 +88,10 @@ doc/template/page-{source,entity-person,concept-theory,analysis,comparison,synth
 | `scripts/ingest/scan-inbox.js` | `--inbox <dir>` | 递归扫 `inbox/`,过滤 `.gitkeep` / `.DS_Store` / `README.md` / 隐藏文件;返回 JSON `{ files: [{path, size, ext, mtime}], count }` | stdout JSON,exit 0 | 3 fixture:空目录 / 含 1 个 md / 含 1 个 md + 1 个 pdf + 隐藏文件 |
 | `scripts/ingest/classify.js` | `--file <path> [--batch <json>]` | 按扩展名 → 5 路径分流表;返回 JSON `{ ext, path, route: 1\|2\|3\|4, converter: null\|claude-native\|anydoc\|docling\|paddleocr, native_text: bool, converted_path: null\|template }`。路径 2 与路径 3 区分需要 SKILL.md 探测 LLM 原生能力,默认建议 `route: 2` + `converter: claude-native`(若 SKILL.md 探测失败 → SKILL.md 走拍板门降级路径 3);路径 4 拍板门 PaddleOCR 未装 → FAIL 不降级 Python(G6) | stdout JSON,exit 0 | 5 fixture:每路径一个 |
 | `scripts/ingest/convert-to-md.js` | `--file <path> --emit-to <dir>` | **统一入口**,按 `classify.js` 结果派发:`.pdf` → `anydoc/anydoc_pdf_to_md.js`;`.pptx/.docx/.xlsx/.html/.htm` → `anydoc/docling_to_md.py`(docling);`.png/.jpg/.jpeg/.bmp/.tiff` → `ocr/ocr_to_md.py`(PaddleOCR)。**纯文本(.md/.txt/...)不调本脚本**(SKILL.md 直接读)。**失败抛 non-zero exit**(原文件保留 inbox,符合 PRD §4.2 流程表步骤 2 FAIL 语义) | 写文件:`<dir>/<basename>.<ext>.converted.md` + stdout OK / FAIL | 4 fixture:每路径成功 + PDF 失败(扫描件) |
-| `scripts/ingest/init-batch.js` | `--project <dir> --files <json> --emit-dir <dir>` | 创建 `temp/ingest-batch-{ISO-timestamp}.json` 工作文件,记录本次批处理所有文件状态:{files: [{path, route, converter, native_text, converted_path, target_subdir, target_raw_path, status}], started_at};后续 4 个脚本(`move-to-raw` / `build-related-pages` / `append-log` / 后续 lint)读这个文件共享状态 | 写 `temp/ingest-batch-{ts}.json`,stdout JSON | 1 fixture:跑完返回 batch id |
+| `scripts/ingest/init-batch.js` | `--project <dir> --files <json> --emit-dir <dir>` | 创建 `temp/ingest-batch-{ISO-timestamp}.json` 工作文件,记录本次批处理所有文件状态。**v0.6.0 起(v0.1.4 批次 6,issue #1 fix)**:`files[]` **保留 LLM 拍板字段**(slug / target_subdir / route / converter / native_text / converted_path / converted_emitted / 等),旧版 map 重写会把这些静默丢为 null 导致下游 move-to-raw fail。透传策略:`{ ...LLM输入, path, size, ext, mtime, moved:false, status:'pending', converted_emitted, target_subdir }`(`moved`/`status` 强制覆盖 LLM 误传,其他透传)。后续 4 个脚本(`move-to-raw` / `build-related-pages` / `append-log` / 后续 lint)读这个文件共享状态 | 写 `temp/ingest-batch-{ts}.json`,stdout JSON | 3 fixture:基础 + 保留 LLM 拍板字段 + 脚本必需字段覆盖 LLM 误传 |
 | `scripts/ingest/move-to-raw.js` | `--project <dir> --batch <json> [--apply]` | **替换 PRD §4.2 步骤 4 提到的 safe-mv.py**。逐文件:① raw 子目录拍板门(由 SKILL.md 传入 `target_subdir`);② raw/{subdir}/{file} 已存在同名 → 强制拍板门(`[y]` 覆盖 → 先备份 `temp/raw_backup_{hash}/` + `os.replace()` 原子替换 / `[n]` 跳过 / `[d]` 仅删旧副本);③ 同时迁原文件 + `.converted.md`(若有);④ 删除 inbox 原文件;⑤ 不重转(PRD §7.1)。dry-run 默认输出 diff;`--apply` 才写盘 | stdout JSON `{moved: [...], skipped: [...], conflicts: [...], backed_up: [...]}` | 4 fixture:正常迁 / raw 已存在同名 / 仅删旧副本 / dry-run |
 | `scripts/ingest/build-related-pages.js` | `--project <dir> --batch <json>` | **双向反链生成**。读 `batch.json` 的 `files[]` + 扫 `knowledge/sources/<slug>.md` frontmatter + 扫 `knowledge/entities/**` + `knowledge/concepts/**` frontmatter 的 `## 来源资料` 节。对每对(source ↔ entity/concept):① source 页 → 写 `## 相关页面(Related Pages)` 区块(按 Entities / Concepts 分组 wikilink;某组空则省子标题,全空则省整节);② entity/concept 页 → 反向追加 `## 来源资料` 节(按 source title 排序 wikilink;空则省整节)。**每次 ingest 完全重建**,不保留人工条目 | 写文件:`knowledge/sources/*.md` + `knowledge/{entities,concepts}/**/*.md` | 3 fixture:1 source → 2 entity/concept / 多 source 共享同一 entity / 空 source(无抽取) |
-| `scripts/ingest/append-log.js` | `--project <dir> --batch <json>` | 追加 `**Ingest**: inbox/<file> → raw/<subdir>/<file> (+ converted.md);新建 <list>` 到 `knowledge/log.md` 对应 ISO 8601 日期 H2 下。最新在前(Q5);不动已有 Init/Creation/LintFix 等条目 | 写文件:`knowledge/log.md` | 2 fixture:首次追加 / 已有当天 H2 复用 |
+| `scripts/ingest/append-log.js` | `--project <dir> --batch <json>` | 追加 `**Ingest**: inbox/<file> → raw/<subdir>/<file> (+ converted.md);新建 <list>` 到 `knowledge/log.md` 对应 ISO 8601 日期 H2 下。最新在前(Q5);不动已有 Init/Creation/LintFix 等条目。**v0.6.0 起(v0.1.4 批次 6,issue #4 fix)**:`**Ingest**` 行的 wikilink 和 raw 路径**优先用 `batch.files[].slug`**(wikilink = `[[slug]]`,raw 路径 = `{slug}.{原扩展名}`),fallback 到 inbox 原文件名 basename。inbox 来源路径保留原文件名(人类追溯用)。 | 写文件:`knowledge/log.md` | 4 fixture:首次追加 / 已有当天 H2 复用 / 不同日期新 H2 插入最前 / dry-run / slug 优先 |
 
 > **显式禁**(不写这些脚本):
 > - ❌ `scripts/ingest/infer-intent.js`(LLM 决策,SKILL.md 管)
@@ -113,8 +114,8 @@ doc/template/page-{source,entity-person,concept-theory,analysis,comparison,synth
 
 | 已有脚本 | 是否复用 | 如何复用 |
 |---|---|---|
-| `scripts/gen-page.js` | ✅ 复用 | SKILL.md 调 `gen-page.js --type source --slug ... --ext ... --converter ... --subdir ... --source-file ...` 生成 source 页骨架;同理 entity/concept 子页。**不修改** gen-page.js 本体 |
-| `scripts/aggregate-index.js` | ✅ 复用 | SKILL.md 步骤 16-17 调 `aggregate-index.js` 重建 index.md / glossary.md。**不修改** aggregate-index.js 本体(已对齐 PRD §4.2) |
+| `scripts/gen-page.js` | ✅ 复用 | SKILL.md 调 `gen-page.js --type source --slug ... --ext ... --converter ... --subdir ... --source-file ...` 生成 source 页骨架;同理 entity/concept 子页。**v0.6.0 起(v0.1.4 批次 6,issue #2 fix)** 加 `--patch-frontmatter-only` flag:SKILL.md 步骤 7 "写完正文后回填 --summary" 改用此 flag,只 patch frontmatter 不动正文;目标文件不存在 → fallback 全量生成(WARN)。 |
+| `scripts/aggregate-index.js` | ✅ 复用 | SKILL.md 步骤 16-17 调 `aggregate-index.js` 重建 index.md / glossary.md / overview.md。**v0.6.0 起(v0.1.4 批次 6,issue #3 fix)** 三页注入最小 frontmatter(`type` ∈ {index, overview, glossary}, 已对齐 schema enum / `title` / `updated` ISO 8601 / `generated` / `status: stable` / `tags` 5 项),解决 lint R7.2 fail。 |
 | `scripts/anydoc/anydoc_pdf_to_md.js` | ✅ 复用 | `convert-to-md.js` 内部 spawn 它处理 `.pdf` |
 | `scripts/anydoc/docling_to_md.py` | ✅ 复用 | `convert-to-md.js` 内部 spawn 它处理 `.docx/.pptx/.xlsx/.html/.htm` |
 | `scripts/ocr/ocr_to_md.py` | ✅ 复用 | `convert-to-md.js` 内部 spawn 它处理 `.png/.jpg/...` |

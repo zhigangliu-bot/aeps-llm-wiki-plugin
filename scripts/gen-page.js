@@ -20,13 +20,18 @@
 //           / analysis / comparison / synthesis
 //
 // exit: 0 OK / 1 参数错 / 2 模板缺失 / 3 写盘失败
+//
+// change history:
+//   - 0.6.0: P0-#2 (issue #2) — 加 --patch-frontmatter-only flag:只 patch frontmatter 不动正文。
+//     旧版 --out 重跑会覆盖 LLM 已填正文为占位符。新用法 SKILL.md 步骤 7。
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireDeps } from "./lib/preflight.js";
-// gen-page.js 不依赖 npm 包(纯 node:fs);inline preflight 用空对象探活
-await requireDeps({});
+// gen-page.js v0.6.0 (issue #2 fix): --patch-frontmatter-only 需要 js-yaml 读写已有 frontmatter
+await requireDeps({ "js-yaml": "js-yaml" });
+const yaml = (await import("js-yaml")).default;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -349,6 +354,49 @@ function main() {
     ? resolve(args.out)
     : resolve(projectRoot, "knowledge", TYPE_TO_DIR[type], `${args.slug}.md`);
   mkdirSync(dirname(outPath), { recursive: true });
+
+  // v0.6.0 (issue #2 fix): --patch-frontmatter-only 模式:只 patch frontmatter,不动正文
+  // 用法:`gen-page.js --out foo.md --patch-frontmatter-only --summary "..." --title "..."`
+  //   - 目标文件存在 → 解析现有 YAML,合并传入字段(只覆盖传入的 key),正文保持不变
+  //   - 目标文件不存在 → fallback 全量生成(打印 WARN)
+  //   - 不传 --patch-frontmatter-only → 行为不变(全量写,SKILL.md 步骤 6 用)
+  if (args.patch_frontmatter_only) {
+    if (!existsSync(outPath)) {
+      console.error(`WARN: --patch-frontmatter-only 目标文件不存在: ${outPath};fallback 全量生成`);
+    } else {
+      const existing = readFileSync(outPath, "utf8");
+      const m = existing.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+      if (!m) {
+        console.error(`ERROR: --patch-frontmatter-only 目标文件无 frontmatter: ${outPath}`);
+        process.exit(3);
+      }
+      let existingFm = {};
+      try { existingFm = yaml.load(m[1]) || {}; } catch (e) {
+        console.error(`ERROR: 解析现有 frontmatter 失败: ${e.message}`);
+        process.exit(3);
+      }
+      // 把现有 frontmatter 当成 args 来源 + 新 args 覆盖;再 renderFrontmatter 一次得到完整新 fm
+      // 但 renderFrontmatter 用 args.* 取值;为不破坏,构造 merged args
+      // normalize: tags / sources_used / aliases 等可能 array(YAML 解析)也可能 string(CLI 传)
+      //   → renderFrontmatter 期望 string,.split(',')
+      const mergedArgs = { ...existingFm, ...args };
+      for (const k of ['tags', 'sources_used', 'aliases']) {
+        if (Array.isArray(mergedArgs[k])) mergedArgs[k] = mergedArgs[k].join(',');
+      }
+      const newFm = renderFrontmatter(type, mergedArgs);
+      const existingBody = m[2];
+      const patched = newFm + "\n" + existingBody;
+      try {
+        writeFileSync(outPath, patched, "utf8");
+      } catch (e) {
+        console.error(`ERROR: write failed: ${outPath}: ${e.message}`);
+        process.exit(3);
+      }
+      console.log(`OK: ${type} → ${outPath} (patched frontmatter only, ${patched.length} bytes)`);
+      return;
+    }
+  }
+
   try {
     writeFileSync(outPath, out, "utf8");
   } catch (e) {

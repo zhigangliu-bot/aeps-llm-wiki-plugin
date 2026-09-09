@@ -20,6 +20,11 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 - 2026-09-08 / 批次 4 / P3-2:步骤 0.5 措辞统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装"。
 - 2026-09-08 / 批次 4 / P3-3:"失败语义"段从独立表格改为引用 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处) 权威源(G3 / G6 / G10 三规则)。
 - 2026-09-08 / 批次 5 (P4-1):**breaking** —— 路径布局表更新(`schema/` → `doc/schema/`,`templates/` → `doc/templates/`);`build-related-pages.js --schema-path` 候选从 3 项收敛为 2 项(用户工程 `doc/schema/` > plugin 自检);`gen-page.js --project` 模板查找改为 `<project>/doc/templates/`,取消 cwd 兜底。
+- 2026-09-09 / 批次 6 (issue #1/#2/#3/#4):**P0/P1 bug 修复** ——
+  - **#1 init-batch.js 保留 LLM 拍板字段**(slug/target_subdir/route/converter/native_text/converted_path/...):旧版 map 重写 file 静默丢为 null,导致下游 move-to-raw fail "target_subdir 未指定"。改 spread LLM 输入 + 脚本必需默认值覆盖。**步骤 4 命令行确认**:LLM 步骤 3 拍板的 `target_subdir` / `slug` 必填;`--files` / `--files-file` JSON 内 LLM 决策字段会透传到 batch.files[]。
+  - **#2 gen-page.js 加 `--patch-frontmatter-only` flag**:旧版 `--out` 重跑会覆盖 LLM 已填正文为占位符。**步骤 7 改为**:写完正文后**不要**重跑 `gen-page.js --out`,改用 `gen-page.js --out foo.md --patch-frontmatter-only --summary "..." --title "..."` 只 patch frontmatter,正文原样保留。目标文件不存在 → fallback 全量生成(WARN)。
+  - **#3 aggregate-index.js 聚合页注入最小 frontmatter**:index.md / overview.md / glossary.md 加 `type` / `title` / `updated` (ISO 8601) / `generated` / `status: stable` / `tags` 5 项;旧版只有 `---` 水平线,lint R7.2 FAIL。**步骤 14-16 行为不变**(脚本输出新格式,聚合内容照旧)。
+  - **#4 append-log.js wikilink 优先用 slug**:旧版用 inbox 原文件名 basename,slug 重命名后 wikilink 指向不存在文件。改 `resolveDisplaySlug(file) → file.slug || path.basename(path, ext)`。**步骤 17 命令行确认**:LLM 步骤 3 必填 `slug`(已经必填,本次只改显示逻辑)。
 
 ## 脚本路径约定(批次 1,2026-09-08)
 
@@ -162,6 +167,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 
 > `--files` 与 `--files-file` 互斥(二选一,都传/都不传 → ERROR exit 1)。
 
+> **v0.6.0 批次 6 修订**(issue #1 fix):JSON 数组里 LLM 步骤 3 拍板的字段(`slug` / `target_subdir` / `route` / `converter` / `native_text` / `converted_path` / 等)会**完整透传**到 `batch.files[]`;旧版会把这些静默丢为 null,导致下游 `move-to-raw` fail "target_subdir 未指定"。
+
 读 stdout JSON `batch_file`,后续 3 步脚本都用此文件。
 
 ```bash
@@ -219,7 +226,18 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 **正文书写顺序**:`# 标题` → **[自由追加节 1..N]** → `## 重点摘录` → `## 我的思考` → `## 总结:最有收获的一句话` → (脚本追加 `> 原始来源:` blockquote + Related Pages 占位)。
 
-写完正文后,**回头把 `--summary` 字段值写入 frontmatter**(步骤 6 重跑一次 `--out` 覆盖)。
+写完正文后,**回头把 `--summary` 字段值写入 frontmatter**(v0.6.0 起改用 `--patch-frontmatter-only`,**不**重跑 `--out` 全量覆盖)。
+
+```bash
+# v0.6.0 起 (issue #2 fix):只 patch frontmatter,正文原样保留
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
+  --project <用户工程根> --type source --slug <slug> --ext <ext> \
+  --out <已存在的目标文件.md> \
+  --patch-frontmatter-only \
+  --summary "<补 50-150 字精要>" --title "<如有调整>"
+```
+
+> **v0.6.0 起步骤 7 重大变更**:旧版"步骤 6 重跑一次 `--out` 覆盖"会**覆盖 LLM 已填正文**为占位符。改用 `--patch-frontmatter-only` 只 patch frontmatter;目标文件不存在 → fallback 全量生成(WARN stderr)。
 
 来源不足自检:每条断言自检能否在源文件找到依据;无法溯源 → 显式标注 `[来源不足,需人工复核]`。
 
@@ -289,6 +307,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_P
 
 - 已有当天 H2 → 复用
 - 无 → 插入新 H2 (最新在前)
+- **v0.6.0 起(issue #4 fix)`**Ingest**` 行 wikilink 优先用 `batch.files[].slug`**(不是 inbox 原文件名 basename);raw 路径用 `{slug}.{原扩展名}`。inbox 来源路径保留原文件名(人类追溯用)。
 
 ### 步骤 18:清理 temp/
 
