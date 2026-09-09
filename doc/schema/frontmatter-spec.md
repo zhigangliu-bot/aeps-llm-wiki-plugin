@@ -16,6 +16,7 @@
 | 2026-09-05 | zhigangliu-bot | 全文档清除 `<>` 占位符(详见 §0.1 编写铁律);frontmatter 字段值改双引号字符串、`tags` 改多行 YAML list、`generated` 改多行嵌套;正文占位符改 `【...】` 形式,模板变量改 `{name}` 大括号形式 |
 | 2026-09-08 | zhigangliu-bot | 批次 4 (P3-1):§4.3.1 + §7 + §10.1 + §10.2 共 4 处 `producer/aeps-llm-wiki-plugin/<旧版本号>` 示例统一升级为 0.5.6;无字段语义变化 |
 | 2026-09-09 | zhigangliu-bot | 批次 8 (v0.6.3):§3.3 新增 plugin 扩展 reserved filenames 子节(overview.md / glossary.md);明确 4 个 reserved filenames(index/log/overview/glossary)均不携带 frontmatter;引用 `scripts/ingest/lint-stub.js` R7.3 检测 + `scripts/aggregate-index.js` v0.6.3 起读模板不注 frontmatter 行为。修复 issue #5/#6。 |
+| 2026-09-09 | zhigangliu-bot | 批次 9 (v0.6.5):§3.3 lint 联动段更新——旧 R7.1(tags<5 WARN)被 **R7.4(tags 数量 5-10 → ERROR)** 取代,新增 **R7.5(stale_after 须 ISO 8601 datetime → ERROR)** / **R7.6(sources[] 元素须对象 → ERROR)** 三条 ERROR 规则(修复 issue #12)。§4.4.1 `sources[]` 对象格式为既有权威,`frontmatter.schema.json` `stale_after` 描述已对齐 ISO datetime 语义。 |
 
 ### 0.1 编写铁律(YAML / Obsidian Properties 兼容性)
 
@@ -153,8 +154,9 @@ plugin 的 4 个 reserved filenames 合计:
 
 **lint 联动**(v0.6.3 起,`scripts/ingest/lint-stub.js`):
 
-- reserved filename 跳过 R7.1(tags<5)/ R7.2(updated 非 ISO 8601)(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
+- reserved filename 跳过 R7.4(tags 数量 5-10)/ R7.2(updated 非 ISO 8601)/ R7.5(stale_after 非 ISO datetime)/ R7.6(sources[] 元素非对象)(这些规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
 - 新增 **R7.3(WARN)**:reserved filename 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**
+- **lint 规则 ERROR 化**(v0.6.5 起,修复 issue #12):**R7.4** tags 数量 <5 或 >10 → ERROR(exit 2,取代旧 R7.1 的 WARN);**R7.5** `stale_after` 非 ISO 8601 datetime(纯 date 如 `2027-09-09` 不合规,须为 `2027-09-09T00:00:00Z` 形态)→ ERROR,报错附正确格式示例;**R7.6** `sources[]` 元素非 `{resource, ...}` 对象(字符串元素不合规)→ ERROR,报错附对象写法示例
 
 **plugin 脚本行为**(v0.6.3 起):
 
@@ -272,7 +274,7 @@ OKF 标准下 `type` 取值**开放**(§4.1),消费方 MUST NOT reject 未知 ty
 
 ```yaml
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.4"
+  by: "producer/aeps-llm-wiki-plugin/0.6.5"
   at: "2026-09-05T10:30:00Z"
 ```
 
@@ -620,7 +622,7 @@ description: One row per completed customer order across all channels.
 resource: https://example.com/data/orders
 tags: [sales, orders, revenue]
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.4"
+  by: "producer/aeps-llm-wiki-plugin/0.6.5"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"
@@ -640,7 +642,7 @@ description: Headline income-statement figures for a fiscal year.
 tags: [finance, income-statement]
 status: stable
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.4"
+  by: "producer/aeps-llm-wiki-plugin/0.6.5"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"

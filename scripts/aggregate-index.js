@@ -37,6 +37,15 @@
 //   - 0.6.4 (issue #5 fix 续):doc/template/page-{index,glossary}.md 模板里的硬编码占位 wikilink / 术语
 //     全部清空为「*(暂无)*」(同时删除 Entities/Concepts 节里 ### Person/Method/... H3 占位,
 //     改为脚本 renderIndex/renderGlossary 按 type 动态生成,避免双重 H3)。
+//   - (issue #11 fix):init 模板动态区改用 AGGREGATE-START / AGGREGATE-END HTML 注释标记对包住
+//     (sentinel 方案)。写入规则:
+//       1) 目标文件含标记对 → 只整体替换两个标记之间的动态区,标记外的手写区(Overview /
+//          维护备注 / 手工术语)原样保留;
+//       2) 目标文件不含标记对(存量 wiki)→ 保持 0.6.4 行为:按模板 + 动态区全量重建,
+//          产物剥掉标记行(不迁移、不把存量文件 sentinel 化);
+//       3) 目标文件不存在 → 以模板为底、动态区填入标记之间(模板无标记对时退回 2)。
+//     动态区自含 H2 标题(## Sources / ## Entities / ## Concepts / ## Analyses / ## Comparisons /
+//     ## Syntheses),Entities / Concepts 新增带计数的 H2(占位 H2 随首次聚合被替换,不再并存)。
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
@@ -48,6 +57,41 @@ await requireDeps({ "js-yaml": "js-yaml" });
 const yaml = (await import("js-yaml")).default;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// ---- (issue #11 fix)sentinel 动态区标记 ----
+// init 模板(doc/template/page-{index,glossary}.md + build-skeleton 内联模板)把「会被聚合脚本
+// 整体重写的动态区」包在两个 HTML 注释标记之间;标记之外是 LLM / 用户手写区,脚本永不触碰。
+const AGGREGATE_START = "<!-- AGGREGATE-START -->";
+const AGGREGATE_END = "<!-- AGGREGATE-END -->";
+
+/** text 是否含一对完整的 START...END 标记(且 START 在前) */
+function hasSentinelPair(text) {
+  const s = text.indexOf(AGGREGATE_START);
+  if (s < 0) return false;
+  return text.indexOf(AGGREGATE_END, s + AGGREGATE_START.length) > s;
+}
+
+/**
+ * 把 text 中两个标记之间的全部内容替换为 body;无完整标记对时返回 null(调用方退回 legacy 路径)。
+ * 标记行本身保留,输出形态:START 换行 + body + 空行 + END...
+ */
+function replaceSentinelRegion(text, body) {
+  const s = text.indexOf(AGGREGATE_START);
+  if (s < 0) return null;
+  const e = text.indexOf(AGGREGATE_END, s + AGGREGATE_START.length);
+  if (e < 0) return null;
+  const head = text.slice(0, s) + AGGREGATE_START + "\n";
+  const tail = text.slice(e);
+  return head + body.replace(/\r?\n+$/, "") + "\n\n" + tail;
+}
+
+/** 剥掉包含标记的整行(legacy 输出保持 0.6.4 形态,存量文件不被 sentinel 化) */
+function stripSentinelMarkerLines(text) {
+  return text
+    .split("\n")
+    .filter((l) => !l.includes(AGGREGATE_START) && !l.includes(AGGREGATE_END))
+    .join("\n");
+}
 
 const TYPE_DIRS = [
   ["source", "sources"],
@@ -191,17 +235,15 @@ function loadTemplateAndReplaceVars(name, vars) {
   );
 }
 
-function renderIndex(rootDir, pages) {
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const vars = { pluginVersion: readPluginVersion(), now };
-  // v0.6.3: 模板 header 替代 frontmatter push;模板自身已含 H1 / 提示注释 / auto-gen 段
-  const header = loadTemplateAndReplaceVars("page-index.md", vars);
-  const lines = [header];
+// (issue #11 fix)动态区自含 H2 标题:占位 H2(## Sources({数量}) 等)随模板 sentinel 区间
+// 被整体替换,所以 Entities / Concepts 在这里补上带计数的 H2(0.6.4 依赖模板占位 H2,不再可用)。
+function renderIndexDynamic(pages) {
+  const lines = [];
   // Sources 按 frontmatter `resource` 路径解析的 raw/{subdir}/ 分组;子目录名去 \d+_ 前缀
   // 每条 [[wikilink|alias]] + frontmatter status + tags(直接来自 source,不做包装)
   const sources = pages.filter((p) => p.type === "source");
   if (!sources.length) {
-    lines.push("## Sources");
+    lines.push("## Sources (0)");
     lines.push("");
     lines.push("*(暂无)*");
     lines.push("");
@@ -234,21 +276,28 @@ function renderIndex(rootDir, pages) {
     }
   }
 
-  for (const [type, dir] of TYPE_DIRS) {
-    if (!type.startsWith("entity.") && !type.startsWith("concept.")) continue;
-    const label = type.split(".")[1];
-    const items = pages.filter((p) => p.type === type);
-    lines.push(`### ${label.charAt(0).toUpperCase() + label.slice(1)} (${items.length})`);
+  // Entities / Concepts:先输出带总计数的 H2,再按子类输出 H3(与模板占位 H2 一一对应)
+  for (const [label, prefix] of [["Entities", "entity."], ["Concepts", "concept."]]) {
+    const subtypes = TYPE_DIRS.filter(([t]) => t.startsWith(prefix));
+    let groupTotal = 0;
+    for (const [type] of subtypes) groupTotal += pages.filter((p) => p.type === type).length;
+    lines.push(`## ${label} (${groupTotal})`);
     lines.push("");
-    if (!items.length) {
-      lines.push("*(暂无)*");
-    } else {
-      for (const p of items.sort((a, b) => a.title.localeCompare(b.title))) {
-        const tagStr = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
-        lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${tagStr ? ` <span style="color:gray">${tagStr}</span>` : ""}`);
+    for (const [type] of subtypes) {
+      const sub = type.split(".")[1];
+      const items = pages.filter((p) => p.type === type);
+      lines.push(`### ${sub.charAt(0).toUpperCase() + sub.slice(1)} (${items.length})`);
+      lines.push("");
+      if (!items.length) {
+        lines.push("*(暂无)*");
+      } else {
+        for (const p of items.sort((a, b) => a.title.localeCompare(b.title))) {
+          const tagStr = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
+          lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${tagStr ? ` <span style="color:gray">${tagStr}</span>` : ""}`);
+        }
       }
+      lines.push("");
     }
-    lines.push("");
   }
 
   for (const [type] of TYPE_DIRS.filter(([t]) => ["analysis", "comparison", "synthesis"].includes(t))) {
@@ -270,7 +319,17 @@ function renderIndex(rootDir, pages) {
     }
     lines.push("");
   }
-  return lines.join("\n");
+  return lines;
+}
+
+// legacy 路径(issue #11 兼容分支):模板整份(header,剥掉 sentinel 标记行)+
+// 动态区追加 —— 与 0.6.4 输出形态一致,用于「目标文件无标记对」的存量 wiki。
+function renderIndex(rootDir, pages) {
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const vars = { pluginVersion: readPluginVersion(), now };
+  // v0.6.3: 模板 header 替代 frontmatter push;模板自身已含 H1 / 提示注释 / auto-gen 段
+  const header = stripSentinelMarkerLines(loadTemplateAndReplaceVars("page-index.md", vars));
+  return header + "\n" + renderIndexDynamic(pages).join("\n");
 }
 
 // 从 frontmatter resource 路径解析 raw/{subdir}/ 段;返回子目录名(去掉 \d+_ 前缀);无法解析返回 null
@@ -309,14 +368,9 @@ function renderOverview(pages) {
   return lines.join("\n");
 }
 
-function renderGlossary(pages) {
-  // 简单词典:每页 title + aliases 作为术语,首次出现的写一份;不覆盖用户已有条目
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const vars = { pluginVersion: readPluginVersion(), now };
-  // v0.6.3: 模板 header 替代 frontmatter push
-  const header = loadTemplateAndReplaceVars("page-glossary.md", vars);
-  const lines = [header];
-
+// (issue #11 fix)glossary 动态区:title + aliases 抽取术语条目,平铺列表(无 H2)
+function renderGlossaryDynamic(pages) {
+  const lines = [];
   const seen = new Map();
   for (const p of pages) {
     const terms = [p.title, ...(p.aliases || [])].filter(Boolean);
@@ -324,7 +378,6 @@ function renderGlossary(pages) {
       if (!seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), { term: t, page: p });
     }
   }
-
   const entries = [...seen.values()].sort((a, b) => a.term.localeCompare(b.term));
   if (!entries.length) {
     lines.push("*(暂无)*");
@@ -333,8 +386,34 @@ function renderGlossary(pages) {
       lines.push(`- **${e.term}** —— 参见 [${e.page.title}](./${e.page.rel.replace(/\\/g, "/")}):${e.page.description}`);
     }
   }
-  lines.push("");
-  return lines.join("\n");
+  return lines;
+}
+
+// legacy 路径(issue #11 兼容分支):与 0.6.4 输出形态一致(模板 header 剥标记行 + 动态区追加)
+function renderGlossary(pages) {
+  // 简单词典:每页 title + aliases 作为术语,首次出现的写一份;不覆盖用户已有条目
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const vars = { pluginVersion: readPluginVersion(), now };
+  // v0.6.3: 模板 header 替代 frontmatter push
+  const header = stripSentinelMarkerLines(loadTemplateAndReplaceVars("page-glossary.md", vars));
+  return header + "\n" + renderGlossaryDynamic(pages).join("\n") + "\n";
+}
+
+// (issue #11 fix)组装 index.md / glossary.md 最终写入内容:
+//   1) 目标文件存在且含标记对 → 只替换标记之间的动态区,手写区保留;
+//   2) 目标文件存在但无标记对 → legacy(0.6.4)全量重建,产物不引入标记;
+//   3) 目标文件不存在 → 以模板为底、动态区填入标记之间(模板无标记对时退回 legacy)。
+function composeAggregateDoc(targetPath, templateName, vars, dynamicLines, legacyRender) {
+  const dynamic = dynamicLines.join("\n");
+  if (existsSync(targetPath)) {
+    const existing = readFileSync(targetPath, "utf8");
+    const patched = replaceSentinelRegion(existing, dynamic);
+    if (patched !== null) return patched;
+    return legacyRender();
+  }
+  const tpl = loadTemplateAndReplaceVars(templateName, vars);
+  const filled = replaceSentinelRegion(tpl, dynamic);
+  return filled !== null ? filled : legacyRender();
 }
 
 function mergePreserveUserEntries(existingPath, newContent) {
@@ -376,6 +455,21 @@ function main() {
     bySubdir[subdir] = (bySubdir[subdir] || 0) + 1;
   }
 
+  // (issue #11 fix)index.md / glossary.md 组装:sentinel 区间替换或 legacy 全量重建(见 composeAggregateDoc)
+  const composeWrites = () => {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    const vars = { pluginVersion: readPluginVersion(), now };
+    const idxPath = join(knowledge, "index.md");
+    const glPath = join(knowledge, "glossary.md");
+    const idx = composeAggregateDoc(idxPath, "page-index.md", vars, renderIndexDynamic(pages), () => renderIndex(knowledge, pages));
+    const gl = composeAggregateDoc(glPath, "page-glossary.md", vars, renderGlossaryDynamic(pages), () => renderGlossary(pages));
+    // ponytail: v0.6.2+ overview.md 不再写入,见 renderOverview 注释
+    return [
+      [idxPath, idx],
+      [glPath, gl],
+    ];
+  };
+
   if (jsonMode) {
     const out = {
       knowledge: knowledge.replace(/\\/g, "/"),
@@ -385,13 +479,7 @@ function main() {
       by_subdir: bySubdir,
       written: [],
     };
-    const idx = renderIndex(knowledge, pages);
-    const gl = renderGlossary(pages);
-    // ponytail: v0.6.2+ overview.md 不再写入,见 renderOverview 注释
-    const writes = [
-      [join(knowledge, "index.md"), idx],
-      [join(knowledge, "glossary.md"), gl],
-    ];
+    const writes = composeWrites();
     for (const [p, c] of writes) {
       if (dryRun) {
         out.written.push({ file: p.replace(/\\/g, "/"), bytes: c.length, dry_run: true });
@@ -408,14 +496,7 @@ function main() {
   // 默认人类可读 stdout(向后兼容)
   console.log(`scanned ${pages.length} pages from ${knowledge}`);
 
-  const idx = renderIndex(knowledge, pages);
-  const gl = renderGlossary(pages);
-
-  // ponytail: v0.6.2+ overview.md 不再写入,见 renderOverview 注释
-  const writes = [
-    [join(knowledge, "index.md"), idx],
-    [join(knowledge, "glossary.md"), gl],
-  ];
+  const writes = composeWrites();
 
   for (const [p, c] of writes) {
     if (dryRun) {

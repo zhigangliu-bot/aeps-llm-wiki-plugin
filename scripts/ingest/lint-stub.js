@@ -4,11 +4,18 @@
  *
  * 本脚本是 lint skill (M2.4 任务) 的接口占位。
  * v0.5.6 起(批次 3 修复 P2-5):本 stub 不再固定 fail=0/warn=0,落地两条最小规则:
- *   - R7.1 (WARN): 扫所有 knowledge 目录 .md 页 frontmatter tags 字段长度,<5 时 WARN
+ *   - R7.1 (WARN,已被 R7.4 取代): tags <5 WARN → v0.6.5 起并入 R7.4,数量越界直接 ERROR
  *   - R7.2 (ERROR): 扫所有知识页 frontmatter `updated` 字段是否符合 ISO 8601,不符合时 ERROR
  * v0.5.9 起:加一条 v0.5.9 强约束
  *   - C21 (WARN): source 页 `## 重点摘录` 之前缺自由追加节 → WARN
  *                (对齐 page-source.md v0.5.9 起占位骨架 ## 阅读路线)
+ * v0.6.5 起(修复 issue #12):新增 3 条 ERROR 规则,堵住「5 层防御中 lint 层漏拦」的缺口:
+ *   - R7.4 (ERROR): tags 数量 <5 或 >10(对齐 frontmatter.schema.json minItems:5 / maxItems:10;
+ *                   取代 R7.1 的 <5 WARN——数量越界直接 FAIL,不再降级 WARN)
+ *   - R7.5 (ERROR): stale_after 非 ISO 8601 datetime(纯日期如 "2027-09-09" 必报错,
+ *                   错误信息附正确格式示例;对齐 frontmatter-spec.md §4.5.2 + §4.8)
+ *   - R7.6 (ERROR): sources[] 元素非对象(如字符串 "[[slug]]" 必报错,
+ *                   错误信息附对象写法示例;对齐 schema sources.items.type: object)
  *
  * SKILL.md 步骤 19 调 `node scripts/ingest/lint-stub.js --project <dir>` 解析输出。
  *
@@ -18,8 +25,8 @@
  *       {
  *         "project": "<dir>",
  *         "linted":  <number>,     // 扫到的 knowledge/ 页数
- *         "fail":    <number>,     // R7.2 ISO 8601 失败数 + 旧 stub 永远 0
- *         "warn":    <number>,     // R7.1 tags <5 数 + 旧 stub 永远 0
+ *         "fail":    <number>,     // R7.2 / R7.4 / R7.5 / R7.6 ERROR 总数
+ *         "warn":    <number>,     // R7.3 + C21 WARN 总数
  *         "stub":    true,
  *         "lint_version": "M2.4-stub",
  *         "scanned_at": "<ISO 8601>",
@@ -33,7 +40,7 @@
  *   - Exit code:
  *       0 - 成功(无 fail)
  *       1 - 参数错
- *       2 - 有 fail(规则 R7.2 触发)或缺依赖
+ *       2 - 有 fail(规则 R7.2 / R7.4 / R7.5 / R7.6 触发)或缺依赖
  *
  * 设计原则:
  *   - **不动 lint 真实实现**:M2.4 任务会替换本 stub 内容,但接口契约(stdin/stdout/exit)不变。
@@ -42,6 +49,11 @@
  *   - **不引入新依赖**:仅用 node:fs / node:path / node:process / scripts/lib/*(iso8601 复用)。
  *
  * change history:
+ *   - 0.6.5 (issue #12 fix):新增 R7.4 / R7.5 / R7.6 三条 ERROR 规则(tags 数量区间 /
+ *     stale_after ISO datetime / sources[] 元素对象类型),全部计入 fail → exit 2;
+ *     原 R7.1(tags<5 WARN)被 R7.4 取代,不再产出 WARN。
+ *     触发链:gen-page 空 skeleton(tags 空 / stale_after 空 / sources 字符串数组)→
+ *     lint 不拦 → LLM 每页手工 Edit 6 字段 → ingest 无法一次成稿零 FAIL。
  *   - 0.6.3 (issue #6 fix):reserved filenames (index.md / log.md / overview.md / glossary.md)
  *     豁免 R7.1 / R7.2(对齐 frontmatter-spec.md §3.3 plugin 扩展 reserved 约定);
  *     新增 R7.3 (WARN):reserved filename 误含 frontmatter → 报告,不改文件。
@@ -65,13 +77,16 @@ const yaml = (await import('js-yaml')).default;
 
 const STUB_VERSION = 'M2.4-stub';
 const MIN_TAGS_LENGTH = 5; // 对齐 doc/schema/frontmatter.schema.json tags minItems
+// v0.6.5 (issue #12): R7.4 上限,对齐 frontmatter.schema.json tags maxItems
+const MAX_TAGS_LENGTH = 10;
 // v0.5.9: C21 — source 页 ## 重点摘录 之前缺自由追加节 WARN
 // (page-source.md v0.5.9 起把"自由追加节"从注释软指引升级为占位骨架 ## 阅读路线,
 //  强制 LLM 读完源文件后先问『这篇有什么独特结构』再写正文)
 const REQUIRED_BEFORE_KEY = '## 重点摘录';
 
 // v0.6.3: reserved filenames 按 frontmatter-spec.md §3.3 plugin 扩展 + OKF §3.2 不携带 frontmatter。
-// 豁免 R7.1 / R7.2(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义);
+// 豁免 R7.2 / R7.4 / R7.5 / R7.6(这些规则的前提是文件有 frontmatter,reserved file 没有所以无意义;
+// R7.1 已于 v0.6.5 被 R7.4 取代,spec §3.3 的「R7.1 (tags<5)」表述待 spec 侧同步);
 // 新增 R7.3 (WARN) 检测 reserved file 误含 frontmatter(报告不改文件,让用户 / 聚合脚本自决)。
 const RESERVED_FILENAMES = new Set([
   'index.md',      // OKF §3.2
@@ -79,6 +94,77 @@ const RESERVED_FILENAMES = new Set([
   'overview.md',   // plugin 扩展
   'glossary.md',   // plugin 扩展
 ]);
+
+// ---- v0.6.5 (issue #12) R7.4 / R7.5 / R7.6 规则辅助 ----
+
+/** 值的 YAML 类型名(错误信息用) */
+function yamlTypeName(v) {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return 'array';
+  return typeof v;
+}
+
+/** 值的简短预览(错误信息用),超长截断 */
+function previewValue(v) {
+  const s = typeof v === 'string' ? `"${v}"` : JSON.stringify(v);
+  return s !== undefined && s.length > 80 ? `${s.slice(0, 77)}...` : s;
+}
+
+/**
+ * R7.5:由非 datetime 值推导正确格式示例。
+ * 值形如日期前缀(YYYY-MM-DD)→ 补全 T00:00:00Z;否则给通用格式占位。
+ */
+function isoDatetimeExample(value) {
+  const m = typeof value === 'string' ? value.match(/^(\d{4}-\d{2}-\d{2})/) : null;
+  return m ? `"${m[1]}T00:00:00Z"` : 'YYYY-MM-DDTHH:MM:SSZ';
+}
+
+/** R7.6:sources 正确写法提示(错误信息附示例) */
+const SOURCES_FIX_HINT = '正确写法: - resource: "[[source-slug]]" + title: "来源标题"(详见 frontmatter-spec.md §4.4.1)';
+
+/**
+ * R7.4 (v0.6.5, issue #12):tags 数量必须在 [MIN_TAGS_LENGTH, MAX_TAGS_LENGTH] 区间。
+ * 对齐 frontmatter.schema.json tags minItems:5 / maxItems:10。
+ * 返回错误消息,合规返回 null。
+ */
+function checkTagsCount(tags) {
+  const n = Array.isArray(tags) ? tags.length : 0;
+  if (n >= MIN_TAGS_LENGTH && n <= MAX_TAGS_LENGTH) return null;
+  return `R7.4 tags 数量 ${n} 条不合规,需 ≥${MIN_TAGS_LENGTH} 且 ≤${MAX_TAGS_LENGTH} 条(对齐 frontmatter.schema.json tags minItems/maxItems;必填轴 docform/ + domain/,详见 doc/template/tag-spec.md)`;
+}
+
+/**
+ * R7.5 (v0.6.5, issue #12):stale_after 若存在,必须是 ISO 8601 datetime(带 T…Z / 时区偏移)。
+ * 纯日期(如 "2027-09-09")不合规,错误信息附正确格式示例。
+ * stale_after 是 OPTIONAL 字段,缺失 / null 不触发;空串触发。
+ * 返回错误消息,合规(或缺省)返回 null。
+ */
+function checkStaleAfter(value) {
+  if (value === undefined || value === null) return null;
+  if (isIso8601(value)) return null;
+  return `R7.5 stale_after 不是 ISO 8601 datetime: ${previewValue(value)}(纯日期不合规;正确示例: ${isoDatetimeExample(value)},格式 YYYY-MM-DDTHH:MM:SSZ;详见 frontmatter-spec.md §4.5.2)`;
+}
+
+/**
+ * R7.6 (v0.6.5, issue #12):sources 若存在,必须是对象数组,每个元素是 {resource, ...} 对象。
+ * 常见误写:LLM 把 sources 写成 ["[[slug]]"] 字符串数组(占位符没被替换 / 手写贪方便)。
+ * 只查元素类型,不查 resource 必填(那是 schema required 的通道)。
+ * 返回错误消息数组(可能多条),合规(或缺省)返回 []。
+ */
+function checkSourcesElements(value) {
+  if (value === undefined || value === null) return [];
+  const errs = [];
+  if (!Array.isArray(value)) {
+    errs.push(`R7.6 sources 应为对象数组,当前为 ${yamlTypeName(value)} ${previewValue(value)}(${SOURCES_FIX_HINT})`);
+    return errs;
+  }
+  value.forEach((el, i) => {
+    if (typeof el !== 'object' || el === null || Array.isArray(el)) {
+      errs.push(`R7.6 sources[${i}] 应为 {resource, ...} 对象,当前为 ${yamlTypeName(el)} ${previewValue(el)}(${SOURCES_FIX_HINT})`);
+    }
+  });
+  return errs;
+}
 
 function parseFrontmatter(mdText) {
   const m = mdText.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -175,17 +261,33 @@ async function main() {
     const tags = Array.isArray(p.fm.tags) ? p.fm.tags : [];
     const updated = p.fm.updated;
 
-    // R7.1: tags.length < 5 → WARN
-    if (tags.length < MIN_TAGS_LENGTH) {
-      const msg = `tags 仅 ${tags.length} 条,需 ≥${MIN_TAGS_LENGTH} 条`;
-      if (!warningsByFile[p.relPath]) warningsByFile[p.relPath] = [];
-      warningsByFile[p.relPath].push(msg);
-      flatWarnings.push(`${p.relPath}: ${msg}`);
-    }
-
     // R7.2: updated 不符合 ISO 8601 → ERROR(updated 字段不存在也算 ERROR)
     if (!updated || !isIso8601(updated)) {
       const msg = `updated 字段不符合 ISO 8601: ${updated === undefined || updated === null ? '(missing)' : String(updated)}`;
+      if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
+      errorsByFile[p.relPath].push(msg);
+      flatErrors.push(`${p.relPath}: ${msg}`);
+    }
+
+    // R7.4 (v0.6.5, issue #12): tags 数量 <5 或 >10 → ERROR(取代原 R7.1 的 <5 WARN;
+    // 对齐 SKILL.md 步骤 19「FAIL 必须修复后才算 ingest 完成」)
+    const r74 = checkTagsCount(tags);
+    if (r74) {
+      if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
+      errorsByFile[p.relPath].push(r74);
+      flatErrors.push(`${p.relPath}: ${r74}`);
+    }
+
+    // R7.5 (v0.6.5, issue #12): stale_after 非 ISO 8601 datetime → ERROR(纯 date 必报错)
+    const r75 = checkStaleAfter(p.fm.stale_after);
+    if (r75) {
+      if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
+      errorsByFile[p.relPath].push(r75);
+      flatErrors.push(`${p.relPath}: ${r75}`);
+    }
+
+    // R7.6 (v0.6.5, issue #12): sources[] 元素非对象 → ERROR(报错信息带正确写法示例)
+    for (const msg of checkSourcesElements(p.fm.sources)) {
       if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
       errorsByFile[p.relPath].push(msg);
       flatErrors.push(`${p.relPath}: ${msg}`);

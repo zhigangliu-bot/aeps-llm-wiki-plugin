@@ -13,15 +13,17 @@ tags:
   - maturity/standard
   - phase/concept
 
-# OKF §5.1 sources(指向关联的源页/原始资料)
-sources: $SOURCES
+# OKF §5.1 sources(指向关联的源页/原始资料;对象格式,gen-page 按 --source-resource/--source-title 注入)
+sources:
+  - resource: "[[<source-slug>]]"
+    title: "来源页标题"
 
 # OKF §5.2 generated
 generated:
   by: "producer/aeps-llm-wiki-plugin/$VERSION"
   at: "$NOW"
 
-# OKF §5.4 / §5.5 lifecycle(可选)
+# OKF §5.4 / §5.5 lifecycle(可选;stale_after 由 gen-page 自动推导,标准类 +5 年 / 其它 +1 年)
 status: stable
 stale_after: "$STALE_AFTER"
 
@@ -29,8 +31,9 @@ stale_after: "$STALE_AFTER"
 updated: "$NOW"
 summary: "$SUMMARY"
 
-# plugin 推荐字段(Obsidian 原生别名机制)
-aliases: $ALIASES
+# plugin 推荐字段(Obsidian 原生别名机制;gen-page 按 --aliases 注入,缺省 fallback [title])
+aliases:
+  - "页面标题或常用别名"
 ---
 
 # LLM Wiki 模式

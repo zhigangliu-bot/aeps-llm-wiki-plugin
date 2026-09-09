@@ -1,7 +1,13 @@
-<!-- 提示:本页是 plugin 自定义 reserved filename,无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。 -->
+<!-- 提示:本页是 plugin 自定义 reserved filename,无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。
+     change history:
+  - (issue #11): LLM 维护的三节动态区(主题领域分布 / 知识成熟度 / 未覆盖领域)用一对聚合标记
+    (START / END 的 HTML 注释)包住,与 index.md / glossary.md 的 sentinel 约定对齐;
+    「一句话定位」与「维护」是手写区(标记之外)。overview.md 不由 aggregate-index.js 写入,
+    标记之间由 LLM 在 ingest 大图变化时(ingest SKILL 步骤 16)整体刷新。
+-->
 # 项目名 Wiki 大图
 
-> **plugin 版本**:0.6.4
+> **plugin 版本**:0.6.5
 > **最近更新**:2026-09-04T10:30:00Z
 >
 > 本文件无 frontmatter(本文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内);由 `/aeps-llm-wiki-ingest` 在"大图变化时"更新。
@@ -13,6 +19,9 @@
 【本项目 wiki 主题的一句话定位。】
 
 ---
+
+<!-- AGGREGATE-START -->
+(动态区说明:两个聚合标记之间的三节由 LLM 在 ingest「大图变化时」整体刷新;`aggregate-index.js` 不写本文件。)
 
 ## 主题领域分布
 
@@ -40,6 +49,7 @@
 【按用户近期 query 但 wiki 未覆盖的领域,LLM 自动生成。】
 
 - *(LLM 自动从 log.md query 记录 + 当前 knowledge/ 缺口推断)*
+<!-- AGGREGATE-END -->
 
 ---
 

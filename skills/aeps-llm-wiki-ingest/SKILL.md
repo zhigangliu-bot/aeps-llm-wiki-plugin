@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
-plugin-version: 0.6.4
+plugin-version: 0.6.5
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
@@ -104,7 +104,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUD
 ### 步骤 3:raw 子目录 + 命名飘拍板门
 
 LLM 读取每个文件(原文件或 `.converted.md`),提议:
-- `target_subdir` ∈ 15 raw 子目录字典(`doc/template/rawdir-spec.md`)
+- `target_subdir` ∈ 15 raw 子目录字典(`doc/template/rawdir-spec.md`);**`subdir` 与 `target_subdir` 等价,均可接受**(init-batch.js 会归一为 `target_subdir`,两者同时存在时显式 `target_subdir` 优先)
 - 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定)
 
 命名飘检查:已有 wiki 页与新抽 entity slug Levenshtein ≤ 2 → WARN 提示强制改用。
@@ -123,7 +123,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 
 ```bash
 # 文件多 / 路径含中文+空格 / 转义麻烦 → 落 temp/batch.json,走 --files-file
-echo '<scan-inbox JSON 的 files[]>' > temp/batch.json
+echo '[{...}, {...}]' > temp/batch.json    # ← 顶层就是数组,不是 {files: [...]}
 node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> \
   --files-file <用户工程根>/temp/batch.json \
@@ -131,6 +131,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 ```
 
 > `--files` 与 `--files-file` 互斥(二选一,都传/都不传 → ERROR exit 1)。
+
+> ⚠️ `--files` / `--files-file` 的内容必须是**裸 JSON 数组**(`[{...}, {...}]`,即 scan-inbox JSON 的 `files` 字段取值本身)。**不能**包 `{files: [...]}` 外层——后者会被 init-batch.js 当输入数组处理,报 `inputFiles.map is not a function`。
 
 读 stdout JSON `batch_file`,后续 3 步脚本都用此文件。
 
@@ -187,14 +189,16 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 **正文书写顺序**:`# 标题` → **[自由追加节 1..N]** → `## 重点摘录` → `## 我的思考` → `## 总结:最有收获的一句话` → (脚本追加 `> 原始来源:` blockquote + Related Pages 占位)。
 
-写完正文后,**回头把 `--summary` 字段值写入 frontmatter**;**不**重跑 `--out` 全量覆盖,改用 `--patch-frontmatter-only` 只 patch frontmatter;目标文件不存在 → fallback 全量生成(WARN stderr)。
+写完正文后,**回头把 `--summary` 字段值写入 frontmatter**;**不**重跑 `--out` 全量覆盖,改用 `--patch-frontmatter-only` 只 patch frontmatter;目标文件不存在 → fallback 全量生成(WARN stderr)。**v0.6.5 起 patch 模式全字段支持**(复用同一注入管道):`--tags` / `--description` / `--aliases` / `--summary` / `--title` / `--stale-after` / `--source-resource` / `--source-title` 均可 patch;CLI 未传的字段保留文件现有值,不会清空。
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> --type source --slug <slug> --ext <ext> \
   --out <已存在的目标文件.md> \
   --patch-frontmatter-only \
-  --summary "<补 50-150 字精要>" --title "<如有调整>"
+  --summary "<补 50-150 字精要>" --title "<如有调整>" \
+  --description "<如有调整>" --tags "docform/<...>,domain/<...>,..." \
+  --aliases "<别名1>,<别名2>" --stale-after "<ISO 8601 datetime>"
 ```
 
 来源不足自检:每条断言自检能否在源文件找到依据;无法溯源 → 显式标注 `[来源不足,需人工复核]`。
@@ -207,15 +211,32 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 
+**踩坑对照表(v0.6.5,gen-page 传参前必查)**:
+
+| 字段 | ✅ 正确写法 | ❌ 错误写法 | 后果 |
+|---|---|---|---|
+| `sources[]` | 对象列表 `sources:\n  - resource: "[[<source-slug>]]"\n    title: "来源页标题"`(gen-page 用 `--source-resource <slug> --source-title "<title>"` 注入) | 字符串列表 `- "[[xxx]]"` | build-related-pages 校验失败;反链失效 |
+| `stale_after` | ISO 8601 **datetime** `"2027-09-09T00:00:00Z"`(带 `T…Z`;gen-page 缺省会自动按 `generated.at + 1 年` 推导,concept.standard +5 年) | 纯 date `"2027-09-09"` | schema/ lint FAIL,需改为 datetime |
+| `tags` | **5-10 条**,必含 `docform/` + `domain/` 轴(字典:`doc/template/tag-spec.md`;gen-page 缺省按 type 子类注入 5 条,LLM 应精修) | 少于 5 条 / 裸 tag 无轴前缀 / 人名进 tag | lint FAIL/WARN;检索退化 |
+
 ### 步骤 10:建 entity / concept 页 skeleton
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --project <用户工程根> \
   --type <entity|concept>.<subtype> --slug <slug> \
-  --title "<title>" --json
+  --title "<title>" \
+  --description "<一句话 30-80 字>" \
+  --tags "docform/<...>,domain/<...>,layer/<...>,maturity/<...>,phase/<...>" \
+  --source-resource "<source-slug>" --source-title "<source title>" \
+  --aliases "<别名1>,<别名2>" \
+  --summary "<50-150 字精要>" \
+  --stale-after "<ISO 8601 datetime,如 2027-09-09T00:00:00Z>" \
+  --json
 ```
 
-**v0.6.4 起 `--project <用户工程根>` 必传**:`gen-page.js` 从 `<project>/doc/templates/` 找模板(issue #4-Bug3);
+- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` / `--source-resource` / `--source-title` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;description/summary fallback title;stale_after 自动 `generated.at + 1y`);`--source-resource` / `--source-title` 都不传 → `sources: []` 且 stdout 给出 `HINT: sources 为空` 提示,LLM 需在步骤 11 用 `--patch-frontmatter-only` 补。
+
+**v0.6.5 起 `--project <用户工程根>` 必传**:`gen-page.js` 从 `<project>/doc/templates/` 找模板(issue #4-Bug3);
 不传 → `template not found` 错误(对齐 PR-AC-6,v0.5.8 起取消 cwd 兜底)。
 并发调用多个 `gen-page.js --json` 时也必须显式 `--project`,否则 `projectRoot` 解析失败。
 
@@ -223,7 +244,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 ### 步骤 11:LLM 填 entity / concept 正文
 
-自由发挥。`sources[]` 字段在 gen-page 阶段已写入 plugin 骨架(指向本次 source 页的 resource 路径);若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
+自由发挥。`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);`sources[]` 传了 `--source-resource` / `--source-title` 时已是对象格式,否则为空数组(stdout 有 HINT)—— **LLM 需补 source 时重跑 `--patch-frontmatter-only --source-resource <slug> --source-title "<title>"`**(patch 模式全字段支持,CLI 未传字段不会被清空)。若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
 
 ### 步骤 12:回填 source 页 `## 相关页面` + entity/concept 页 `## 来源资料`(双向反链,**追加 + 保留**)
 
@@ -245,7 +266,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root $
 
 LLM 决定:命名飘合并 / 改链等。
 
-### 步骤 14:更新 glossary.md(增量合并)
+### 步骤 14:更新 glossary.md(aggregate-index,sentinel 区间重写)
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
@@ -253,9 +274,16 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLU
 
 (本步为 query/synthesize 共享;ingest 跑完调一次,确保 index.md 反映新页)
 
+写入行为(issue #11 起):
+
+- **sentinel 路径**:`index.md` / `glossary.md` 含 `<!-- AGGREGATE-START -->` / `<!-- AGGREGATE-END -->` 标记对时(issue #11 修复后的 init 产物默认含),脚本**删除两个标记之间的全部旧内容,在 END 标记前重写当前 knowledge/ 实际状态的索引数据**;标记之外的手写区(Overview、维护备注、手工术语批注)原样保留。
+- **占位清理**:init 模板的占位段(`## Sources({数量})`、A-Z `*(暂无)*` 字母节等)都在标记内,首次聚合后被真数据替换,不再「占位 + 真数据」并存。
+- **幂等**:同状态连跑两次,sentinel 区间内容一致,不累积。
+- **向后兼容**:文件不含标记对(存量 wiki)→ 保持 v0.6.4 行为(按模板 + 动态区全量重建),不迁移、不把存量文件 sentinel 化。
+
 ### 步骤 15:更新 index.md
 
-由 aggregate-index.js(步骤 14)统一处理,幂等。
+由 aggregate-index.js(步骤 14)统一处理,幂等;写入方式为**替换 index.md 中 sentinel 标记区间的内容**(手写区保留),无标记对的存量文件保持 v0.6.4 全量重建行为。
 
 ### 步骤 16:更新 overview.md
 

@@ -34,7 +34,14 @@
  * Exit codes:
  *   0 - 成功
  *   1 - 参数错
- *   2 - 写盘失败
+ *   2 - 写盘失败,或 entity/concept 页 sources 字段类型不符(v0.6.5 起 ERROR)
+ *
+ * v0.6.5 (issue #12 / #17 校验侧): sources 字段类型不符从 WARN 升级为 ERROR exit 2。
+ *   - 类型不符 = `sources` 存在但不是数组,或数组元素不是 {resource, ...} 对象
+ *     (常见误写:LLM 把 sources 写成 ["[[slug]]"] 字符串数组)
+ *   - 对齐 SKILL.md 步骤 19「FAIL 必须修复后才算 ingest 完成」:类型不符页跳过反链写盘,
+ *     修复后重跑;同工程其他合规页的反链写入不受影响
+ *   - 其余 ajv 校验失败(缺必填字段等)仍走 WARN + 跳过,不改变 v0.6.4 行为
  */
 
 import { promises as fs, accessSync } from 'node:fs';
@@ -176,6 +183,44 @@ function parseFrontmatter(mdText) {
   return { fm, body: m[2] };
 }
 
+// ---- v0.6.5 (issue #12 / #17): sources 字段类型检测 ----
+
+/** 值的 YAML 类型名(错误信息用) */
+function yamlTypeName(v) {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return 'array';
+  return typeof v;
+}
+
+/** 值的简短预览(错误信息用),超长截断 */
+function previewValue(v) {
+  const s = typeof v === 'string' ? `"${v}"` : JSON.stringify(v);
+  return s !== undefined && s.length > 80 ? `${s.slice(0, 77)}...` : s;
+}
+
+// 修复指引(对齐 SKILL.md 步骤 19「FAIL 必须修复后才算 ingest 完成」)
+const SOURCES_FIX_HINT = '正确写法: - resource: "[[source-slug]]" + title: "来源标题"(详见 frontmatter-spec.md §4.4.1;SKILL.md 步骤 19:FAIL 必须修复后才算 ingest 完成,修复后重跑 build-related-pages)';
+
+/**
+ * sources 字段类型检测(对齐 frontmatter.schema.json sources.type: array + items.type: object)。
+ * 只查类型;元素缺 resource 必填仍走 ajv required 的 WARN 通道,不在此升级。
+ * 返回错误消息数组(可能多条);字段缺省 / null 返回 [](OPTIONAL 字段不触发)。
+ */
+function sourcesTypeErrors(rawSources) {
+  if (rawSources === undefined || rawSources === null) return [];
+  const errs = [];
+  if (!Array.isArray(rawSources)) {
+    errs.push(`sources 字段类型不符:应为对象数组,当前为 ${yamlTypeName(rawSources)} ${previewValue(rawSources)};${SOURCES_FIX_HINT}`);
+    return errs;
+  }
+  rawSources.forEach((el, i) => {
+    if (typeof el !== 'object' || el === null || Array.isArray(el)) {
+      errs.push(`sources 字段类型不符:sources[${i}] 应为 {resource, ...} 对象,当前为 ${yamlTypeName(el)} ${previewValue(el)};${SOURCES_FIX_HINT}`);
+    }
+  });
+  return errs;
+}
+
 // 渲染 frontmatter block (保留原样)
 function renderFrontmatterBlock(fm) {
   return '---\n' + yaml.dump(fm, { lineWidth: -1, quotingType: '"', forceQuotes: false }) + '---\n';
@@ -243,6 +288,7 @@ async function scanSources(knowledgeDir) {
 // 扫 entity/concept 页
 // 失败语义(对齐 SKILL.md §失败语义):
 //   - ajv 校验失败 → stderr WARN + 跳过该页(反链不写)
+//   - sources 字段类型不符 → stderr ERROR(v0.6.5 起)+ 跳过该页;ERROR 计入 fail,整体 exit 2
 async function scanEntityConcept(knowledgeDir) {
   const validate = await loadValidator();
   const out = [];
@@ -254,9 +300,16 @@ async function scanEntityConcept(knowledgeDir) {
       const { fm, body } = parseFrontmatter(txt);
       if (!fm.type || !fm.type.startsWith('entity.')) continue;
       const invalid = !validate(fm);
+      // v0.6.5 (issue #12/#17): sources 字段类型不符检测 → ERROR 通道(stderr ERROR + exit 2)
+      const srcTypeErrs = sourcesTypeErrors(fm.sources);
       if (invalid) {
-        const errs = (validate.errors || []).map(e => `${e.instancePath || '/'} ${e.message}`).join('; ');
-        console.error(`WARN: ${f}: ${errs}`);
+        // 类型不符已走 ERROR 通道,这里把 /sources 的 type 错从 WARN 列表剔除,避免同一问题双报
+        const ajvErrs = (validate.errors || []).filter((e) =>
+          !(srcTypeErrs.length > 0 && String(e.instancePath || '').startsWith('/sources') && e.keyword === 'type'));
+        if (ajvErrs.length) {
+          const errs = ajvErrs.map(e => `${e.instancePath || '/'} ${e.message}`).join('; ');
+          console.error(`WARN: ${f}: ${errs}`);
+        }
       }
       out.push({
         file: f,
@@ -268,6 +321,7 @@ async function scanEntityConcept(knowledgeDir) {
         fm,
         body,
         invalid,
+        srcTypeErrs,
       });
     }
   }
@@ -278,9 +332,16 @@ async function scanEntityConcept(knowledgeDir) {
       const { fm, body } = parseFrontmatter(txt);
       if (!fm.type || !fm.type.startsWith('concept.')) continue;
       const invalid = !validate(fm);
+      // v0.6.5 (issue #12/#17): sources 字段类型不符检测 → ERROR 通道(stderr ERROR + exit 2)
+      const srcTypeErrs = sourcesTypeErrors(fm.sources);
       if (invalid) {
-        const errs = (validate.errors || []).map(e => `${e.instancePath || '/'} ${e.message}`).join('; ');
-        console.error(`WARN: ${f}: ${errs}`);
+        // 类型不符已走 ERROR 通道,这里把 /sources 的 type 错从 WARN 列表剔除,避免同一问题双报
+        const ajvErrs = (validate.errors || []).filter((e) =>
+          !(srcTypeErrs.length > 0 && String(e.instancePath || '').startsWith('/sources') && e.keyword === 'type'));
+        if (ajvErrs.length) {
+          const errs = ajvErrs.map(e => `${e.instancePath || '/'} ${e.message}`).join('; ');
+          console.error(`WARN: ${f}: ${errs}`);
+        }
       }
       out.push({
         file: f,
@@ -292,6 +353,7 @@ async function scanEntityConcept(knowledgeDir) {
         fm,
         body,
         invalid,
+        srcTypeErrs,
       });
     }
   }
@@ -657,6 +719,22 @@ async function main() {
     }
   }
 
+  // v0.6.5 (issue #12 / #17): sources 字段类型不符 → ERROR(原 WARN 升级)
+  // 对齐 SKILL.md 步骤 19「FAIL 必须修复后才算 ingest 完成」:类型不符说明该页 frontmatter
+  // 未按 schema 写(常见:LLM 把 sources 写成 ["[[slug]]"] 字符串数组),反链无法安全计算,
+  // 该页跳过写盘;修复后重跑本脚本。同工程其他合规页反链写入不受影响。
+  const errorsByFile = {};
+  const flatErrors = [];
+  function pushError(relPath, msg) {
+    if (!errorsByFile[relPath]) errorsByFile[relPath] = [];
+    errorsByFile[relPath].push(msg);
+    flatErrors.push(`${relPath}: ${msg}`);
+    console.error(`ERROR: ${relPath}: ${msg}`);
+  }
+  for (const ec of ecPages) {
+    for (const msg of ec.srcTypeErrs || []) pushError(ec.relPath, msg);
+  }
+
   // 6. 追加 + 保留:source 页 ## 相关页面 区块
   //   - 不存在 → 新建标准 block(只在 ## 维护说明 前插入)
   //   - 已存在 → 解析现有 wikilink,在末尾追加本次确认的新反链(去重),保留人工条目
@@ -691,6 +769,7 @@ async function main() {
   // 7. 追加 + 保留:entity/concept 页 ## 来源资料 区块
   for (const ec of ecPages) {
     if (ec.invalid) continue;  // ajv 校验失败 → 跳过反链写(批次 3 P2-1:但仍进 warnings_by_file)
+    if (ec.srcTypeErrs && ec.srcTypeErrs.length) continue;  // v0.6.5: sources 类型不符 → 跳过写盘(ERROR 已记,修复后重跑)
     const refs = ecToSources.get(ec.relPath) || [];
     let newBody = ec.body;
     let action;
@@ -717,7 +796,17 @@ async function main() {
   }
 
   // 8. 写盘(或 dry-run)
-  const result = { dry_run: dryRun, writes: [], errors: [], warnings: flatWarnings, warnings_by_file: warningsByFile };
+  // v0.6.5: result 新增 fail / errors_by_file(sources 类型不符 ERROR,与 lint-stub 输出字段对齐);
+  //         errors 字段保持 v0.6.4 契约(写盘失败对象 {file, error})
+  const result = {
+    dry_run: dryRun,
+    writes: [],
+    errors: [],
+    fail: flatErrors.length,
+    errors_by_file: errorsByFile,
+    warnings: flatWarnings,
+    warnings_by_file: warningsByFile,
+  };
   for (const w of writes) {
     result.writes.push({
       file: norm(w.file),
@@ -734,7 +823,7 @@ async function main() {
   }
 
   console.log(JSON.stringify(result, null, 2));
-  if (result.errors.length) process.exit(2);
+  if (result.errors.length || result.fail > 0) process.exit(2);
   process.exit(0);
 }
 

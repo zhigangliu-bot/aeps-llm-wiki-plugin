@@ -30,6 +30,17 @@
 //     把 CLI 未传的 key 覆盖为 undefined 导致 resource / tags 等字段被清空。
 //     P3-#10 — parseArgs boolean flag 判定显式三分支(undefined / `--` 起首 / 真值),
 //     修复 --json / --apply / --patch-frontmatter-only 单传时 args[key] === undefined 的 bug。
+//   - 0.6.5: WP-2 (issues #16/#17/#14) — frontmatter 注入管道统一重构:
+//     ① 统一优先级「CLI 传入 > 脚本自动推导 > 模板默认」;--tags / --aliases /
+//        --source-resource / --source-title 与 --description / --summary / --stale-after 同管道。
+//     ② entity/concept 最小合规 skeleton:tags 按 DEFAULT_TAGS_BY_TYPE 注入(14 子类,
+//        值取自 tag-spec.md 6 轴字典)、sources 对象格式 + 空时 stdout HINT、
+//        stale_after 自动 generated.at + 1y(concept.standard +5y)、aliases fallback [title]、
+//        description/summary fallback title。
+//     ③ 彻底消灭 $ALIASES / $SOURCES 占位符:列表块替换泛化为 *_BODY 管道(TAGS/SOURCES/ALIASES),
+//        page-source / page-entity / page-concept 三模板占位行删除、sources 改对象示例;
+//        修复 CRLF 模板下块替换静默失效(--tags 被模板默认覆盖的 #16 真实根因)。
+//     ④ --patch-frontmatter-only 复用同一管道 → 全 frontmatter 字段可 patch。
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
@@ -134,18 +145,102 @@ const TYPE_TO_DIR = {
   synthesis: "syntheses",
 };
 
+// ---- DEFAULT_TAGS_BY_TYPE(entity/concept 最小合规 tags skeleton)-----------------------
+// v0.6.5 WP-2 (issues #14/#16):CLI 未传 --tags 时按 type 子类注入 ≥5 条最小 tags,
+// 消灭「skeleton 全空值 → LLM 每页手工 Edit 6 字段」。取值规则:
+//   - 每条值全部取自 doc/template/tag-spec.md 6 轴字典既有取值(冻结 v1.0)
+//   - 含必填轴 docform/ + domain/(tag-spec §1.2),共 5 条(≥ schema minItems: 5)
+//   - 不含人名 / 公司名 —— 实体身份由 aliases + 文件名承担(tag-spec §1.6.1)
+//   - concept.standard 强绑定 maturity/standard、配 tec/iso26262(tag-spec §8 范式 1/3)
+// LLM 在步骤 11 仍应按实际内容精修 tags,这里只保证 skeleton 一次 lint 即合规。
+const DEFAULT_TAGS_BY_TYPE = {
+  "entity.person":       ["docform/study-notes", "domain/ai", "layer/ai-agent", "tec/claude", "maturity/research"],
+  "entity.organization": ["docform/whitepaper", "domain/ee-arch", "layer/chip", "maturity/production", "phase/ops"],
+  "entity.project":      ["docform/technical-doc", "domain/process", "phase/requirements", "phase/verification", "maturity/pilot"],
+  "entity.product":      ["docform/technical-doc", "domain/ee-arch", "layer/chip", "maturity/production", "phase/detail-design"],
+  "entity.event":        ["docform/meeting-minutes", "domain/cross-domain", "layer/system", "maturity/concept", "phase/ops"],
+  "entity.place":        ["docform/study-notes", "domain/geopolitics", "domain/cross-domain", "phase/ops", "maturity/concept"],
+  "entity.other":        ["docform/study-notes", "domain/cross-domain", "layer/system", "maturity/concept", "phase/ops"],
+  "concept.theory":      ["docform/article", "domain/ai", "layer/algorithm", "maturity/research", "phase/architecture"],
+  "concept.method":      ["docform/technical-doc", "domain/process", "phase/architecture", "maturity/pilot", "layer/application"],
+  "concept.field":       ["docform/article", "domain/cross-domain", "layer/system", "maturity/research", "phase/architecture"],
+  "concept.phenomenon":  ["docform/article", "domain/cross-domain", "layer/algorithm", "phase/modeling", "maturity/research"],
+  "concept.standard":    ["docform/standard-spec", "domain/fusa", "tec/iso26262", "layer/bsw-os", "maturity/standard"],
+  "concept.term":        ["docform/study-notes", "domain/cross-domain", "layer/system", "phase/requirements", "maturity/concept"],
+  "concept.other":       ["docform/study-notes", "domain/cross-domain", "layer/system", "phase/architecture", "maturity/concept"],
+};
+
+// ---- frontmatter 注入管道 helper(v0.6.5 WP-2)-----------------------------------------
+// 统一优先级:CLI 传入 > 脚本自动推导 > 模板默认。
+
+/** CLI list 入参归一:逗号分隔 string | array → string[](去空白、去空项);未传 → null */
+function parseListArg(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const arr = Array.isArray(v) ? v : String(v).split(",");
+  const out = arr.map((s) => String(s).trim()).filter(Boolean);
+  return out.length ? out : null;
+}
+
+/** ISO 8601 datetime + N 年 → "YYYY-MM-DDTHH:MM:SSZ"(entity/concept stale_after 自动推导) */
+function addYearsIso(iso, years) {
+  const d = new Date(iso);
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** string[] → YAML list 块体(`  - x` 多行,无尾换行) */
+function yamlListBody(items) {
+  return items.map((t) => `  - ${t}`).join("\n");
+}
+
+/** 单个 sources 对象 → YAML object list 条目(合规格式,frontmatter-spec.md §4.4.1):
+ *   - resource: "[[slug]]"
+ *     title: "T"
+ */
+function yamlSourceObjBody(obj) {
+  return Object.entries(obj)
+    .map(([k, v], i) => `${i === 0 ? "  - " : "    "}${k}: ${JSON.stringify(v ?? "")}`)
+    .join("\n");
+}
+
+/** sources 数组(元素可为对象或 legacy 字符串)→ YAML 块体;空数组 → "[]"(行内空数组) */
+function renderSourcesBody(arr) {
+  if (!arr.length) return "[]";
+  return arr.map((item) => (item && typeof item === "object" ? yamlSourceObjBody(item) : `  - ${item}`)).join("\n");
+}
+
+/** 重写模板里 `key:` 的列表块(tags / sources / aliases)。
+ *  replacement 语义:
+ *   - undefined/null → 不动模板(保留模板默认 = 管道第三优先级)
+ *   - ""             → 整块删除(含 key: 行与后续缩进行)
+ *   - "[]"           → 行内空数组 `key: []`
+ *   - 其余           → 块体 `key:\n<replacement>`(replacement 为 "  - x" 多行字符串)
+ *  块边界:key: 行 + 其后所有缩进行(列表项与对象续行);遇空行 / 顶级字段 / `---` 止。
+ *  注:`\n?` 兼容块位于 frontmatter 末尾(末行无换行符,fmBlock 不含收尾 `---`)的情形。
+ */
+function replaceListBlock(text, key, replacement) {
+  if (replacement === undefined || replacement === null) return text;
+  const re = new RegExp(`^${key}:[^\\n]*\\n(?:[ \\t]+[^\\n]*\\n?)*`, "gm");
+  if (replacement === "") return text.replace(re, "");
+  if (replacement === "[]") return text.replace(re, `${key}: []\n`);
+  return text.replace(re, `${key}:\n${replacement}\n`);
+}
+
 // ---- 模板解析 ------------------------------------------------------------
 // 提取 frontmatter 块原文(含注释行 / 字段顺序)+ H2 顺序;不动模板文件
 // 兼容:模板顶部可能有 HTML 注释行(批次 1 模板骨架松绑后,L113-style 提示常用 `<!-- ... -->` 前缀)。
 // 此处关心 frontmatter 块(原文)+ H2 顺序,不解析注释内容。
 function parseTemplate(mdText) {
   // 跳过开头的注释行(<!-- ... -->)与空行,定位首个 --- 起始
-  const cleaned = mdText.replace(/^(?:<!--[\s\S]*?-->\s*\n)+/, '');
-  const m = cleaned.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  // v0.6.5 (issue #16 根因修复):模板文件在 Windows 检出常为 CRLF 行尾,而列表块替换
+  // (TAGS_BODY / SOURCES_BODY / ALIASES_BODY)与 $KEY 空值删行都按 ^...$ 逐行匹配,
+  // 行尾 \r 会让块匹配静默失败 → CLI --tags 被模板默认 tags 静默覆盖。fmBlock 统一归一为 LF。
+  const cleaned = mdText.replace(/^(?:<!--[\s\S]*?-->\s*\r?\n)+/, '');
+  const m = cleaned.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/);
   if (!m) throw new Error("template frontmatter parse failed");
-  const fmBlock = m[1];          // frontmatter 块原文(注释行 + 字段顺序保留)
+  const fmBlock = m[1].replace(/\r\n/g, "\n"); // frontmatter 块原文(注释行 + 字段顺序保留,LF 归一)
   const fmNames = [...fmBlock.matchAll(/^([a-z_.]+):/gim)].map((x) => x[1]);
-  const h2s = [...m[2].matchAll(/^## (.+)$/gm)].map((x) => x[1].trim());
+  const h2s = [...m[2].replace(/\r\n/g, "\n").matchAll(/^## (.+)$/gm)].map((x) => x[1].trim());
   return { fmBlock, fmNames, h2s };
 }
 
@@ -153,40 +248,31 @@ function parseTemplate(mdText) {
 // 模板 frontmatter 块里用 $KEY 标记派生字段;本函数按 placeholders 字典整体字符串替换。
 // 设计原则:模板是字段名 / 字段顺序 / 注释行的**唯一事实源**,脚本只填值,不改顺序。
 // 占位符语法:
+//   - 列表块替换:tags / sources / aliases 走 *_BODY 管道(replaceListBlock),
+//     模板里写**具体合规示例**(v0.6.5 起不再用 $SOURCES / $ALIASES 占位行),
+//     脚本渲染时整体重写该块 → 输出永远无字面占位符,模板内容 = 脚本输出。
 //   - 整行替换:key: $KEY        → key: <value>
 //   - 行内替换:by: ".../$VER..." → by: ".../<version>..."(字符串里任意位置)
-//   - 多行替换:$SOURCES / $SOURCES_USED / $ALIASES 整体替换为对应 YAML 块
 //
 // ponytail:保留所有注释行(以 # 开头)和字段顺序;不调用 YAML 解析器,
 // 直接字符串替换 —— YAML parser 会把 list / object 强转,破坏可读性。
 //
 // 空值处理:占位符为空时 → 整行删除(避免 `key: ` 这种 YAML 不合法残留)。
-// 多行占位符($SOURCES / $SOURCES_USED / $ALIASES)空值时同样整行删。
+// v0.6.5:analysis / comparison / synthesis 模板(未纳入本次三模板改造)仍用
+// `sources: $SOURCES` 行内占位符 → 走下方 $KEY 循环兼容;三新模板的块替换优先执行,
+// 块替换后 $KEY 循环对已消失的占位符自然 no-op。
 function renderFrontmatter(type, fmBlock, placeholders) {
   let out = fmBlock;
-  // 多行占位符白名单:这些占位符可能占据 `key: $KEY` 整行,且替换后是多行 YAML list
-  const multiLineKeys = new Set(["SOURCES", "SOURCES_USED", "ALIASES"]);
 
-  // v0.6.4 (issue #7 fix): tags 在模板里用 YAML list 块写法(`tags:\n  - a\n  - b`),
-  // 无法用单 token `$TAGS` 替换。改为占位符模式下,CLI 传 tags 时整段替换 `tags:` 后
-  // 的 list(到下一个顶级字段或 frontmatter 末尾)。`ph.TAGS_BODY` 是「`- a\n  - b`」多行字符串。
-  if (placeholders.TAGS_BODY != null) {
-    const body = placeholders.TAGS_BODY;
-    // 匹配 `tags:\n` 起,到下一个 `^[A-Za-z_][A-Za-z0-9_.]*:` 字段起始或末尾空行
-    if (body === "") {
-      // 空 → 删整段 tags: 行 + 子项行
-      out = out.replace(/^tags:\n(?:[ \t]+-[^\n]*\n)*/gm, "");
-    } else {
-      out = out.replace(
-        /^tags:\n(?:[ \t]+-[^\n]*\n)*/gm,
-        `tags:\n${body}\n`
-      );
-    }
+  // v0.6.5 WP-2:泛化列表块替换(TAGS_BODY / SOURCES_BODY / ALIASES_BODY)
+  for (const [key, replacement] of Object.entries(placeholders)) {
+    if (!key.endsWith("_BODY")) continue;
+    out = replaceListBlock(out, key.replace(/_BODY$/, "").toLowerCase(), replacement);
   }
 
   for (const [key, value] of Object.entries(placeholders)) {
+    if (key.endsWith("_BODY")) continue; // 已在上方块替换处理
     // 整 token 匹配:避免 $VER 误命中 $VERSION(前者不是占位符,后者是)
-    if (key === "TAGS_BODY") continue;  // 已在上方特殊处理
     const re = new RegExp(`\\$${key}\\b`, "g");
     if (value == null || value === "") {
       // 空值 → 整行删除
@@ -202,39 +288,47 @@ function renderFrontmatter(type, fmBlock, placeholders) {
       out = out.replace(re, String(value));
     }
   }
-  return ["---", out, "---"].join("\n");
+  // 块替换后可能留下收尾空行(fmBlock 末尾无换行时补的 \n);统一收敛为一个换行
+  return ["---", out.replace(/\n+$/, ""), "---"].join("\n");
 }
 
 // ---- 派生占位符字典 ------------------------------------------------------
 // 把 PATH_MAP / 时间 / plugin 版本号 / args 折算成 placeholders 字典,
-// 供 renderFrontmatter 按 $KEY 替换。type 用于多类型分支(analysis / source 等)。
+// 供 renderFrontmatter 按 $KEY / *_BODY 块替换。type 用于多类型分支。
+//
+// v0.6.5 WP-2 (issues #16/#17/#14) 统一注入管道,优先级:CLI 传入 > 脚本自动推导 > 模板默认:
+//   - tags:--tags(逗号分隔 / array)> DEFAULT_TAGS_BY_TYPE(entity/concept)> 模板示例
+//   - sources:--source-resource/--source-title(对象格式)> legacy --sources > [](空但合规 + HINT)
+//   - aliases:--aliases(逗号分隔 / array)> [title] fallback(entity/concept/source)
+//   - description / summary:CLI > title fallback(entity/concept)
+//   - stale_after:--stale-after > generated.at + 1y(concept.standard +5y,对齐模板维护说明)
+// 返回 { ph, hints }:hints 是给 LLM 的 stdout 提示(如 sources 为空需补 source)。
 function derivePlaceholders(type, args) {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const ext = (args.ext || "").toLowerCase().replace(/^\./, "");
   const map = PATH_MAP[ext] || null;
   const subdir = args.subdir || "";
+  const isEntityConcept = type.startsWith("entity.") || type.startsWith("concept.");
+  const title = args.title || args.slug;
+  const hints = [];
 
+  // ---- 标量字段 ----
   const ph = {
     NOW: now,
     VERSION: readPluginVersion(),
-    TITLE: args.title || args.slug,
-    DESCRIPTION: args.description || "",
-    SUMMARY: args.summary || "",
-    STALE_AFTER: args.stale_after || "",
+    TITLE: title,
+    DESCRIPTION: args.description || (isEntityConcept ? title : ""),
+    SUMMARY: args.summary || (isEntityConcept ? title : ""),
+    STALE_AFTER: args.stale_after
+      || (isEntityConcept ? addYearsIso(now, type === "concept.standard" ? 5 : 1) : ""),
   };
 
-  // v0.6.4 (issue #7 fix): CLI --tags 解析后写到 TAGS_BODY,供 renderFrontmatter 整段替换模板的 tags: list。
-  // 支持两种 CLI 输入形态:string(逗号分隔)或 array(patch 模式 YAML load 后)。
-  // 未传 → undefined,renderFrontmatter 不动 tags(保留模板 6 条示例;LLM 后续可 Edit)。
-  // 注:`ph.TAGS_BODY = undefined` 不写入 placeholders(Render 端通过 key 存在性判断)
-  if (args.tags !== undefined) {
-    let tagArr;
-    if (Array.isArray(args.tags)) {
-      tagArr = args.tags.map(String).map((s) => s.trim()).filter(Boolean);
-    } else {
-      tagArr = String(args.tags).split(",").map((s) => s.trim()).filter(Boolean);
-    }
-    ph.TAGS_BODY = tagArr.map((t) => `  - ${t}`).join("\n");
+  // ---- tags:CLI --tags > DEFAULT_TAGS_BY_TYPE(entity/concept)> 模板默认(undefined → 不动模板)
+  const cliTags = parseListArg(args.tags);
+  if (cliTags) {
+    ph.TAGS_BODY = yamlListBody(cliTags);
+  } else if (isEntityConcept) {
+    ph.TAGS_BODY = yamlListBody(DEFAULT_TAGS_BY_TYPE[type] || []);
   }
 
   // type 字段:source 直接填,entity.* / concept.* 保留 args.type 子类
@@ -259,23 +353,47 @@ function derivePlaceholders(type, args) {
     ph.CONVERTER = converter;
     ph.NATIVE_TEXT = native;
     ph.CONVERTED_PATH = converted == null ? "null" : `"${converted}"`;
-  } else {
-    // entity.* / concept.* / analysis / comparison / synthesis
+    // v0.6.5:page-source.md 模板起带 aliases 字段;CLI > [title] fallback
+    const srcAliases = parseListArg(args.aliases) || [title];
+    ph.ALIASES_BODY = yamlListBody(srcAliases);
+    ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底(自定义旧模板)
+  } else if (isEntityConcept) {
+    // entity.* / concept.*:最小合规 skeleton(issue #14)
     ph.TYPE = args.type || type;
-    // sources:多行 YAML list 块
-    if (args.sources) {
-      // 用户显式传 → 直接用(支持字符串或数组)
-      const arr = Array.isArray(args.sources) ? args.sources : String(args.sources).split(",").map((s) => s.trim());
-      ph.SOURCES = arr.map((s) => `  - ${s}`).join("\n");
+
+    // sources:对象格式 [{resource: "[[<source-slug>]]", title: "<source title>"}](issue #17)
+    // 优先级:--source-resource/--source-title > legacy --sources > [](空但合规 + stdout HINT)
+    const srcResource = typeof args.source_resource === "string" ? args.source_resource.trim() : "";
+    const srcTitle = typeof args.source_title === "string" ? args.source_title.trim() : "";
+    if (srcResource || srcTitle) {
+      // 已带 [[..]] 的入参不重复包裹;只传其一 → 另一者用同一 slug 兜底
+      const link = srcResource ? srcResource.replace(/^\[\[/, "").replace(/\]\]$/, "") : srcTitle;
+      ph.SOURCES_BODY = renderSourcesBody([{ resource: `[[${link}]]`, title: srcTitle || link }]);
+    } else if (Array.isArray(args.sources)) {
+      // patch 模式:existingFm.sources YAML load 后的数组(对象 / legacy 字符串混排均可)
+      ph.SOURCES_BODY = renderSourcesBody(args.sources);
+    } else if (args.sources) {
+      // legacy --sources 字符串列表(analysis 家族兼容写法;lint 对非对象格式会提示)
+      ph.SOURCES_BODY = yamlListBody(String(args.sources).split(",").map((s) => s.trim()).filter(Boolean));
     } else {
-      ph.SOURCES = "";   // 模板里 sources: $SOURCES 整行被替换为空 → YAML 无 sources 字段
+      ph.SOURCES_BODY = "[]"; // 空但合规;main 向 stdout 提示 LLM 需补 source
+      hints.push('sources 为空:LLM 需补 source(重跑 --patch-frontmatter-only --source-resource <source-slug> --source-title "<source title>")');
     }
-    if (Array.isArray(args.aliases) && args.aliases.length > 0) {
-      ph.ALIASES = args.aliases.map((a) => `  - ${JSON.stringify(a)}`).join("\n");
-    } else if (typeof args.aliases === "string" && args.aliases.trim()) {
-      ph.ALIASES = args.aliases.split(",").map((a) => `  - ${JSON.stringify(a.trim())}`).join("\n");
+    ph.SOURCES = ph.SOURCES_BODY === "[]" ? "" : ph.SOURCES_BODY; // legacy $SOURCES 兜底
+
+    // aliases:CLI > [title] fallback(Obsidian 原生别名机制,frontmatter-spec §12.4)
+    const cliAliases = parseListArg(args.aliases);
+    ph.ALIASES_BODY = yamlListBody(cliAliases || [title]);
+    ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底
+  } else {
+    // analysis / comparison / synthesis:模板未纳入 v0.6.5 三模板改造,保持 legacy $SOURCES 行为
+    ph.TYPE = args.type || type;
+    if (Array.isArray(args.sources)) {
+      ph.SOURCES = renderSourcesBody(args.sources);
+    } else if (args.sources) {
+      ph.SOURCES = yamlListBody(String(args.sources).split(",").map((s) => s.trim()).filter(Boolean));
     } else {
-      ph.ALIASES = "";
+      ph.SOURCES = ""; // 模板里 sources: $SOURCES 整行被替换为空 → YAML 无 sources 字段
     }
   }
 
@@ -294,13 +412,13 @@ function derivePlaceholders(type, args) {
     ph.ANSWER_TO = args.answer_to || "";
     // sources_used:多行 YAML list 块
     if (args.sources_used) {
-      const arr = args.sources_used.split(",").map((s) => s.trim());
-      ph.SOURCES_USED = arr.map((s) => `  - ${s}`).join("\n");
+      const arr = parseListArg(args.sources_used) || [];
+      ph.SOURCES_USED = yamlListBody(arr);
     } else {
       ph.SOURCES_USED = "";
     }
   }
-  return ph;
+  return { ph, hints };
 }
 
 // ---- 渲染正文骨架 --------------------------------------------------------
@@ -455,8 +573,8 @@ function main() {
   const tpl = parseTemplate(tplText);
 
   // v0.6.1:frontmatter 由模板 fmBlock 原文 + 占位符替换生成(模板是字段顺序 / 注释的唯一事实源)
-  const placeholders = derivePlaceholders(type, args);
-  const fm = renderFrontmatter(type, tpl.fmBlock, placeholders);
+  const { ph, hints } = derivePlaceholders(type, args);
+  const fm = renderFrontmatter(type, tpl.fmBlock, ph);
   const body = renderBody(type, tpl, args);
   const out = fm + "\n" + body;
 
@@ -496,7 +614,7 @@ function main() {
       // 归一 list 字段:CLI 传逗号分隔 string ↔ YAML load 后 array ↔ derivePlaceholders 内部已支持两种
       // 但 alias 字段若 existingFm 是 array 而 CLI 没传,mergedArgs.aliases 应保留 array(已 OK)
       const mergedArgs = { ...existingFm, ...definedArgs };
-      const newPh = derivePlaceholders(type, mergedArgs);
+      const { ph: newPh, hints: newHints } = derivePlaceholders(type, mergedArgs);
       const newFm = renderFrontmatter(type, tpl.fmBlock, newPh);
       const existingBody = m[2];
       const patched = newFm + "\n" + existingBody;
@@ -507,6 +625,7 @@ function main() {
         process.exit(3);
       }
       console.log(`OK: ${type} → ${outPath} (patched frontmatter only, ${patched.length} bytes)`);
+      for (const h of newHints) console.log(`HINT: ${h}`);
       return;
     }
   }
@@ -518,6 +637,7 @@ function main() {
     process.exit(3);
   }
   console.log(`OK: ${type} → ${outPath} (${out.length} bytes)`);
+  for (const h of hints) console.log(`HINT: ${h}`);
 }
 
 main();

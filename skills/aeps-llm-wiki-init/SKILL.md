@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-init
 description: 初始化 aeps-llm-wiki 知识库目录结构(首次启用 / 幂等再入)
-plugin-version: 0.6.4
+plugin-version: 0.6.5
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/patch-claude-md.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-report.js*)
 ---
 
@@ -81,6 +81,15 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js --project <dir> --plug
 
 JSON 含 `counts.gitkeepTotal`(应为 38=5+18+15)+ `created[]` 列表。
 
+#### 4 件顶层索引文件的 sentinel 结构(步骤 3 产物约定)
+
+`build-skeleton.js` 写出的 `knowledge/index.md` / `glossary.md` / `overview.md` 各含一对聚合标记
+`<!-- AGGREGATE-START -->` / `<!-- AGGREGATE-END -->` HTML 注释(`log.md` 除外):
+
+- **标记之间 = 动态区**:由 `scripts/aggregate-index.js`(ingest 步骤 14)在每次 ingest 后**整体重写**;init 时只是 `*(暂无)*` 占位。
+- **标记之外 = 手写区**:项目简介(Overview)、手工术语批注、维护备注等 LLM / 用户手写内容**必须写在标记之外**,聚合脚本永不覆盖。
+- LLM 在 init 后填项目简介时,严禁写进标记之间——那里的内容会在下一次 ingest 被无提示清掉。
+
 ### 步骤 4:同步策略文件(scripts/templates/schema)
 
 无论是首次还是幂等再入,都跑:
@@ -91,7 +100,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js --project <dir> --plugin-r
 
 JSON 含 `migrated / added / updated / skipped / warned` 5 数组 + 计数。
 
-- 首次启用:`added` 应有 doc/templates/page-*.md、tag-spec.md、concept-entities-spec.md、rawdir-spec.md 等;`migrated` 应为空
+- 首次启用:`added` 应有 doc/templates/page-*.md、tag-spec.md、concept-entities-spec.md、rawdir-spec.md 等;`migrated` 应为空。同步过去的 `page-index.md` / `page-glossary.md` / `page-overview.md` 模板自带聚合标记对(见步骤 3 的 sentinel 结构说明),原样复制、不做改写
 - 老用户迁移:`migrated` 应含 `{from:"./schema", to:"./doc/schema", ...}` 与 `{from:"./templates", to:"./doc/templates", ...}`;若 `warned` 有 `non_empty_legacy_dir` → 摘要时提醒用户手动 `git rm` 遗留目录
 - 幂等再入:`updated` 应含 doc/schema/* 全量覆盖 + doc/templates/README.md 覆盖 + inbox/raw README 覆盖;`skipped` 应含用户已改的 doc/templates/page-*.md
 

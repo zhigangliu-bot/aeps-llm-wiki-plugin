@@ -28,6 +28,8 @@
  *   - 0.6.0: P0-#1 (issue #1) — 保留 LLM 拍板字段(slug/target_subdir/route/...):
  *     旧版 map 重写 file 会把所有 LLM 决策字段静默丢为 null,导致下游 move-to-raw
  *     fail with "target_subdir 未指定"。改为 spread LLM 输入 + 脚本必需默认值覆盖。
+ *   - 0.6.5: WP-1 (issue #15) — 接受 `subdir` 作为 `target_subdir` 别名
+ *     (SKILL.md 步骤 3 文档字段名与脚本字段名不一致导致 move-to-raw exit 2)。
  */
 
 import { promises as fs } from 'node:fs';
@@ -112,26 +114,37 @@ async function main() {
   // 初始状态总线:先吃 LLM 输入的所有字段(保留拍板决策 slug/target_subdir/route/...),
   // 再补脚本必需的默认值(moved/status 等不能被 LLM 覆盖)。v0.6.0 起 issue #1 fix:
   // 旧版用 whitelist 重写 file,会把 LLM 拍板的 slug/target_subdir 静默丢为 null。
+  //
+  // v0.6.5 WP-1 (issue #15) 字段别名审计(SKILL.md 步骤 3 文档字段名 ↔ 脚本字段名):
+  //   - `subdir`(SKILL.md 文档写法)→ `target_subdir`(下游 move-to-raw / append-log
+  //     唯一认的字段名):加别名归一,归一后剔除 `subdir` 键,避免 batch 里两套字段并存。
+  //   - 其余字段(path / size / ext / mtime / route / converter / native_text /
+  //     converted_path / converted_emitted / slug / target_raw_path / dedupe_key)
+  //     文档名 = 脚本名,经 spread 透传已一致,无同类漂移。
   const startedAt = nowIso();
-  const files = inputFiles.map((f) => ({
-    ...f, // 透传 LLM 决策字段(slug / target_subdir / route / converter / native_text / converted_path / 等)
-    path: f.path, // 必填,覆盖可能的 null
-    size: f.size || 0,
-    ext: f.ext,
-    mtime: f.mtime || null,
-    // 脚本必需默认值(LLM 误传也覆盖)
-    moved: false,
-    status: 'pending',
-    converted_emitted: f.converted_emitted ?? false,
-    target_subdir: f.target_subdir ?? null, // SKILL.md 步骤 3 LLM 拍板
-  }));
+  const files = inputFiles.map((f) => {
+    const { subdir, ...rest } = f; // subdir 是 target_subdir 的文档别名(issue #15)
+    return {
+      ...rest, // 透传 LLM 决策字段(slug / target_subdir / route / converter / native_text / converted_path / 等)
+      path: f.path, // 必填,覆盖可能的 null
+      size: f.size || 0,
+      ext: f.ext,
+      mtime: f.mtime || null,
+      // 脚本必需默认值(LLM 误传也覆盖)
+      moved: false,
+      status: 'pending',
+      converted_emitted: f.converted_emitted ?? false,
+      // SKILL.md 步骤 3 LLM 拍板;`subdir` 为同义别名,显式 target_subdir 优先
+      target_subdir: f.target_subdir ?? subdir ?? null,
+    };
+  });
 
   const batch = {
     batch_id: batchId,
     project: project.replace(/\\/g, '/'),
     emit_dir: emitDir.replace(/\\/g, '/'),
     started_at: startedAt,
-    plugin_version: '0.6.4',
+    plugin_version: '0.6.5',
     files,
   };
 

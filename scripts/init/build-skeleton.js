@@ -80,15 +80,28 @@ function nowIso() {
 // 其余 3 个(index/glossary/log)继续走硬编码,因为 page-{index,overview,glossary,log}.md
 // 模板目前只覆盖了 overview 的 Karpathy 风格骨架,index/glossary/log 内容由脚本直接拼更可控。
 const INDEX_TEMPLATES = {
+  // (issue #11 fix)动态区用聚合标记对包住:aggregate-index.js 每次 ingest 只整体替换两个标记
+  // 之间的内容;项目简介等手写内容必须写在标记之外,不会被覆盖。
   'index.md': ({ title }) => `# ${title} Wiki 主目录
 
 > 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 增量维护。
+> 两个聚合标记(下方 START / END HTML 注释对)之间的动态区由
+> \`scripts/aggregate-index.js\` 在每次 ingest 后整体重写;项目简介等手写内容请写在标记之外。
 
 参见 [overview](./overview.md) 查看大图。
+
+<!-- AGGREGATE-START -->
+*(暂无)*
+<!-- AGGREGATE-END -->
 `,
   'glossary.md': ({ title }) => `# ${title} Wiki 术语表
 
 > 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 增量维护。
+> 两个聚合标记之间的动态区由 \`scripts/aggregate-index.js\` 整体重写;手工术语条目请写在标记之外。
+
+<!-- AGGREGATE-START -->
+*(暂无)*
+<!-- AGGREGATE-END -->
 `,
   'log.md': ({ at, title }) => `# ${title} Wiki 变更日志
 

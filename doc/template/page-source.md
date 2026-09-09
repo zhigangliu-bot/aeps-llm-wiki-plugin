@@ -36,6 +36,10 @@ converted_path: $CONVERTED_PATH
 # plugin 推荐字段
 updated: "$NOW"
 summary: "$SUMMARY"
+
+# plugin 推荐字段(Obsidian 原生别名机制,v0.6.5 起;gen-page 按 --aliases 注入,缺省 fallback [title])
+aliases:
+  - "页面标题或常用别名"
 ---
 # ISO 26262:2018 功能安全标准
 
