@@ -1,7 +1,14 @@
 <!-- 提示:本页是 plugin 自定义 reserved filename,无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。 -->
+
+<!-- change history:
+  - v0.6.4 (P0 issue #5): 删除硬编码占位术语(AGI / ASIL / AUTOSAR / LLM / OKF / synthesis / TVL 等),
+    所有 26 个字母段改为「*(暂无)*」骨架。aggregate-index.js 重新生成时按 wiki 内真实 title + aliases
+    写入;无任何 wikilink 指向不存在的占位术语页(原 llm-wiki / iso-26262 / hardware-architecture-metric /
+    autosar / okf-v0-2 / cross-chain-bridge 等 wikilink 已删除,因 init 时这些页根本不存在)。
+-->
 # 项目名 Wiki 术语表
 
-> **plugin 版本**:0.6.3
+> **plugin 版本**:0.6.4
 > **最近更新**:2026-09-04T10:30:00Z
 >
 > 本文件无 frontmatter(本文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内);由 `/aeps-llm-wiki-init` 创建 + `/aeps-llm-wiki-ingest` 增量更新。
@@ -21,9 +28,7 @@
 
 ## A
 
-- **AGI**(Artificial General Intelligence,通用人工智能):具备与人类相当或超越的广泛认知能力的人工智能系统。相关:[[llm-wiki]]。
-- **ASIL**(Automotive Safety Integrity Level,汽车安全完整性等级):ISO 26262 定义的危险事件风险分类等级(QM / A / B / C / D)。相关:[[iso-26262]]、[[hardware-architecture-metric]]。
-- **AUTOSAR**(AUTomotive Open System ARchitecture):汽车开放系统架构标准,定义 CP(经典平台)/ AP(自适应平台)两套软件架构。相关:[[autosar]]。
+- *(暂无)*
 
 ## B
 
@@ -67,7 +72,7 @@
 
 ## L
 
-- **LLM**(Large Language Model,大语言模型):基于 Transformer 架构的大规模语言模型。相关:[[llm-wiki]]。
+- *(暂无)*
 
 ## M
 
@@ -79,7 +84,7 @@
 
 ## O
 
-- **OKF**(Open Knowledge Format):Google Cloud 主导的开放知识格式,本 wiki 严格兼容 v0.2。相关:[[okf-v0-2]]。
+- *(暂无)*
 
 ## P
 
@@ -95,11 +100,11 @@
 
 ## S
 
-- **synthesis**(综合页):`type: synthesis` 常驻综合页,由 `/aeps-llm-wiki-synthesize` 显式触发;整合 wiki 内 ≥3 个相关概念。
+- *(暂无)*
 
 ## T
 
-- **TVL**(Total Value Locked,总锁仓价值):DeFi 协议中锁定的资产总价值。相关:[[cross-chain-bridge]]。
+- *(暂无)*
 
 ## U
 

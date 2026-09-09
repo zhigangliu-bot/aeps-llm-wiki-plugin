@@ -272,7 +272,7 @@ OKF 标准下 `type` 取值**开放**(§4.1),消费方 MUST NOT reject 未知 ty
 
 ```yaml
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.3"
+  by: "producer/aeps-llm-wiki-plugin/0.6.4"
   at: "2026-09-05T10:30:00Z"
 ```
 
@@ -620,7 +620,7 @@ description: One row per completed customer order across all channels.
 resource: https://example.com/data/orders
 tags: [sales, orders, revenue]
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.3"
+  by: "producer/aeps-llm-wiki-plugin/0.6.4"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"
@@ -640,7 +640,7 @@ description: Headline income-statement figures for a fiscal year.
 tags: [finance, income-statement]
 status: stable
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.3"
+  by: "producer/aeps-llm-wiki-plugin/0.6.4"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"

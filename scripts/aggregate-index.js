@@ -34,6 +34,9 @@
 //     触发链:lint R7.1/R7.2 未豁免 reserved filename → ingest SKILL 步骤 19 FAIL →
 //     用户/agent 反向给 reserved file 补 frontmatter 才过 → 污染 reserved file
 //     (本次同步修 lint-stub.js 加 R7.3 检测 + reserved 豁免)。
+//   - 0.6.4 (issue #5 fix 续):doc/template/page-{index,glossary}.md 模板里的硬编码占位 wikilink / 术语
+//     全部清空为「*(暂无)*」(同时删除 Entities/Concepts 节里 ### Person/Method/... H3 占位,
+//     改为脚本 renderIndex/renderGlossary 按 type 动态生成,避免双重 H3)。
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";

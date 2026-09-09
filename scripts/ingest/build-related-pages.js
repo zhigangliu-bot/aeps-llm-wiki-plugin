@@ -22,6 +22,15 @@
  *   - 冲突条目(同 wikilink)→ 保留人工条目(可能含更详细别名/批注),WARN `duplicate, kept manual entry`
  *   - 若需完全重建 → 手工删除 `## 相关页面(...)` 区块后再跑
  *
+ * v0.6.4: P0-#6 / P0-#3 — `resolveSourceByResource` 接受 5 种 resource 形态:
+ *   1. `./raw/{subdir}/{file}` 原始 raw 路径(source.resource 标准形态)
+ *   2. `knowledge/sources/{slug}.md` 绝对相对路径
+ *   3. `[[sources/{slug}]]` / `[[sources/{slug}.md]]` Obsidian wikilink
+ *   4. `sources/{slug}` / `sources/{slug}.md` 短路径
+ *   5. `{slug}` / `{slug}.md` 裸 slug
+ *   P2-#9 — `renderRelatedBlock` / `renderSourcesBlock` 不再向正文渲染 AI 风指示性话
+ *   (RELATED_DESC / SOURCES_DESC),只保留 H2 + ### 子条目 + wikilink。
+ *
  * Exit codes:
  *   0 - 成功
  *   1 - 参数错
@@ -148,10 +157,15 @@ const SOURCES_H2 = '## 来源资料(由 ingest 自动生成)';
 // 同样兼容用户手工 `## 来源资料` 标题
 const SOURCES_H2_PREFIX = '## 来源资料';
 
-// 反链区块说明文字(对齐 page-source.md L111 / page-entity-*.md L55):
+// 反链区块说明文字常量(对齐 page-source.md L111 / page-entity-*.md L55):
 // v0.5.6 起改为"追加 + 保留"语义;人工补的条目保留,WARN 重复时让位给人工条目。
-const RELATED_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据本源页抽取并创建的实体页、概念页生成,**追加模式**:每次 ingest 在区块末尾追加新确认的反链(去重),保留人工补的条目;若需完全重建,请先手工删除本节再跑。';
-const SOURCES_DESC = '本节由 `/aeps-llm-wiki-ingest` 根据抽取本页的 `type: source` 源页列表生成,作为 source 页 `## 相关页面(Related Pages)` 的反向链接(双向反链)。**追加模式**:每次 ingest 在区块末尾追加新 source(去重),保留人工补的条目;若需完全重建,请先手工删除本节再跑。';
+// v0.6.4 (issue #9 fix): 不再渲染到正文 —— 「追加模式 / 重建说明」是 SKILL.md / 设计文档
+// 应有的元信息,wiki 正文里出现 AI 风指示性话违反用户偏好。删除 RELATED_DESC / SOURCES_DESC
+// 实际渲染调用;常量保留作 schema 占位/未来 lint 引用。
+// eslint-disable-next-line no-unused-vars
+const RELATED_DESC_PLACEHOLDER = '本节由 `/aeps-llm-wiki-ingest` 自动追加(追加 + 保留语义;详见 SKILL.md)。';
+// eslint-disable-next-line no-unused-vars
+const SOURCES_DESC_PLACEHOLDER = '本节由 `/aeps-llm-wiki-ingest` 自动追加(追加 + 保留语义;详见 SKILL.md)。';
 
 // ---- frontmatter 解析 ----
 function parseFrontmatter(mdText) {
@@ -285,9 +299,10 @@ async function scanEntityConcept(knowledgeDir) {
 }
 
 // ---- 区块渲染 ----
+// v0.6.4 (issue #9 fix): 删除 AI 风指示性话(desc 字段),只保留 H2 标题 + ### 子条目 + wikilink。
 function renderRelatedBlock(entities, concepts) {
   if (!entities.length && !concepts.length) return null;
-  const lines = [RELATED_H2, '', RELATED_DESC, ''];
+  const lines = [RELATED_H2, ''];
   if (entities.length) {
     lines.push(RELATED_ENTITIES_H3, '');
     for (const e of entities.sort((a, b) => a.title.localeCompare(b.title))) {
@@ -307,7 +322,7 @@ function renderRelatedBlock(entities, concepts) {
 
 function renderSourcesBlock(sourceRefs) {
   if (!sourceRefs.length) return null;
-  const lines = [SOURCES_H2, '', SOURCES_DESC, ''];
+  const lines = [SOURCES_H2, ''];
   for (const s of sourceRefs.sort((a, b) => a.title.localeCompare(b.title))) {
     lines.push(`- [[${s.slug}]]`);
   }
@@ -565,20 +580,43 @@ async function main() {
   //    资源可能是:
   //    - ./knowledge/sources/{slug}.md → 直接 slug
   //    - ./raw/{subdir}/{file} → 由 SKILL.md 抽取时建 entity/concept 时填此值, 反查 source.resource
+  // v0.6.4 (issue #6 fix): resource 路径接受 5 种形态 —
+  //   1. ./raw/{subdir}/{file}            → sourceByResource
+  //   2. knowledge/sources/{slug}.md      → 提取 slug 后 sourceBySlug
+  //   3. [[sources/{slug}]] / [[sources/{slug}.md]]  (Obsidian wikilink)
+  //   4. sources/{slug} / sources/{slug}.md         (短路径,相对 knowledge/)
+  //   5. {slug} / {slug}.md               (裸 slug,裸文件名)
+  //   兜底:路径最后一段去 .md 后做 slug
+  function resolveSourceByResource(rawResource) {
+    if (!rawResource) return null;
+    let r = norm(rawResource).trim();
+    // 剥 Obsidian wikilink [[xxx]] 或 [[xxx|alias]]
+    r = r.replace(/^\[\[/, '').replace(/\]\]$/, '').split('|')[0].trim();
+    if (!r) return null;
+    // 1. 完整 raw/ 路径(已是 source.resource 的标准形态)
+    let m = sourceByResource.get(r);
+    if (m) return m;
+    // 2. knowledge/sources/{slug}.md
+    m = r.match(/knowledge\/sources\/([^/]+?)(?:\.md)?$/);
+    if (m && sourceBySlug.has(m[1])) return sourceBySlug.get(m[1]);
+    // 3/4. sources/{slug}[.md] 或 ./sources/{slug}[.md]
+    m = r.match(/(?:\.\/)?sources\/([^/]+?)(?:\.md)?$/);
+    if (m && sourceBySlug.has(m[1])) return sourceBySlug.get(m[1]);
+    // 5. 裸 slug / 裸 slug.md
+    m = r.match(/^([^/]+?)(?:\.md)?$/);
+    if (m && sourceBySlug.has(m[1])) return sourceBySlug.get(m[1]);
+    return null;
+  }
+
   const ecToSources = new Map(); // ec.relPath → [{ slug, title }]
   for (const ec of ecPages) {
     const refs = [];
+    const seen = new Set();
     for (const src of ec.sources) {
-      if (!src.resource) continue;
-      const r = norm(src.resource);
-      let matched = sourceByResource.get(r);
-      if (!matched) {
-        // 尝试 ./knowledge/sources/{slug}.md
-        const m2 = r.match(/knowledge\/sources\/([^/]+)\.md$/);
-        if (m2) matched = sourceBySlug.get(m2[1]);
-      }
-      if (matched) {
+      const matched = resolveSourceByResource(src.resource);
+      if (matched && !seen.has(matched.slug)) {
         refs.push({ slug: matched.slug, title: matched.title });
+        seen.add(matched.slug);
       }
     }
     if (refs.length) ecToSources.set(ec.relPath, refs);
@@ -592,13 +630,7 @@ async function main() {
   }
   for (const ec of ecPages) {
     for (const src of ec.sources) {
-      if (!src.resource) continue;
-      const r = norm(src.resource);
-      let matched = sourceByResource.get(r);
-      if (!matched) {
-        const m2 = r.match(/knowledge\/sources\/([^/]+)\.md$/);
-        if (m2) matched = sourceBySlug.get(m2[1]);
-      }
+      const matched = resolveSourceByResource(src.resource);
       if (!matched) continue;
       const bucket = sourceToEc.get(matched.slug);
       if (!bucket) continue;

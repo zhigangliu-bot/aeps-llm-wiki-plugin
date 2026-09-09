@@ -24,6 +24,12 @@
 // change history:
 //   - 0.6.0: P0-#2 (issue #2) — 加 --patch-frontmatter-only flag:只 patch frontmatter 不动正文。
 //     旧版 --out 重跑会覆盖 LLM 已填正文为占位符。新用法 SKILL.md 步骤 7。
+//   - 0.6.4: P1-#7 — CLI --tags 真正生效:模板 tags: 后整段 list 被 args.tags(逗号 string 或 array)
+//     替换;空 → 整段删除。
+//     P1-#8 — --patch-frontmatter-only 合并前 strip undefined,避免 `{...existingFm, ...args}`
+//     把 CLI 未传的 key 覆盖为 undefined 导致 resource / tags 等字段被清空。
+//     P3-#10 — parseArgs boolean flag 判定显式三分支(undefined / `--` 起首 / 真值),
+//     修复 --json / --apply / --patch-frontmatter-only 单传时 args[key] === undefined 的 bug。
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
@@ -161,8 +167,26 @@ function renderFrontmatter(type, fmBlock, placeholders) {
   // 多行占位符白名单:这些占位符可能占据 `key: $KEY` 整行,且替换后是多行 YAML list
   const multiLineKeys = new Set(["SOURCES", "SOURCES_USED", "ALIASES"]);
 
+  // v0.6.4 (issue #7 fix): tags 在模板里用 YAML list 块写法(`tags:\n  - a\n  - b`),
+  // 无法用单 token `$TAGS` 替换。改为占位符模式下,CLI 传 tags 时整段替换 `tags:` 后
+  // 的 list(到下一个顶级字段或 frontmatter 末尾)。`ph.TAGS_BODY` 是「`- a\n  - b`」多行字符串。
+  if (placeholders.TAGS_BODY != null) {
+    const body = placeholders.TAGS_BODY;
+    // 匹配 `tags:\n` 起,到下一个 `^[A-Za-z_][A-Za-z0-9_.]*:` 字段起始或末尾空行
+    if (body === "") {
+      // 空 → 删整段 tags: 行 + 子项行
+      out = out.replace(/^tags:\n(?:[ \t]+-[^\n]*\n)*/gm, "");
+    } else {
+      out = out.replace(
+        /^tags:\n(?:[ \t]+-[^\n]*\n)*/gm,
+        `tags:\n${body}\n`
+      );
+    }
+  }
+
   for (const [key, value] of Object.entries(placeholders)) {
     // 整 token 匹配:避免 $VER 误命中 $VERSION(前者不是占位符,后者是)
+    if (key === "TAGS_BODY") continue;  // 已在上方特殊处理
     const re = new RegExp(`\\$${key}\\b`, "g");
     if (value == null || value === "") {
       // 空值 → 整行删除
@@ -176,11 +200,6 @@ function renderFrontmatter(type, fmBlock, placeholders) {
       );
     } else {
       out = out.replace(re, String(value));
-      // 替换后,如果该行是 `key: <多行值>`(value 含换行),保持原状;
-      // 如果是 `key: <单行值>` 也保持原状。
-      // 但需要修正:多行占位符(如 $SOURCES)被替换为多行 YAML list,
-      // 模板里是 `sources: $SOURCES` 单行 → 替换后变成 `sources: \n  - foo\n  - bar`,
-      // YAML 合法(list 作为 block scalar),保持。
     }
   }
   return ["---", out, "---"].join("\n");
@@ -203,6 +222,20 @@ function derivePlaceholders(type, args) {
     SUMMARY: args.summary || "",
     STALE_AFTER: args.stale_after || "",
   };
+
+  // v0.6.4 (issue #7 fix): CLI --tags 解析后写到 TAGS_BODY,供 renderFrontmatter 整段替换模板的 tags: list。
+  // 支持两种 CLI 输入形态:string(逗号分隔)或 array(patch 模式 YAML load 后)。
+  // 未传 → undefined,renderFrontmatter 不动 tags(保留模板 6 条示例;LLM 后续可 Edit)。
+  // 注:`ph.TAGS_BODY = undefined` 不写入 placeholders(Render 端通过 key 存在性判断)
+  if (args.tags !== undefined) {
+    let tagArr;
+    if (Array.isArray(args.tags)) {
+      tagArr = args.tags.map(String).map((s) => s.trim()).filter(Boolean);
+    } else {
+      tagArr = String(args.tags).split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    ph.TAGS_BODY = tagArr.map((t) => `  - ${t}`).join("\n");
+  }
 
   // type 字段:source 直接填,entity.* / concept.* 保留 args.type 子类
   if (type === "source") {
@@ -334,6 +367,11 @@ function renderBody(type, tpl, args) {
 }
 
 // ---- 主流程 --------------------------------------------------------------
+// v0.6.4 (issue #10 fix): 修正 boolean flag(无值)的判定 ——
+//   旧实现 `out[key] = v && !v.startsWith("--") ? v : true` 在 `v = undefined` 时
+//   `v && ...` 短路成 undefined,导致 `--json` 单传时 args.json === undefined
+//   (而非 true),后续 `if (args.json)` 全部失效,并在并发场景下让 parseArgs
+//   行为不可预测。新实现显式三分支:有值 → 用值;无值 → true;没 -- 前缀 → true。
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
@@ -341,8 +379,13 @@ function parseArgs(argv) {
     if (!k.startsWith("--")) continue;
     const key = k.slice(2).replace(/-/g, "_");
     const v = argv[i + 1];
-    out[key] = v && !v.startsWith("--") ? v : true;
-    if (v && !v.startsWith("--")) i++;
+    if (v === undefined || v.startsWith("--")) {
+      // boolean flag(--json / --apply / --patch-frontmatter-only 等)
+      out[key] = true;
+    } else {
+      out[key] = v;
+      i++;
+    }
   }
   return out;
 }
@@ -425,10 +468,11 @@ function main() {
   mkdirSync(dirname(outPath), { recursive: true });
 
   // v0.6.0 (issue #2 fix): --patch-frontmatter-only 模式:只 patch frontmatter,不动正文
-  // 用法:`gen-page.js --out foo.md --patch-frontmatter-only --summary "..." --title "..."`
-  //   - 目标文件存在 → 解析现有 YAML,合并传入字段(只覆盖传入的 key),正文保持不变
-  //   - 目标文件不存在 → fallback 全量生成(打印 WARN)
-  //   - 不传 --patch-frontmatter-only → 行为不变(全量写,SKILL.md 步骤 6 用)
+  // v0.6.4 (issue #8 fix): mergedArgs spread 前必须 strip undefined —— 否则
+  //   `{...existingFm, ...args}` 会把 `args.tags === undefined` 这种「CLI 未传」
+  //   字段覆盖到 existingFm.tags 上,导致 derivePlaceholders 看到 undefined →
+  //   空值 → 整行删 → **resource / tags / sources 等未传字段被清空**。
+  //   现在只把 args 里**实际有值**(非 undefined)的 key 覆盖过去,「CLI 未传」让位给 existingFm。
   if (args.patch_frontmatter_only) {
     if (!existsSync(outPath)) {
       console.error(`WARN: --patch-frontmatter-only 目标文件不存在: ${outPath};fallback 全量生成`);
@@ -444,10 +488,14 @@ function main() {
         console.error(`ERROR: 解析现有 frontmatter 失败: ${e.message}`);
         process.exit(3);
       }
-      // 把现有 frontmatter 当成 args 来源 + 新 args 覆盖;再 derivePlaceholders 一次得到完整新 fm
-      // normalize: tags / sources_used / aliases 等可能 array(YAML 解析)也可能 string(CLI 传)
-      const mergedArgs = { ...existingFm, ...args };
-      // YAML load 已经把 list 转 array,CLI 传 string — derivePlaceholders 已统一处理
+      // 过滤 undefined:CLI 没传的 key 不应该覆盖 existingFm 的值
+      const definedArgs = {};
+      for (const [k, v] of Object.entries(args)) {
+        if (v !== undefined) definedArgs[k] = v;
+      }
+      // 归一 list 字段:CLI 传逗号分隔 string ↔ YAML load 后 array ↔ derivePlaceholders 内部已支持两种
+      // 但 alias 字段若 existingFm 是 array 而 CLI 没传,mergedArgs.aliases 应保留 array(已 OK)
+      const mergedArgs = { ...existingFm, ...definedArgs };
       const newPh = derivePlaceholders(type, mergedArgs);
       const newFm = renderFrontmatter(type, tpl.fmBlock, newPh);
       const existingBody = m[2];
