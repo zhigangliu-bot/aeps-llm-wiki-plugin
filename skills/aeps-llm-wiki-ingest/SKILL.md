@@ -5,32 +5,7 @@ plugin-version: 0.6.3
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
-## Change History
-
-- 2026-09-08 / 批次 1 / R1 (P0-1):顶部新增"脚本路径约定"段;说明 `${CLAUDE_PLUGIN_ROOT}` 由调用方注入,或用 `--plugin-root` CLI 参数显式传递冗余兜底;明确脚本位于 plugin 仓根的 `scripts/` 下,**不**在 `skills/<skill>/scripts/` 下。
-- 2026-09-08 / 批次 1 / R2 (P0-2):`build-related-pages.js` 支持 `--plugin-root` / `--schema-path` / `--project` CLI 参数,schema 路径按候选列表查找(用户工程 `schema/` > 用户工程 `doc/schema/` > plugin 自检)。
-- 2026-09-08 / 批次 1 / R3 (P0-3):`gen-page.js` 支持 `--plugin-root` CLI 参数,版本号 fallback 从伪零版本字符串(回退兜底)改为占位语义字符串 `"unknown"`(无法定位 plugin 根时的显式标识)。
-- 2026-09-08 / 批次 1 / R4 (P0-1/2/3):命令行全部追加 `--plugin-root ${CLAUDE_PLUGIN_ROOT}` 参数,确保 `${CLAUDE_PLUGIN_ROOT}` env 未注入时仍能跑通。
-- 2026-09-08 / 批次 3 / R1 (P1-3):`init-batch.js` 支持 `--files-file <absolute>` 从文件读 JSON 列表,与 `--files <json>` 互斥(都传/都不传 → ERROR)。SKILL.md 步骤 4 命令行按文件大小选择其一。
-- 2026-09-08 / 批次 3 / R2 (P1-4):`append-log.js` JSON output 增加 `entries: [{file, action, summary}]` 数组,`action ∈ {added, merged, skipped}`。
-- 2026-09-08 / 批次 3 / R3 (P1-6):inline preflight 已内置到所有 ingest/init 脚本顶部,缺包立即 ERROR 并打印精确 `npm install` 命令;旧步骤 0.5 主动调用的 `preflight.js` 降级为可选,与 inline 并存。
-- 2026-09-08 / 批次 3 / R4 (P2-1):`build-related-pages.js` JSON output 增加 `warnings_by_file` 字段,与已有 `warnings` 扁平数组并存。
-- 2026-09-08 / 批次 3 / R5 (P2-3):`aggregate-index.js` 加 `--json` 参数时输出 `by_type` + `by_subdir` 分类统计。
-- 2026-09-08 / 批次 3 / R7 (P2-5):`lint-stub.js` 步骤 19 真做两条规则:R7.1 tags <5 → WARN;R7.2 updated 非 ISO 8601 → ERROR(exit 2)。
-- 2026-09-08 / 批次 4 / P3-2:步骤 0.5 措辞统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装"。
-- 2026-09-08 / 批次 4 / P3-3:"失败语义"段从独立表格改为引用 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处) 权威源(G3 / G6 / G10 三规则)。
-- 2026-09-08 / 批次 5 (P4-1):**breaking** —— 路径布局表更新(`schema/` → `doc/schema/`,`templates/` → `doc/templates/`);`build-related-pages.js --schema-path` 候选从 3 项收敛为 2 项(用户工程 `doc/schema/` > plugin 自检);`gen-page.js --project` 模板查找改为 `<project>/doc/templates/`,取消 cwd 兜底。
-- 2026-09-09 / 批次 7 (v0.6.2):overview.md 改由 LLM 维护。`scripts/aggregate-index.js` 停止写入 overview.md(不再被计数列表覆盖);`scripts/init/build-skeleton.js` 改读 plugin 仓 `doc/template/page-overview.md` 作为初始骨架。步骤 16 重新描述为"读 `doc/templates/page-overview.md` 骨架,LLM 增量维护"。
-- 2026-09-09 / 批次 6 (issue #1/#2/#3/#4):**P0/P1 bug 修复** ——
-  - **#1 init-batch.js 保留 LLM 拍板字段**(slug/target_subdir/route/converter/native_text/converted_path/...):旧版 map 重写 file 静默丢为 null,导致下游 move-to-raw fail "target_subdir 未指定"。改 spread LLM 输入 + 脚本必需默认值覆盖。**步骤 4 命令行确认**:LLM 步骤 3 拍板的 `target_subdir` / `slug` 必填;`--files` / `--files-file` JSON 内 LLM 决策字段会透传到 batch.files[]。
-  - **#2 gen-page.js 加 `--patch-frontmatter-only` flag**:旧版 `--out` 重跑会覆盖 LLM 已填正文为占位符。**步骤 7 改为**:写完正文后**不要**重跑 `gen-page.js --out`,改用 `gen-page.js --out foo.md --patch-frontmatter-only --summary "..." --title "..."` 只 patch frontmatter,正文原样保留。目标文件不存在 → fallback 全量生成(WARN)。
-  - **#3 aggregate-index.js 聚合页注入最小 frontmatter**:index.md / overview.md / glossary.md 加 `type` / `title` / `updated` (ISO 8601) / `generated` / `status: stable` / `tags` 5 项;旧版只有 `---` 水平线,lint R7.2 FAIL。**步骤 14-16 行为不变**(脚本输出新格式,聚合内容照旧)。⚠ 后续批次 8(#5)修复:此修复过度泛化,踩到 OKF §3.2 reserved filenames + plugin 扩展 reserved filenames(index/log/overview/glossary 均不应携带 frontmatter)。
-  - **#4 append-log.js wikilink 优先用 slug**:旧版用 inbox 原文件名 basename,slug 重命名后 wikilink 指向不存在文件。改 `resolveDisplaySlug(file) → file.slug || path.basename(path, ext)`。**步骤 17 命令行确认**:LLM 步骤 3 必填 `slug`(已经必填,本次只改显示逻辑)。
-- 2026-09-09 / 批次 8 (v0.6.3):**reserved filenames frontmatter 误注入修复**(issue #5/#6)——
-  - **#5 aggregate-index.js 不再给 index.md / glossary.md 注入 frontmatter**(对齐 OKF §3.2 + `frontmatter-spec.md §3.3`);改为读 `doc/template/page-{index,glossary}.md` 骨架 + 整行替换 `**plugin 版本**` / `**最近更新**` 两个元信息行。`renderAggregateFrontmatter()` 函数保留(供未来扩展)。`overview.md` 自 v0.6.2 起已由 LLM 维护,`log.md` 由 `append-log.js` 维护,均不在 `aggregate-index.js` 写盘范围。**步骤 14-15 行为不变**(脚本输出无 frontmatter 版本,SKILL.md 解析 JSON 不受影响)。
-  - **#6 lint-stub.js 新增 R7.3(reserved filename 误含 frontmatter WARN)**;R7.1(tags<5)/ R7.2(updated 非 ISO 8601)在 reserved filenames 上不触发(对齐 §3.3)。reserved filenames = `index.md` / `log.md` / `overview.md` / `glossary.md`。触发链:#3 给 reserved 注入 frontmatter → #4 不动它 → #5 修脚本 → #6 修 lint 配套,避免 SKILL 步骤 19 反向操作。**步骤 19 规则清单扩展**。
-
-## 脚本路径约定(批次 1,2026-09-08)
+## 脚本路径约定
 
 > **脚本路径约定**:本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin-root;该变量由调用方注入(plugin 自动注入或用户 shell 导出),或通过 `--plugin-root` CLI 参数显式传递冗余兜底。
 
@@ -44,14 +19,6 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 # /aeps-llm-wiki-ingest
 
 把用户资料从 `inbox/` 迁移到 `raw/{subdir}/`,生成 `knowledge/sources/<slug>.md` 源页,抽取 entity / concept 子页,双向反链,更新 `index.md` / `log.md` / `overview.md` / `glossary.md`。
-
-## Change History
-
-- v0.5.6 (2026-09-08,批次 2 P1 修复):
-  - **move-to-raw 按 slug 重命名**:`batch.files[]` 提供 `slug` 字段后,文件按 `{slug}.{ext}` 落地到 `raw/<subdir>/`,原扩展名保留。已存在同名 slug → SKIP + WARN,不覆盖;slug 非法 → ERROR。详见步骤 4。
-  - **build-related-pages 改追加模式**:`## 相关页面` / `## 来源资料` 区块默认保留人工写的条目,新反链追加在末尾(去重);同 wikilink 重复 → 保留人工条目 + stderr WARN。如需完全重建,先手工删除区块再跑。详见步骤 12。
-  - **gen-page --project 参数**:模板查找 `--project <absolute>` 优先级(> `env.WIKI_PROJECT`;v0.5.8 起取消 cwd 兜底);`--project` 显式传入时严格从 `<project>/doc/templates/` 找,找不到 → 清晰 ERROR。详见步骤 6/10。
-  - **ajv date-time WARN 降级**:`doc/schema/frontmatter.schema.json` 把 `format: "date-time"` 替换为等价的 `pattern` 校验,跑 ajv 时不再打印 `unknown format "date-time" ignored` 噪音。零新增 npm 依赖。
 
 ## 触发
 
@@ -67,8 +34,6 @@ plugin 仓根目录与 sync-files 同步出的用户工程根目录布局不同,
 | `doc/template/` | `doc/templates/`(复数,可接受差异) | backfill missing;preserve existing |
 | `scripts/` | `scripts/` | backfill missing;preserve existing |
 | `.claude-plugin/` | — | 不进用户工程(由 plugin loader 处理) |
-
-v0.5.8 起用户工程文档层与 plugin 仓对齐(都在 `doc/` 下),脚本路径不再需要区分两套命名空间。历史背景:旧布局用户工程根是平级的 `schema/` `templates/`,曾引发脚本路径混淆与 `junction doc/schema → schema` 误用;v0.5.8 已根治。
 
 ## 设计原则(必读)
 
@@ -94,7 +59,7 @@ ls temp/ingest-batch-*.json 2>/dev/null
 
 对 inbox 每个文件,先让 Claude Code 直接读;能读 → 路径 1/2;不能 → 路径 3/4。
 
-### 步骤 0.5:依赖 preflight(可选,v0.5.6 起)
+### 步骤 0.5:依赖 preflight(可选)
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --scripts-dir <用户工程根>/scripts --json
@@ -104,10 +69,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PL
 
 - `ok == true` → 进入步骤 1
 - `ok == false` → 缺失依赖,按 stderr `npm install` 提示让用户装,exit 0 后重跑本步
-
-**为什么单独一步**:SKILL.md L253 / L257 已规定不自动 `npm install`,但没规定 preflight 时机,导致用户首次跑步骤 1 才遇到 `Cannot find module 'js-yaml'` 类错误才意识到要装。preflight 把错误前置到流程最早节点。
-
-> **v0.5.6 批次 3 修订**:inline preflight 已内置到所有 ingest/init 脚本顶部(`scripts/lib/preflight.js` 的 `requireDeps` 函数),缺包时脚本启动即 ERROR 并打印精确 `npm install <pkg>` 命令。本步降级为可选,跳过即可(若 LLM 跳步骤 1,inline 仍会拦截)。
 
 ### 步骤 1:扫 inbox
 
@@ -161,7 +122,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 ```
 
 ```bash
-# 文件多 / 路径含中文+空格 / 转义麻烦 → 落 temp/batch.json,走 --files-file(批次 3 P1-3 修复)
+# 文件多 / 路径含中文+空格 / 转义麻烦 → 落 temp/batch.json,走 --files-file
 echo '<scan-inbox JSON 的 files[]>' > temp/batch.json
 node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> \
@@ -170,8 +131,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 ```
 
 > `--files` 与 `--files-file` 互斥(二选一,都传/都不传 → ERROR exit 1)。
-
-> **v0.6.0 批次 6 修订**(issue #1 fix):JSON 数组里 LLM 步骤 3 拍板的字段(`slug` / `target_subdir` / `route` / `converter` / `native_text` / `converted_path` / 等)会**完整透传**到 `batch.files[]`;旧版会把这些静默丢为 null,导致下游 `move-to-raw` fail "target_subdir 未指定"。
 
 读 stdout JSON `batch_file`,后续 3 步脚本都用此文件。
 
@@ -188,7 +147,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_
 - `[y]` 覆盖:先备份 `temp/raw_backup_{hash}/` + `os.replace()` 原子替换
 - `[n]` 跳过:status=skipped,inbox 文件保留
 - `[d]` 仅删旧副本
-- **v0.5.6 起(批次 2 P1-1)按 slug 重命名**:若 `batch.files[]` 提供 `slug` 字段,文件按 `{slug}.{ext}` 落地(原扩展名保留)。slug 已存在 → SKIP + WARN 不覆盖;slug 非法 → ERROR。
+- 若 `batch.files[]` 提供 `slug` 字段,文件按 `{slug}.{ext}` 落地(原扩展名保留)。slug 已存在 → SKIP + WARN 不覆盖;slug 非法 → ERROR。
 
 ### 步骤 5:提取要点对话(可"继续"跳过)
 
@@ -210,8 +169,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --source-file '[[<subdir>/<slug>.<ext>|<display>]]' --json
 ```
 
-> **v0.5.6 起必传 `--project`(v0.5.8 起路径为 doc/ 层级)**:模板查找严格从 `<project>/doc/templates/` 读,找不到 → ERROR。`--project` 解析顺序:`--project` CLI > `env.WIKI_PROJECT`(v0.5.8 起取消 cwd 兜底)。
-
 参数说明:
 
 - `--description`:OKF v0.2 §4.1 推荐字段;`template/page-source.md` 已含示例。LLM 根据标题 + 文件名给一句话 30-80 字概括
@@ -226,22 +183,19 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 仅改 H2 之间正文;**不**改 frontmatter 字段值 / H2 顺序 / `## 维护说明` 尾巴(对齐 design §4.3 SKILL.md 硬约束)。
 
-**v0.5.9 起强 prompt**:LLM 读完源文件后,**先**问自己:**这篇 source 有什么独特结构?** 在 `## 重点摘录` 之前用 1-N 个 H2 节呈现(占位骨架 `## 阅读路线` 强烈建议改名,如 `## 来源元信息` / `## 核心要点` / `## 关键引用` / `## 适用范围` / `## 术语定义` / `## 关键约束` / `## 技术原理` / `## 性能指标` / `## 与同类对比` / `## 研究背景` / `## 方法` / `## 结果` / `## 结论` 等)。极短源文件可保留占位名 + 一句豁免说明。**所有自由追加节强制溯源**(lint C21 WARN)。
+**强 prompt**:LLM 读完源文件后,**先**问自己:**这篇 source 有什么独特结构?** 在 `## 重点摘录` 之前用 1-N 个 H2 节呈现(占位骨架 `## 阅读路线` 强烈建议改名,如 `## 来源元信息` / `## 核心要点` / `## 关键引用` / `## 适用范围` / `## 术语定义` / `## 关键约束` / `## 技术原理` / `## 性能指标` / `## 与同类对比` / `## 研究背景` / `## 方法` / `## 结果` / `## 结论` 等)。极短源文件可保留占位名 + 一句豁免说明。**所有自由追加节强制溯源**(lint C21 WARN)。
 
 **正文书写顺序**:`# 标题` → **[自由追加节 1..N]** → `## 重点摘录` → `## 我的思考` → `## 总结:最有收获的一句话` → (脚本追加 `> 原始来源:` blockquote + Related Pages 占位)。
 
-写完正文后,**回头把 `--summary` 字段值写入 frontmatter**(v0.6.0 起改用 `--patch-frontmatter-only`,**不**重跑 `--out` 全量覆盖)。
+写完正文后,**回头把 `--summary` 字段值写入 frontmatter**;**不**重跑 `--out` 全量覆盖,改用 `--patch-frontmatter-only` 只 patch frontmatter;目标文件不存在 → fallback 全量生成(WARN stderr)。
 
 ```bash
-# v0.6.0 起 (issue #2 fix):只 patch frontmatter,正文原样保留
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} \
   --project <用户工程根> --type source --slug <slug> --ext <ext> \
   --out <已存在的目标文件.md> \
   --patch-frontmatter-only \
   --summary "<补 50-150 字精要>" --title "<如有调整>"
 ```
-
-> **v0.6.0 起步骤 7 重大变更**:旧版"步骤 6 重跑一次 `--out` 覆盖"会**覆盖 LLM 已填正文**为占位符。改用 `--patch-frontmatter-only` 只 patch frontmatter;目标文件不存在 → fallback 全量生成(WARN stderr)。
 
 来源不足自检:每条断言自检能否在源文件找到依据;无法溯源 → 显式标注 `[来源不足,需人工复核]`。
 
@@ -260,7 +214,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --title "<title>" --json
 ```
 
-**entity.* / concept.* 通用骨架**(v0.5.7 起):`gen-page.js` 按 `entity.<subtype>` 自动选 [`page-entity.md`](../doc/template/page-entity.md);按 `concept.<subtype>` 自动选 [`page-concept.md`](../doc/template/page-concept.md)。**不再**使用旧的 7 个差异化模板(`page-entity-{person,organization,project,product,event,place,other}.md` / `page-concept-{theory,method,field,phenomenon,standard,term,other}.md`,已删除)。子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。
+**entity.* / concept.* 通用骨架**:`gen-page.js` 按 `entity.<subtype>` 自动选 [`page-entity.md`](../doc/template/page-entity.md);按 `concept.<subtype>` 自动选 [`page-concept.md`](../doc/template/page-concept.md)。子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。
 
 ### 步骤 11:LLM 填 entity / concept 正文
 
@@ -276,7 +230,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root $
 - 扫所有 source / entity / concept 页 frontmatter
 - source 页 → 写 `## 相关页面(Related Pages)`(Entities / Concepts 分组)
 - entity/concept 页 → 写 `## 来源资料`(按 source title 排序)
-- **v0.5.6 起改为追加模式**:每次 ingest 在区块末尾追加新确认的反链(去重 wikilink 字符串);**保留** 区块下所有现有条目(含人工补的)。
+- 每次 ingest 在区块末尾追加新确认的反链(去重 wikilink 字符串);**保留** 区块下所有现有条目(含人工补的)。
 - 同 wikilink 重复 → 保留人工条目(可能带更详细批注),stderr WARN `duplicate wikilink [[xxx]] 已在人工条目中存在,保留人工条目`。
 - **若需完全重建**,先手工删除 `## 相关页面(Related Pages)` / `## 来源资料` 区块再跑脚本。
 - 区块不存在 + 本次有反链 → 新建区块;区块不存在 + 本次无反链 → 文件不动(action=`*-unchanged`)。
@@ -300,13 +254,11 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLU
 
 ### 步骤 16:更新 overview.md
 
-**v0.6.2 起不再由 aggregate-index.js 自动重建**。overview.md 改由 LLM 在"大图变化时"(新增 source / 完成 synthesis / 累计 analyses > 10 等)按 plugin 仓 `doc/template/page-overview.md` 骨架(在用户工程为 `doc/templates/page-overview.md`)增量更新:
+overview.md 不由 aggregate-index.js 自动重建,改由 LLM 在"大图变化时"(新增 source / 完成 synthesis / 累计 analyses > 10 等)按 plugin 仓 `doc/template/page-overview.md` 骨架(在用户工程为 `doc/templates/page-overview.md`)增量更新:
 
 - 保留已有骨架(一句话定位 / 主题领域分布 / 知识成熟度 / 未覆盖领域 / 维护 五节)
 - 按当前 knowledge/ 实际状态刷新"主题领域分布"与"知识成熟度"两节的引用
 - "未覆盖领域"由 LLM 读 log.md 近 30 天 query + knowledge/ 缺口自行判断
-
-aggregate-index.js 不再覆写 overview.md,避免 LLM 维护的大图被计数列表覆盖。
 
 ### 步骤 17:追加 log.md(最新在前,ISO 8601)
 
@@ -317,7 +269,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_P
 
 - 已有当天 H2 → 复用
 - 无 → 插入新 H2 (最新在前)
-- **v0.6.0 起(issue #4 fix)`**Ingest**` 行 wikilink 优先用 `batch.files[].slug`**(不是 inbox 原文件名 basename);raw 路径用 `{slug}.{原扩展名}`。inbox 来源路径保留原文件名(人类追溯用)。
+- `**Ingest**` 行 wikilink 优先用 `batch.files[].slug`(不是 inbox 原文件名 basename);raw 路径用 `{slug}.{原扩展名}`。inbox 来源路径保留原文件名(人类追溯用)。
 
 ### 步骤 18:清理 temp/
 
@@ -330,7 +282,7 @@ rm temp/ingest-batch-{ts}.json
 
 调 lint skill(M2.4 实现)校验 C17(模板一致性)/ C18(原生+副本矛盾)/ C19(降级日志);FAIL 必须修复后才算 ingest 完成。
 
-当前为 M2.4 预留 stub(v0.5.6 批次 3 P2-5 起真做两条最小规则 + v0.6.3 批次 8 起新增 R7.3):
+当前为 M2.4 预留 stub:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --project <用户工程根> --json
@@ -344,14 +296,12 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 - `warnings_by_file` / `errors_by_file`:聚合到文件级别,SKILL.md 可按路径展示
 - M2.4 真实实现替换 stub 内容,字段含义不变。
 
-**v0.6.3 起 reserved filenames 豁免**(对齐 `doc/schema/frontmatter-spec.md §3.3` plugin 扩展 reserved + OKF §3.2):
+**reserved filenames 豁免**(对齐 `doc/schema/frontmatter-spec.md §3.3` plugin 扩展 reserved + OKF §3.2):
 
 - reserved filenames:**`index.md` / `log.md` / `overview.md` / `glossary.md`**
 - **不参与** R7.1(tags < 5)/ R7.2(updated 非 ISO 8601)(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
-- 新增 **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
+- **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
 - C21(只对 `type: source` 触发)对 reserved file 天然不触发(其 `fm.type` 不为 `'source'`),无需额外豁免
-
-触发链背景:issue #3 修复(`aggregate-index.js` 注入 frontmatter)未考虑 reserved filenames,导致 R7.2 在 reserved file 上 FAIL → SKILL 步骤 19 不得不反向补 frontmatter 才过 lint。issue #5 修脚本不注 + issue #6 修 lint 豁免,链路打通。
 
 ## 拍板门总结
 
@@ -366,17 +316,13 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 
 ## 失败语义(权威源 = implement-ingest.md §6.1)
 
-> **失败语义表权威源已迁移到 [doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处)**(v0.5.6 起,P3-3 修复)。
->
-> 本节不再独立维护失败语义表,改为引用。G3 / G6 / G10 三条规则覆盖:
->
-> - **G3** `convert-to-md.js` spawn 失败(任意路径 3/4)
-> - **G6** ajv schema 校验失败(任意 frontmatter)
-> - **G10** preflight 缺依赖 / plugin-root 不存在
->
-> 其他场景(`move-to-raw` 同名冲突等用户拍板门场景)归 SKILL.md 步骤 4 处理,**不**纳入 G3/G6/G10。
+失败语义表权威源:[doc/design/implement-ingest.md §6.1](../doc/design/implement-ingest.md#61-失败语义权威源-v056-起-skillmd-引用此处)。G3 / G6 / G10 三条规则覆盖:
 
+- **G3** `convert-to-md.js` spawn 失败(任意路径 3/4)
+- **G6** ajv schema 校验失败(任意 frontmatter)
+- **G10** preflight 缺依赖 / plugin-root 不存在
 
+其他场景(`move-to-raw` 同名冲突等用户拍板门场景)归 SKILL.md 步骤 4 处理,**不**纳入 G3/G6/G10。
 
 ## 不做什么(SKILL.md 边界)
 
@@ -399,7 +345,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 
 ## 引用
 
-- 设计文档:`doc/design/implement-ingest.md`(v0.1.0 已冻结)
+- 设计文档:`doc/design/implement-ingest.md`
 - 上游契约:`doc/design/prd.md` §4.2 + `doc/design/design.md` §3.2 / §4.2 / §6
 - 字段权威:`doc/schema/frontmatter-spec.md` §4.1.1 + §11.7
 - 工作流入口:`doc/schema/schema.md` §1.1

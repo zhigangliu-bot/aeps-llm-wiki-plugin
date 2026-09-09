@@ -5,17 +5,7 @@ plugin-version: 0.6.3
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/build-skeleton.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-files.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/patch-claude-md.js*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/sync-report.js*)
 ---
 
-## Change History
-
-- 2026-09-08 / 批次 1 / R1 (P0-1):顶部新增"脚本路径约定"段;说明 `${CLAUDE_PLUGIN_ROOT}` 由调用方注入,或用 `--plugin-root` CLI 参数显式传递冗余兜底;明确脚本位于 plugin 仓根的 `scripts/` 下,**不**在 `skills/<skill>/scripts/` 下。
-- 2026-09-08 / 批次 1 / R4 (P0-1):命令行全部追加 `--plugin-root ${CLAUDE_PLUGIN_ROOT}` 参数,确保 `${CLAUDE_PLUGIN_ROOT}` env 未注入时仍能跑通。
-- 2026-09-08 / 批次 3 / R6 (P2-4):步骤 5 `sync-report.js` 输出改为展示工程根实际状态(`state_snapshot`)+ 本次变更数(`delta_from_last_run`),幂等再跑不再全 0。
-- 2026-09-08 / 批次 3 / R3 (P1-6):inline preflight 已内置到所有 ingest/init 脚本顶部,缺包立即 ERROR 并打印精确 `npm install` 命令;旧的 `scripts/ingest/preflight.js` 仍保留(SKILL.md ingest 步骤 0.5 可继续主动调用),与 inline 并存不冲突。
-- 2026-09-08 / 批次 4 / P3-2:新增步骤 0 依赖 preflight(inline 内置,可选显式跑),统一为"plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装";后续步骤 1-7 重新编号。
-- 2026-09-08 / 批次 4 / P3-1:frontmatter `plugin-version` 字段从旧版本字符串升级为 0.5.6(对齐 plugin.json)。
-- 2026-09-08 / 批次 5 (P4-1):**breaking** —— 用户工程根从 6 顶层改为 5 顶层 + `doc/` 子目录布局(`schema/` `templates/` → `doc/schema/` `doc/templates/`);`detect-state.js` 输出新增 `legacyDirs` 字段;re-run init 自动迁移老用户遗留目录(merge,doc 优先;空目录删,非空保留 + WARN);`patch-claude-md.js` 受控区块文案指向 `doc/schema/schema.md`;`sync-files.js` 输出新增 `migrated` 字段。
-
-## 脚本路径约定(批次 1,2026-09-08)
+## 脚本路径约定
 
 > **脚本路径约定**:本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin-root;该变量由调用方注入(plugin 自动注入或用户 shell 导出),或通过 `--plugin-root` CLI 参数显式传递冗余兜底。
 
@@ -26,9 +16,9 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/init/detect-state.js*),Ba
 
 # /aeps-llm-wiki-init
 
-初始化用户的 wiki 项目工程,生成 5 顶层目录 + `doc/{schema,templates}/` 2 子目录 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引模板。已存在工程走幂等再入(只补缺失,不覆盖用户内容);v0.5.7 之前的老工程自动迁移遗留目录到 `doc/` 下。
+初始化用户的 wiki 项目工程,生成 5 顶层目录 + `doc/{schema,templates}/` 2 子目录 + 18 知识叶子 + 15 raw 子目录 + 4 件顶层索引模板。已存在工程走幂等再入(只补缺失,不覆盖用户内容);旧工程自动迁移遗留目录到 `doc/` 下。
 
-## 路径布局(plugin 仓 vs 用户工程,v0.5.8 起)
+## 路径布局(plugin 仓 vs 用户工程)
 
 init skill 把 plugin 仓的 `doc/{schema,template}/` + `scripts/` 同步到用户工程 `doc/` 下;**用户工程与 plugin 仓的「文档」层级 1:1 对齐**(消除脚本路径混淆):
 
@@ -38,7 +28,7 @@ init skill 把 plugin 仓的 `doc/{schema,template}/` + `scripts/` 同步到用�
 | `doc/template/` | `doc/templates/`(复数,可接受差异) | backfill missing;preserve existing |
 | `scripts/` | `scripts/` | backfill missing;preserve existing |
 
-**老用户迁移**(v0.5.7 之前 init 过的工程):`detect-state.js` 探到根目录遗留 `schema/` `templates/` → `sync-files.js` 自动 merge 到 `doc/{schema,templates}/`(doc 优先,仅补缺失);空目录自动删,非空保留 + WARN 提示用户手动 `git rm`。
+**老用户迁移**:`detect-state.js` 探到根目录遗留 `schema/` `templates/` → `sync-files.js` 自动 merge 到 `doc/{schema,templates}/`(doc 优先,仅补缺失);空目录自动删,非空保留 + WARN 提示用户手动 `git rm`。
 
 ## 触发
 
@@ -48,7 +38,7 @@ init skill 把 plugin 仓的 `doc/{schema,template}/` + `scripts/` 同步到用�
 
 ### 步骤 0:依赖 preflight(inline 内置,可选显式跑)
 
-> **plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装**(对齐批次 3 R3 + P3-2 修复)。
+> **plugin 内置 preflight,缺包即停并给精确 `npm install <pkg>` 命令,不自动安装**。
 
 所有 init 脚本顶部已 inline 调用 `scripts/lib/preflight.js` 的 `requireDeps`,缺包时脚本启动即 ERROR 并打印精确 `npm install` 命令,LLM 跳此步也会被拦截。
 
