@@ -60,97 +60,33 @@ const RAW_SUBDIRS = [
   '15_算法',
 ];
 
-// ponytail: 4 top-level knowledge index templates — initial frontmatter per implement-init.md §2.1
-const PLUGIN_VERSION = '0.6.0';
+// ponytail: 4 top-level knowledge index templates — 无 frontmatter, 对齐 page-{index,overview,glossary,log}.md 模板。
+// 这 4 个文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内(详见 doc/template/README.md §6.1)。
+// v0.6.1 起去掉硬塞的 frontmatter:与模板事实源对齐,避免 OKF reader 误判为普通页参与全局聚合。
 
 function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
+// ponytail: 4 top-level knowledge index templates — 无 frontmatter, 对齐 page-{index,overview,glossary,log}.md 模板。
+// 这 4 个文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内(详见 doc/template/README.md §6.1)。
+// v0.6.1 起去掉硬塞的 frontmatter:与模板事实源对齐,避免 OKF reader 误判为普通页参与全局聚合。
 const INDEX_TEMPLATES = {
-  'index.md': ({ at, title }) => `---
-type: index
-title: "${title} Knowledge Index"
-aliases:
-  - "index"
-  - "Index"
-generated:
-  by: "agent: aeps-llm-wiki-init/${PLUGIN_VERSION}"
-  at: "${at}"
-updated: "${at}"
-tags:
-  - "domain/knowledge-management"
-  - "layer/index"
-  - "docform/index"
-  - "maturity/sketch"
----
-
-# ${title} Wiki 主目录
+  'index.md': ({ title }) => `# ${title} Wiki 主目录
 
 > 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 增量维护。
 
 参见 [overview](./overview.md) 查看大图。
 `,
-  'overview.md': ({ at, title }) => `---
-type: overview
-title: "${title} Knowledge Overview"
-aliases:
-  - "overview"
-  - "Overview"
-generated:
-  by: "agent: aeps-llm-wiki-init/${PLUGIN_VERSION}"
-  at: "${at}"
-updated: "${at}"
-tags:
-  - "domain/knowledge-management"
-  - "layer/overview"
-  - "docform/overview"
-  - "maturity/sketch"
----
-
-# ${title} Wiki 大图
+  'overview.md': ({ title }) => `# ${title} Wiki 大图
 
 > 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 在大图变化时更新。
 `,
-  'glossary.md': ({ at, title }) => `---
-type: glossary
-title: "${title} Knowledge Glossary"
-aliases:
-  - "glossary"
-  - "Glossary"
-generated:
-  by: "agent: aeps-llm-wiki-init/${PLUGIN_VERSION}"
-  at: "${at}"
-updated: "${at}"
-tags:
-  - "domain/knowledge-management"
-  - "layer/glossary"
-  - "docform/glossary"
-  - "maturity/sketch"
----
-
-# ${title} Wiki 术语表
+  'glossary.md': ({ title }) => `# ${title} Wiki 术语表
 
 > 本文件由 \`/aeps-llm-wiki-init\` 创建,\`/aeps-llm-wiki-ingest\` 增量维护。
 `,
-  'log.md': ({ at, title }) => `---
-type: log
-title: "${title} Knowledge Log"
-aliases:
-  - "log"
-  - "Log"
-generated:
-  by: "agent: aeps-llm-wiki-init/${PLUGIN_VERSION}"
-  at: "${at}"
-updated: "${at}"
-tags:
-  - "domain/knowledge-management"
-  - "layer/log"
-  - "docform/log"
-  - "maturity/sketch"
----
-
-# ${title} Wiki 变更日志
+  'log.md': ({ at, title }) => `# ${title} Wiki 变更日志
 
 > 按 ISO 8601 日期做 H2,最新在前。
 
