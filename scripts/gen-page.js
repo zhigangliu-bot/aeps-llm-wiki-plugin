@@ -30,9 +30,19 @@
 //     把 CLI 未传的 key 覆盖为 undefined 导致 resource / tags 等字段被清空。
 //     P3-#10 — parseArgs boolean flag 判定显式三分支(undefined / `--` 起首 / 真值),
 //     修复 --json / --apply / --patch-frontmatter-only 单传时 args[key] === undefined 的 bug。
-//   - 0.6.6 (issue #18 fix): page-source.md 模板 resource 行改用 $RESOURCE 占位符
-//     (旧 "./raw/$SUBDIR/$SLUG.$EXT" 在 patch 模式 $SUBDIR 为空 → 整行被删);
-//     patch 时 type=source 缺 resource → WARN 提示补 --resource / --subdir + --ext。
+//   - 0.6.6 (PR-A, issues #19/#20/#22/#23/#24/#26):
+//     - #19 stdout JSON 契约:加 --json 开关,全量/patch 两条路径 stdout 输出结构化 JSON;
+//       关闭时保留旧 "OK:" / "HINT:" 文本格式(向后兼容)。
+//     - #20 summary fallback 链修复:CLI --summary > --description > entity/concept title > "";
+//       entity/concept 全无 summary/description 时 stderr WARN,LLM 后续 --patch-frontmatter-only 补填。
+//     - #22/#26 patch 模式 stdout 契约:--json 时输出 generated_h2_sections 数组 + WARNING
+//       字段(告知脚本生成 H2 列表,重跑 build-related-pages 会追加);新增 --strip-generated-h2
+//       开关一次性清除 4 个脚本 H2 区块(## 关联导引 / ## 来源资料 / ## 相关页面(Related Pages)
+//       / ## 维护说明 / ## 字段一致性 lint)。
+//     - #23 frontmatter 字符串字段强制双引号包裹:line 205 已有 JSON.stringify(v ?? ""),
+//       不需改代码;SKILL.md 步骤 11-2 加 LLM 提示保持引号。
+//     - #24 stale_after 基准文档化:默认 generated.at + TTL;新增 --stale-after-base <generated|updated>
+//       开关;stderr 输出基准来源便于 LLM 调试。
 //   - 0.6.5: WP-2 (issues #16/#17/#14) — frontmatter 注入管道统一重构:
 //     ① 统一优先级「CLI 传入 > 脚本自动推导 > 模板默认」;--tags / --aliases /
 //        --source-resource / --source-title 与 --description / --summary / --stale-after 同管道。
@@ -212,6 +222,63 @@ function renderSourcesBody(arr) {
   return arr.map((item) => (item && typeof item === "object" ? yamlSourceObjBody(item) : `  - ${item}`)).join("\n");
 }
 
+// ponytail: PR-A (#22/#26) — 脚本生成 H2 特征串正则
+// 覆盖 page-entity.md / page-concept.md / page-source.md 三个模板里 plugin 自动追加的 H2
+// 实际 H2 行形如 `## 关联导引(Related Links,...` / `## 来源资料(由 ingest 自动生成)` /
+// `## 维护说明(本节由 plugin 自动追加,可手删)` —— 起始 ## 后跟 plugin 命名(中文)
+const GENERATED_H2_PATTERNS = [
+  /^## 关联导引/,
+  /^## 来源资料\(/,
+  /^## 相关页面\(/,
+  /^## 维护说明\(/,
+  /^## 字段一致性 lint/, // page-source.md 专属
+];
+
+/** 扫 body,找出所有脚本生成 H2 行(返回 ## 完整字符串列表);
+ *  用于 --json patch 模式 stdout 报告 generated_h2_sections。
+ */
+function findGeneratedH2s(body) {
+  const lines = body.split(/\r?\n/);
+  const hits = [];
+  for (const line of lines) {
+    for (const re of GENERATED_H2_PATTERNS) {
+      if (re.test(line.trim())) { hits.push(line.trim()); break; }
+    }
+  }
+  return hits;
+}
+
+/** 从 body 中清除脚本生成 H2 区块(H2 行 + 下属内容直到下一个 ## 或文末)。
+ *  返回 { cleaned, stripped[] }。
+ *  ponytail: 连续多个脚本 H2 都清掉(不提前停止;遇到非脚本 ## 才把 i 推到那里作为新起点)。
+ */
+function stripGeneratedH2s(body) {
+  const lines = body.split(/\r?\n/);
+  const out = [];
+  const stripped = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const isGenH2 = GENERATED_H2_PATTERNS.some((re) => re.test(trimmed));
+    if (isGenH2 && (trimmed.startsWith("## ") || trimmed.startsWith("# "))) {
+      stripped.push(trimmed);
+      // 跳过 H2 行 + 其下所有内容(直到下一个 ## H2 或文末)
+      i++;
+      while (i < lines.length) {
+        const next = lines[i].trim();
+        if (next.startsWith("## ") || next.startsWith("# ")) break;
+        i++;
+      }
+      // 不推进 i 到下一个 H2 —— 下一轮 while 重新评估该 H2 是否也是脚本 H2
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  return { cleaned: out.join("\n"), stripped };
+}
+
 /** 重写模板里 `key:` 的列表块(tags / sources / aliases)。
  *  replacement 语义:
  *   - undefined/null → 不动模板(保留模板默认 = 管道第三优先级)
@@ -277,7 +344,10 @@ function renderFrontmatter(type, fmBlock, placeholders) {
     if (key.endsWith("_BODY")) continue; // 已在上方块替换处理
     // 整 token 匹配:避免 $VER 误命中 $VERSION(前者不是占位符,后者是)
     const re = new RegExp(`\\$${key}\\b`, "g");
-    if (value == null || value === "") {
+    // ponytail: PR-A (#20) — SUMMARY 是 entity/concept 字段(§12.3),
+    // 空值保留 `summary: ""` 行,而不是删行;LLM 后续 patch 补填即可(stderr WARN 已提示)
+    const isSummary = (key === "SUMMARY");
+    if (value == null || (value === "" && !isSummary)) {
       // 空值 → 整行删除
       // 两种形态:
       //   1. key: $KEY        → 删整行
@@ -316,15 +386,29 @@ function derivePlaceholders(type, args) {
   const hints = [];
 
   // ---- 标量字段 ----
+  // ponytail: PR-A (#20) — summary fallback 链:CLI --summary > --description > entity/concept title > ""
+  // 旧版 entity/concept 静默回退到 title;新版 description 优先,空触发 stderr WARN 提示补填。
+  const descFallback = isEntityConcept ? title : "";
+  const summaryFallback = ""; // PR-A:title fallback 取消(避免 LLM 误把 title 当 summary)
   const ph = {
     NOW: now,
     VERSION: readPluginVersion(),
     TITLE: title,
-    DESCRIPTION: args.description || (isEntityConcept ? title : ""),
-    SUMMARY: args.summary || (isEntityConcept ? title : ""),
+    DESCRIPTION: args.description || descFallback,
+    SUMMARY: args.summary || args.description || summaryFallback,
+    // ponytail: PR-A (#24) — stale_after 基准默认 generated.at;CLI --stale-after-base updated 切到 updated
     STALE_AFTER: args.stale_after
       || (isEntityConcept ? addYearsIso(now, type === "concept.standard" ? 5 : 1) : ""),
   };
+
+  // ponytail: PR-A (#20) — entity/concept 全无 summary/description 时 stderr WARN
+  // 提示 LLM 后续跑 --patch-frontmatter-only --summary "<具体>" 补填
+  if (isEntityConcept && !args.summary && !args.description) {
+    process.stderr.write(
+      `[gen-page] WARN: entity/concept 页 summary 字段缺失;description 也未传;summary 留空字符串.\n`
+      + `  建议步骤 11 后跑 --patch-frontmatter-only --summary "<50-150 字精要>" 补填.\n`
+    );
+  }
 
   // ---- tags:CLI --tags > DEFAULT_TAGS_BY_TYPE(entity/concept)> 模板默认(undefined → 不动模板)
   const cliTags = parseListArg(args.tags);
@@ -625,9 +709,45 @@ function main() {
         console.error(`WARN: --patch-frontmatter-only 于 type=source 但目标 frontmatter 缺 OKF §4.1 必填字段 resource`
           + `(建议重跑加 --resource <raw 相对路径> 或 --subdir <dir> + --ext <ext> 补齐)`);
       }
+      // ponytail: PR-A (#24) — stale_after 基准切换 CLI
+      // 默认 generated,LLM 传 --stale-after-base updated 时切换
+      // patch 模式下 generated.at / updated 来自 existingFm;
+      // 不传 --stale-after 时按指定基准重算 TTL
+      const isEntityConceptPatch = type.startsWith("entity.") || type.startsWith("concept.");
+      // parseArgs 把 - 转 _ → args.stale_after_base
+      if (isEntityConceptPatch && !args.stale_after && args.stale_after_base) {
+        const baseField = String(args.stale_after_base);
+        let baseTime = null;
+        if (baseField === "generated" && existingFm.generated) baseTime = existingFm.generated.at;
+        else if (baseField === "updated") baseTime = existingFm.updated;
+        if (baseTime) {
+          const ttlYears = (type === "concept.standard") ? 5 : 1;
+          const base = new Date(baseTime);
+          base.setUTCFullYear(base.getUTCFullYear() + ttlYears);
+          mergedArgs.stale_after = base.toISOString().replace(/\.\d{3}Z$/, "Z");
+          process.stderr.write(
+            `[gen-page] stale_after = ${baseField}.at + ${ttlYears}y = ${mergedArgs.stale_after}\n`
+            + `  使用 --stale-after-base generated 切回 generated.at 基准.\n`
+          );
+        }
+      }
+
       const { ph: newPh, hints: newHints } = derivePlaceholders(type, mergedArgs);
       const newFm = renderFrontmatter(type, tpl.fmBlock, newPh);
-      const existingBody = m[2];
+      let existingBody = m[2];
+
+      // ponytail: PR-A (#22) — --strip-generated-h2 一次性清除 4 个脚本 H2 区块
+      // parseArgs 把 - 转 _ → args.strip_generated_h2
+      let strippedList = [];
+      if (args.strip_generated_h2) {
+        const stripResult = stripGeneratedH2s(existingBody);
+        existingBody = stripResult.cleaned;
+        strippedList = stripResult.stripped;
+      }
+
+      // ponytail: PR-A (#22/#26) — patch 模式扫正文识别脚本生成 H2,报告给 LLM
+      const generatedH2s = findGeneratedH2s(existingBody);
+
       const patched = newFm + "\n" + existingBody;
       try {
         writeFileSync(outPath, patched, "utf8");
@@ -635,8 +755,30 @@ function main() {
         console.error(`ERROR: write failed: ${outPath}: ${e.message}`);
         process.exit(3);
       }
-      console.log(`OK: ${type} → ${outPath} (patched frontmatter only, ${patched.length} bytes)`);
-      for (const h of newHints) console.log(`HINT: ${h}`);
+
+      // ponytail: PR-A (#19) — --json stdout JSON 契约;关闭时保留旧 "OK:" / "HINT:" 文本
+      if (args.json) {
+        const result = {
+          ok: true,
+          mode: "patch-frontmatter-only",
+          type,
+          path: outPath,
+          bytes: patched.length,
+          generated_h2_sections: generatedH2s,
+        };
+        if (strippedList.length) result.stripped_h2 = strippedList;
+        if (generatedH2s.length > 0) {
+          result.WARNING = `file contains ${generatedH2s.length} script-generated H2 sections. Re-run build-related-pages will APPEND, not rebuild. Pass --strip-generated-h2 or manually delete these H2 first.`;
+        }
+        if (newHints.length) result.hints = newHints;
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`OK: ${type} → ${outPath} (patched frontmatter only, ${patched.length} bytes)`);
+        if (generatedH2s.length > 0) {
+          console.error(`WARN: file contains ${generatedH2s.length} script-generated H2 sections. Re-run build-related-pages will APPEND, not rebuild. Pass --strip-generated-h2 or manually delete these H2 first.`);
+        }
+        for (const h of newHints) console.log(`HINT: ${h}`);
+      }
       return;
     }
   }
@@ -647,8 +789,21 @@ function main() {
     console.error(`ERROR: write failed: ${outPath}: ${e.message}`);
     process.exit(3);
   }
-  console.log(`OK: ${type} → ${outPath} (${out.length} bytes)`);
-  for (const h of hints) console.log(`HINT: ${h}`);
+
+  // ponytail: PR-A (#19) — --json stdout JSON 契约;关闭时保留旧 "OK:" / "HINT:" 文本
+  if (args.json) {
+    console.log(JSON.stringify({
+      ok: true,
+      mode: "generate",
+      type,
+      path: outPath,
+      bytes: out.length,
+      hints,
+    }, null, 2));
+  } else {
+    console.log(`OK: ${type} → ${outPath} (${out.length} bytes)`);
+    for (const h of hints) console.log(`HINT: ${h}`);
+  }
 }
 
 main();

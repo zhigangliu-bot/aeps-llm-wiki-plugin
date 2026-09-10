@@ -18,6 +18,7 @@
 | 2026-09-09 | zhigangliu-bot | 批次 8 (v0.6.3):§3.3 新增 plugin 扩展 reserved filenames 子节(overview.md / glossary.md);明确 4 个 reserved filenames(index/log/overview/glossary)均不携带 frontmatter;引用 `scripts/ingest/lint-stub.js` R7.3 检测 + `scripts/aggregate-index.js` v0.6.3 起读模板不注 frontmatter 行为。修复 issue #5/#6。 |
 | 2026-09-09 | zhigangliu-bot | 批次 9 (v0.6.5):§3.3 lint 联动段更新——旧 R7.1(tags<5 WARN)被 **R7.4(tags 数量 5-10 → ERROR)** 取代,新增 **R7.5(stale_after 须 ISO 8601 datetime → ERROR)** / **R7.6(sources[] 元素须对象 → ERROR)** 三条 ERROR 规则(修复 issue #12)。§4.4.1 `sources[]` 对象格式为既有权威,`frontmatter.schema.json` `stale_after` 描述已对齐 ISO datetime 语义。 |
 | 2026-09-10 | zhigangliu-bot | v0.6.6:3 处 `generated.by` 示例的 producer 版本号字串同步升级为 0.6.6(修复 issue #18 伴随的版本基线刷新);无字段语义变化。 |
+| 2026-09-10 | zhigangliu-bot | v0.6.6 (PR-A):§4.5.2 `stale_after` 明确**基准时间**为 `generated.at`(权威);`updated` 仅展示维护时间,不参与过期判断;TTL 默认值表格化(`concept.standard` +5y,其他 +1y);新增 `--stale-after-base <generated|updated>` 开关文档化(修复 issue #24)。 |
 
 ### 0.1 编写铁律(YAML / Obsidian Properties 兼容性)
 
@@ -391,6 +392,21 @@ stale_after: "2026-09-23T00:00:00Z"
 - 可选,绝对时刻。
 - 判断规则:`now >= stale_after` 即视为陈旧(**闭区间**)。
 - 采用绝对时刻而非相对 TTL,保证陈旧性是纯比较,不依赖读取时机。
+
+**基准时间**(`v0.6.6` 起,PR-A 引入):**`generated.at`** 为唯一权威基准。
+
+`updated` 字段(§12.2)仅展示「最近一次维护时间」，**不**参与过期判断。
+陈旧度一律用 `stale_after < now` 判断；`updated > N 天` 等相对阈值已废弃(v0.6.5 起)。
+
+**TTL 默认值**(由 `gen-page.js` 自动推导):
+
+| type | TTL |
+|---|---|
+| `concept.standard` | 5 年 |
+| 其他所有 type | 1 年 |
+
+**显式覆盖**:可通过 `gen-page.js --stale-after-base <generated|updated>` 切换基准。
+默认 `generated`;LLM 显式传 `updated` 时按 `updated + TTL` 重算(用于 `--patch-frontmatter-only` 模式)。
 
 ### 4.6 Attested Computation 类型(OKF §10)
 

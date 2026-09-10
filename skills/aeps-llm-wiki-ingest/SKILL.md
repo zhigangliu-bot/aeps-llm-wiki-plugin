@@ -198,8 +198,24 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --patch-frontmatter-only \
   --summary "<补 50-150 字精要>" --title "<如有调整>" \
   --description "<如有调整>" --tags "docform/<...>,domain/<...>,..." \
-  --aliases "<别名1>,<别名2>" --stale-after "<ISO 8601 datetime>"
+  --aliases "<别名1>,<别名2>" --stale-after "<ISO 8601 datetime>" --json
 ```
+
+> **PR-A (v0.6.6) 增量提示**:
+>
+> - **stdout JSON 契约**(修复 issue #19/#26):所有调用加 `--json`;SKILL.md 解析 stdout `JSON.parse(...)`。
+>   关闭 `--json` 时保留旧 `OK: ...` / `HINT: ...` 文本(向后兼容老 LLM 客户端)。
+> - **frontmatter 字符串字段保持双引号包裹**(修复 issue #23):LLM 在步骤 11-2 手工 Edit
+>   frontmatter 时,所有字符串字段必须保留双引号(`title: "X"` 而非 `title: X`),否则下游
+>   ajv schema / YAML 解析器可能把 `#` 注释行误当字段延续,触发 FAIL。
+> - **patch 模式 stdout WARNING**(修复 issue #22/#26):stdout JSON 含
+>   `generated_h2_sections[]`(脚本生成 H2 列表,如 `## 关联导引` / `## 来源资料` /
+>   `## 相关页面(Related Pages)` / `## 维护说明`)+ `WARNING` 字段,告知 LLM:
+>   重跑 `build-related-pages` 会**追加**而非重建。LLM 读 WARNING 后可选:
+>   1. 加 `--strip-generated-h2` 一次性清掉 4 个脚本 H2,再 patch;
+>   2. 手工 Edit 删除这些 H2 区块。
+> - **stale_after 基准**(修复 issue #24):默认 `generated.at + TTL`;若显式传
+>   `--stale-after-base updated`,改按 `updated + TTL` 重算(用于 patch 模式)。
 
 来源不足自检:每条断言自检能否在源文件找到依据;无法溯源 → 显式标注 `[来源不足,需人工复核]`。
 
@@ -234,7 +250,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --json
 ```
 
-- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` / `--source-resource` / `--source-title` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;description/summary fallback title;stale_after 自动 `generated.at + 1y`);`--source-resource` / `--source-title` 都不传 → `sources: []` 且 stdout 给出 `HINT: sources 为空` 提示,LLM 需在步骤 11 用 `--patch-frontmatter-only` 补。
+- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` / `--source-resource` / `--source-title` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;**v0.6.6 起 description/summary 不再静默 fallback 到 title,留空字符串 + stderr WARN**(issue #20);stale_after 自动 `generated.at + 1y`);`--source-resource` / `--source-title` 都不传 → `sources: []` 且 stdout 给出 `HINT: sources 为空` 提示,LLM 需在步骤 11 用 `--patch-frontmatter-only` 补。
 
 **v0.6.5 起 `--project <用户工程根>` 必传**:`gen-page.js` 从 `<project>/doc/templates/` 找模板(issue #4-Bug3);
 不传 → `template not found` 错误(对齐 PR-AC-6,v0.5.8 起取消 cwd 兜底)。
@@ -242,9 +258,20 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 **entity.* / concept.* 通用骨架**:`gen-page.js` 按 `entity.<subtype>` 自动选 [`page-entity.md`](../doc/template/page-entity.md);按 `concept.<subtype>` 自动选 [`page-concept.md`](../doc/template/page-concept.md)。子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。
 
+> **PR-A (v0.6.6) 章节顺序约定**(issue #19):模板 `page-entity.md` / `page-concept.md` /
+> `page-source.md` 默认章节顺序为**「实质内容在前,关联导引/来源资料/维护说明在后」**。
+> LLM 在步骤 11 写正文时,把实质 H2 节(`## 个人背景` / `## 核心原理` / `## 适用范围` 等)
+> 放在 `## 关联导引` **之前**;`## 关联导引` / `## 来源资料` / `## 维护说明` 由 plugin
+> 脚本追加 / 维护,LLM 不必手工改这 3 节。
+
 ### 步骤 11:LLM 填 entity / concept 正文
 
 自由发挥。`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);`sources[]` 传了 `--source-resource` / `--source-title` 时已是对象格式,否则为空数组(stdout 有 HINT)—— **LLM 需补 source 时重跑 `--patch-frontmatter-only --source-resource <slug> --source-title "<title>"`**(patch 模式全字段支持,CLI 未传字段不会被清空)。若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
+
+> **PR-A (v0.6.6) frontmatter 引号保持提示**(issue #23):LLM 在步骤 11-2 手工 Edit frontmatter 时,
+> **所有字符串字段必须保留双引号包裹**(`title: "X"` 而非 `title: X`;`description: "d"` 同理)。
+> 裸字符串会让下游 ajv schema / YAML 解析器把 `#` 注释行误当字段延续,触发 FAIL。
+> gen-page 自动生成的 frontmatter 已保证双引号(由 `JSON.stringify`);LLM 修改时只动值不动引号。
 
 ### 步骤 12:回填 source 页 `## 相关页面` + entity/concept 页 `## 来源资料`(双向反链,**追加 + 保留**)
 
