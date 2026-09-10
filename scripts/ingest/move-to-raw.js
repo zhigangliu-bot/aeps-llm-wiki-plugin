@@ -13,7 +13,7 @@
  *      b. slug 二次校验(若失败 → ERROR):仅允许 ^[a-z0-9][a-z0-9-]*$
  *      c. 若 raw/{subdir}/{slug}.{ext} 已存在 → SKIP + WARN(不覆盖)
  *      d. 若 raw/{subdir}/{原文件名} 已存在 + slug 未提供 → 强制拍板门 (y/n/d)
- *         [y] 覆盖(先备份到 temp/raw_backup_{hash}/ + os.replace() 原子替换)
+ *         [y] 覆盖(先备份到 temp/raw_backup_{YYYY-MM-DD}_{hash}/ + os.replace() 原子替换)
  *         [n] 跳过(status: skipped, inbox 文件保留)
  *         [d] 仅删旧副本(status: deleted-old)
  *      e. 同时迁原文件 + .converted.md(若有)
@@ -27,6 +27,11 @@
  *   1 - 参数错
  *   2 - 未指定 --decision 且有冲突 / slug 非法
  *   3 - 写盘失败
+ *
+ * > **change history**(本文件 v0.6.x 起每次变更追加一行):
+ * > - **v0.6.6 (PR-D)** — backupToTemp 目录命名加日期前缀:`temp/raw_backup_{hash}/` →
+ *   `temp/raw_backup_{YYYY-MM-DD}_{hash}/`(issue #27);看一眼就知道备份日期,
+ *   多次 [y] 决策不再难分辨时间顺序;存量旧格式目录由 cleanup-backups.js 用 mtime 兼容。
  */
 
 import { promises as fs } from 'node:fs';
@@ -71,10 +76,12 @@ function parseArgs(argv) {
 }
 
 async function backupToTemp(project, subdir, file, dryRun, backedUp) {
-  // 备份目录: temp/raw_backup_{hash}/
+  // 备份目录: temp/raw_backup_{YYYY-MM-DD}_{hash}/  (PR-D v0.6.6,issue #27)
+  // 日期前缀让人/脚本一眼看出备份日期;cleanup-backups.js 兼容旧格式 (无日期)用 mtime 推断
   // hash 由 subdir + filename 生成,避免冲突
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const hash = sha256Short(`${subdir}/${file}`);
-  const backupDir = path.join(project, 'temp', `raw_backup_${hash}`);
+  const backupDir = path.join(project, 'temp', `raw_backup_${today}_${hash}`);
   if (!dryRun) await fs.mkdir(backupDir, { recursive: true });
   const srcPath = path.join(project, 'raw', subdir, file);
   const dstPath = path.join(backupDir, file);

@@ -2,12 +2,13 @@
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
 plugin-version: 0.6.6
-allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp *),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
 > **change history**(本文件 v0.6.x 起每次变更追加一行):
 > - **v0.6.6 (PR-B)** — 步骤 14 / 15 同步 PR-B 渲染约定:glossary 按术语首字母分组输出 ## A / ## B / ... 节(中文术语归 ## 中文;空字母节省略);index.md 行尾 tags 默认不渲染(`<span style="color:gray">#tag</span>` 省略,避免灰底冲淡 description,#28),启用 `--show-tags` CLI 开关时恢复旧行为(#31 兼容);LLM 不再手工删除行尾 tags(由脚本统一控制)。
 > - **v0.6.6 (PR-C)** — 步骤 3 提示 LLM 在 batch.files[] 写 `entities[]` / `concepts[]`(对齐 build-related-pages.js:697-700 schema),append-log 据此追加;步骤 4 新增路径字段名 alias 提示(`source_path` / `file_path` / `file` → `path` 归一,init-batch `normalizeFileEntry` 实现,修复 issue #25);步骤 11 引用 lint-stub **R7.4** 字典前缀校验(修复 issue #21);步骤 17 追加 entity/concept 抽取列自动写入 log.md(修复 issue #30)。
+> - **v0.6.6 (PR-D)** — 步骤 4 提示 + 步骤 18 改写:backup 目录名加日期前缀 `temp/raw_backup_{YYYY-MM-DD}_{hash}/`(issue #27),让 LLM / 用户一眼看出备份日期;步骤 18 新增 `scripts/cleanup-backups.js` 调用示例(默认 dry-run,--apply 才真删,--days 改 TTL,兼容旧格式无日期前缀用 mtime 推断);步骤 4 / 回滚点同步更新命名约定。
 
 ## 脚本路径约定
 
@@ -152,7 +153,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_
   --project <用户工程根> --batch <batch_file> --decision y --apply --json
 ```
 
-- `[y]` 覆盖:先备份 `temp/raw_backup_{hash}/` + `os.replace()` 原子替换
+- `[y]` 覆盖:先备份 `temp/raw_backup_{YYYY-MM-DD}_{hash}/` + `os.replace()` 原子替换
 - `[n]` 跳过:status=skipped,inbox 文件保留
 - `[d]` 仅删旧副本
 - 若 `batch.files[]` 提供 `slug` 字段,文件按 `{slug}.{ext}` 落地(原扩展名保留)。slug 已存在 → SKIP + WARN 不覆盖;slug 非法 → ERROR。
@@ -355,7 +356,11 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_P
 
 ```bash
 rm temp/ingest-batch-{ts}.json
-# raw_backup_{hash}/ 保留(用户可能想找回旧版)
+
+# raw_backup_{YYYY-MM-DD}_{hash}/ 默认保留(7 天内可找回);过期清理用 cleanup-backups.js
+# 默认 dry-run(只列不删),加 --apply 才真删;--days N 改 TTL;兼容旧格式(无日期前缀)用 mtime 推断
+node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp <用户工程根>/temp/
+node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp <用户工程根>/temp/ --apply --days 14
 ```
 
 ### 步骤 19:lint C17/C18/C19 校验本次产出
@@ -419,7 +424,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 
 - 步骤 0-2 之间:**无副作用**,可任意重跑
 - 步骤 4 之前:inbox 文件未动;任意重跑
-- 步骤 4 `--apply` 之后:从 `temp/raw_backup_{hash}/` 恢复
+- 步骤 4 `--apply` 之后:从 `temp/raw_backup_{YYYY-MM-DD}_{hash}/` 恢复
 - 步骤 12 之后:反链写坏 → 重跑 build-related-pages(追加模式会累积;需清理 → 手工删除对应 H2 区块再跑)
 - 步骤 17 之后:log.md 写错 → 手改 + 重跑 ingest
 
