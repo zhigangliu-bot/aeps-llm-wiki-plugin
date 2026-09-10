@@ -17,6 +17,7 @@
 | 2026-09-08 | zhigangliu-bot | 批次 4 (P3-1):§4.3.1 + §7 + §10.1 + §10.2 共 4 处 `producer/aeps-llm-wiki-plugin/<旧版本号>` 示例统一升级为 0.5.6;无字段语义变化 |
 | 2026-09-09 | zhigangliu-bot | 批次 8 (v0.6.3):§3.3 新增 plugin 扩展 reserved filenames 子节(overview.md / glossary.md);明确 4 个 reserved filenames(index/log/overview/glossary)均不携带 frontmatter;引用 `scripts/ingest/lint-stub.js` R7.3 检测 + `scripts/aggregate-index.js` v0.6.3 起读模板不注 frontmatter 行为。修复 issue #5/#6。 |
 | 2026-09-09 | zhigangliu-bot | 批次 9 (v0.6.5):§3.3 lint 联动段更新——旧 R7.1(tags<5 WARN)被 **R7.4(tags 数量 5-10 → ERROR)** 取代,新增 **R7.5(stale_after 须 ISO 8601 datetime → ERROR)** / **R7.6(sources[] 元素须对象 → ERROR)** 三条 ERROR 规则(修复 issue #12)。§4.4.1 `sources[]` 对象格式为既有权威,`frontmatter.schema.json` `stale_after` 描述已对齐 ISO datetime 语义。 |
+| 2026-09-10 | zhigangliu-bot | v0.6.6:3 处 `generated.by` 示例的 producer 版本号字串同步升级为 0.6.6(修复 issue #18 伴随的版本基线刷新);无字段语义变化。 |
 
 ### 0.1 编写铁律(YAML / Obsidian Properties 兼容性)
 
@@ -274,7 +275,7 @@ OKF 标准下 `type` 取值**开放**(§4.1),消费方 MUST NOT reject 未知 ty
 
 ```yaml
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.5"
+  by: "producer/aeps-llm-wiki-plugin/0.6.6"
   at: "2026-09-05T10:30:00Z"
 ```
 
@@ -622,7 +623,7 @@ description: One row per completed customer order across all channels.
 resource: https://example.com/data/orders
 tags: [sales, orders, revenue]
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.5"
+  by: "producer/aeps-llm-wiki-plugin/0.6.6"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"
@@ -642,7 +643,7 @@ description: Headline income-statement figures for a fiscal year.
 tags: [finance, income-statement]
 status: stable
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.5"
+  by: "producer/aeps-llm-wiki-plugin/0.6.6"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"

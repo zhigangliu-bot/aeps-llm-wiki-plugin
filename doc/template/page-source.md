@@ -15,7 +15,7 @@ tags:
   - phase/architecture
 
 # OKF §4.1 resource
-resource: "./raw/$SUBDIR/$SLUG.$EXT"
+resource: "$RESOURCE"
 
 # OKF §5.2 generated
 generated:

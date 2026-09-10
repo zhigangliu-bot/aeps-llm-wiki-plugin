@@ -30,6 +30,9 @@
 //     把 CLI 未传的 key 覆盖为 undefined 导致 resource / tags 等字段被清空。
 //     P3-#10 — parseArgs boolean flag 判定显式三分支(undefined / `--` 起首 / 真值),
 //     修复 --json / --apply / --patch-frontmatter-only 单传时 args[key] === undefined 的 bug。
+//   - 0.6.6 (issue #18 fix): page-source.md 模板 resource 行改用 $RESOURCE 占位符
+//     (旧 "./raw/$SUBDIR/$SLUG.$EXT" 在 patch 模式 $SUBDIR 为空 → 整行被删);
+//     patch 时 type=source 缺 resource → WARN 提示补 --resource / --subdir + --ext。
 //   - 0.6.5: WP-2 (issues #16/#17/#14) — frontmatter 注入管道统一重构:
 //     ① 统一优先级「CLI 传入 > 脚本自动推导 > 模板默认」;--tags / --aliases /
 //        --source-resource / --source-title 与 --description / --summary / --stale-after 同管道。
@@ -614,6 +617,14 @@ function main() {
       // 归一 list 字段:CLI 传逗号分隔 string ↔ YAML load 后 array ↔ derivePlaceholders 内部已支持两种
       // 但 alias 字段若 existingFm 是 array 而 CLI 没传,mergedArgs.aliases 应保留 array(已 OK)
       const mergedArgs = { ...existingFm, ...definedArgs };
+      // v0.6.6 (issue #18 fix): source 页 resource 是 OKF §4.1 必填字段,
+      // patch 时 existingFm 有 resource 会经 ph.RESOURCE 保留(模板改用 $RESOURCE);
+      // 文件本身缺 resource 时不静默 —— WARN 提示补 --resource,行为保持成功
+      // (对齐 gen-page-patch-fm.test.js「resource-less 文件 patch 仍成功」契约)。
+      if (type === "source" && !mergedArgs.resource) {
+        console.error(`WARN: --patch-frontmatter-only 于 type=source 但目标 frontmatter 缺 OKF §4.1 必填字段 resource`
+          + `(建议重跑加 --resource <raw 相对路径> 或 --subdir <dir> + --ext <ext> 补齐)`);
+      }
       const { ph: newPh, hints: newHints } = derivePlaceholders(type, mergedArgs);
       const newFm = renderFrontmatter(type, tpl.fmBlock, newPh);
       const existingBody = m[2];

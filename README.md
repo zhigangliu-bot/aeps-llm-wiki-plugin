@@ -2,7 +2,7 @@
 
 > **一个 Claude Code plugin,把 Karpathy LLM Wiki + Google OKF v0.2 + Obsidian 整合成一个本地知识库工具链。**
 
-![plugin version](https://img.shields.io/badge/version-0.6.5-blue)
+![plugin version](https://img.shields.io/badge/version-0.6.6-blue)
 ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 ![node](https://img.shields.io/badge/node-%E2%89%A520.0.0-brightgreen)
 
