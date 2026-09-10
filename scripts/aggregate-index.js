@@ -22,6 +22,16 @@
 // exit: 0 OK / 1 参数错 / 2 缺依赖
 //
 // change history:
+//   - 0.6.6 (PR-B #28/#29/#31): 渲染约定统一 ——
+//       (1) 抽 renderTagsLineSuffix(fm, {showTags}) 共用于 source / entity / concept /
+//           analysis / comparison / synthesis 6 处(对齐 #31,消除 3 处重复);默认 showTags=false,
+//           行尾 <span style="color:gray">#tag</span> 不渲染(对齐 #28,默认按选项 A);
+//           新增 --show-tags CLI 开关恢复旧行为(兼容 #31)。
+//       (2) renderGlossaryDynamic 按术语首字母分组输出 ## A / ## B / ... / ## Z,
+//           中文术语归 ## 中文,数字术语归 ## 0-9,空字母节省略(对齐 #29 + page-glossary.md 模板)。
+//       (3) page-index.md / page-glossary.md / SKILL.md 步骤 14/15 同步约定;scripts/test/
+//           aggregate-index.test.js 改 4 个旧 case + 加 4 个新 case 覆盖默认关 / --show-tags /
+//           glossary A-Z / glossary 中文 / 空字母节省略。
 //   - 0.6.0: P0-#3 (issue #3) — index.md / overview.md / glossary.md 注入最小 frontmatter
 //     (type/title/updated/generated/status/tags)。旧版只有 `---` 水平线,lint R7.2 fail。
 //     ⚠ 此修复过度泛化,踩到 OKF §3.2 reserved filenames(index.md/log.md) 与 plugin 扩展
@@ -235,9 +245,29 @@ function loadTemplateAndReplaceVars(name, vars) {
   );
 }
 
+// PR-B (issue #31) 抽 renderTagsLineSuffix:6 处 tags 行尾渲染共用一个函数;
+// 默认 showTags=false → 返回 "" 关闭行尾 tags(#28 推荐方案);
+// --show-tags 开启时返回 ' <span style="color:gray">#tag1 #tag2</span>' (#31 兼容旧行为)。
+function renderTagsLineSuffix(fm, { showTags }) {
+  if (!showTags) return "";
+  const tagStr = (fm.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
+  return tagStr ? ` <span style="color:gray">${tagStr}</span>` : "";
+}
+
+// PR-B (issue #29) glossary 字母节分组:中文术语归 ## 中文,数字归 ## 0-9;
+// 大小写不敏感(Apple/apple 都归 ## A);空字母节省略。
+function bucketKey(letter) {
+  const c = (letter || "").toLowerCase();
+  if (/[a-z]/.test(c)) return c.toUpperCase();
+  if (/[一-鿿]/.test(letter || "")) return "中文";
+  if (/[0-9]/.test(c)) return "0-9";
+  return "其他";
+}
+
 // (issue #11 fix)动态区自含 H2 标题:占位 H2(## Sources({数量}) 等)随模板 sentinel 区间
 // 被整体替换,所以 Entities / Concepts 在这里补上带计数的 H2(0.6.4 依赖模板占位 H2,不再可用)。
-function renderIndexDynamic(pages) {
+// PR-B (issue #28/#31):接受 {showTags},3 处 tags 行尾渲染统一走 renderTagsLineSuffix。
+function renderIndexDynamic(pages, { showTags = false } = {}) {
   const lines = [];
   // Sources 按 frontmatter `resource` 路径解析的 raw/{subdir}/ 分组;子目录名去 \d+_ 前缀
   // 每条 [[wikilink|alias]] + frontmatter status + tags(直接来自 source,不做包装)
@@ -270,7 +300,7 @@ function renderIndexDynamic(pages) {
       lines.push(`### ${key} (${items.length})`);
       lines.push("");
       for (const p of items.sort((a, b) => a.title.localeCompare(b.title))) {
-        lines.push(`- ${renderSourceLine(p)}`);
+        lines.push(`- ${renderSourceLine(p, { showTags })}`);
       }
       lines.push("");
     }
@@ -292,8 +322,7 @@ function renderIndexDynamic(pages) {
         lines.push("*(暂无)*");
       } else {
         for (const p of items.sort((a, b) => a.title.localeCompare(b.title))) {
-          const tagStr = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
-          lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${tagStr ? ` <span style="color:gray">${tagStr}</span>` : ""}`);
+          lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${renderTagsLineSuffix(p, { showTags })}`);
         }
       }
       lines.push("");
@@ -313,8 +342,7 @@ function renderIndexDynamic(pages) {
         ? (a, b) => b.mtime - a.mtime
         : (a, b) => a.title.localeCompare(b.title);
       for (const p of items.sort(sortFn)) {
-        const tagStr = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
-        lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${tagStr ? ` <span style="color:gray">${tagStr}</span>` : ""}`);
+        lines.push(`- [${p.title}](./${p.rel.replace(/\\/g, "/")}) —— ${p.description}${renderTagsLineSuffix(p, { showTags })}`);
       }
     }
     lines.push("");
@@ -324,12 +352,13 @@ function renderIndexDynamic(pages) {
 
 // legacy 路径(issue #11 兼容分支):模板整份(header,剥掉 sentinel 标记行)+
 // 动态区追加 —— 与 0.6.4 输出形态一致,用于「目标文件无标记对」的存量 wiki。
-function renderIndex(rootDir, pages) {
+// PR-B (issue #28/#31):接受 {showTags} 透传给 renderIndexDynamic。
+function renderIndex(rootDir, pages, { showTags = false } = {}) {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const vars = { pluginVersion: readPluginVersion(), now };
   // v0.6.3: 模板 header 替代 frontmatter push;模板自身已含 H1 / 提示注释 / auto-gen 段
   const header = stripSentinelMarkerLines(loadTemplateAndReplaceVars("page-index.md", vars));
-  return header + "\n" + renderIndexDynamic(pages).join("\n");
+  return header + "\n" + renderIndexDynamic(pages, { showTags }).join("\n");
 }
 
 // 从 frontmatter resource 路径解析 raw/{subdir}/ 段;返回子目录名(去掉 \d+_ 前缀);无法解析返回 null
@@ -343,16 +372,16 @@ function parseRawSubdir(resource) {
 }
 
 // 渲染一条 source 行:[[wikilink|alias]] —— description [{status}] {tag1} {tag2} ...
-function renderSourceLine(p) {
+// PR-B (issue #28/#31):接受 {showTags};行尾 tags 渲染统一走 renderTagsLineSuffix。
+function renderSourceLine(p, { showTags = false } = {}) {
   // 裸文件名 = p.rel 去掉 sources/ 前缀和 .md 后缀;统一正斜杠(Obsidian wikilink 要求)
   const basename = p.rel.replace(/\\/g, "/").replace(/^sources\//, "").replace(/\.md$/, "");
   const alias = p.title || basename;
   const link = `[[${basename}|${alias}]]`;
   const desc = p.description ? ` —— ${p.description}` : "";
   const status = p.status ? ` [${p.status}]` : "";
-  const tags = (p.tags || []).map((t) => `#${t.split("/").pop()}`).join(" ");
-  const tail = [status, tags ? `<span style="color:gray">${tags}</span>` : ""].filter(Boolean).join(" ");
-  return `${link}${desc}${tail ? ` ${tail}` : ""}`;
+  const tagsSuffix = renderTagsLineSuffix(p, { showTags });
+  return `${link}${desc}${status}${tagsSuffix}`;
 }
 
 // ponytail: v0.6.2 起 overview.md 改由 LLM 在 ingest 大图变化时维护,聚合脚本不再覆写。
@@ -368,8 +397,9 @@ function renderOverview(pages) {
   return lines.join("\n");
 }
 
-// (issue #11 fix)glossary 动态区:title + aliases 抽取术语条目,平铺列表(无 H2)
-function renderGlossaryDynamic(pages) {
+// (issue #11 fix)glossary 动态区:title + aliases 抽取术语条目,按首字母分组到 ## A / ## B / ... H2 节
+// PR-B (issue #29):中文术语归 ## 中文,数字术语归 ## 0-9,空字母节省略(对齐 page-glossary.md 模板)。
+function renderGlossaryDynamic(pages, { showTags: _showTags = false } = {}) {
   const lines = [];
   const seen = new Map();
   for (const p of pages) {
@@ -381,10 +411,31 @@ function renderGlossaryDynamic(pages) {
   const entries = [...seen.values()].sort((a, b) => a.term.localeCompare(b.term));
   if (!entries.length) {
     lines.push("*(暂无)*");
-  } else {
-    for (const e of entries) {
+    return lines;
+  }
+  // 按 bucketKey 分组
+  const buckets = new Map();
+  for (const e of entries) {
+    const firstChar = [...e.term][0] || "";
+    const key = bucketKey(firstChar);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(e);
+  }
+  // 输出顺序:A-Z (字母序),然后 ## 中文,然后 ## 0-9,然后 ## 其他
+  const order = (k) => {
+    if (k === "中文") return "Z+1";
+    if (k === "0-9") return "Z+2";
+    if (k === "其他") return "Z+3";
+    return k;
+  };
+  const sortKeys = [...buckets.keys()].sort((a, b) => order(a).localeCompare(order(b)));
+  for (const key of sortKeys) {
+    lines.push(`## ${key}`);
+    lines.push("");
+    for (const e of buckets.get(key)) {
       lines.push(`- **${e.term}** —— 参见 [${e.page.title}](./${e.page.rel.replace(/\\/g, "/")}):${e.page.description}`);
     }
+    lines.push("");
   }
   return lines;
 }
@@ -435,6 +486,8 @@ function main() {
   })();
   const dryRun = args.includes("--dry-run");
   const jsonMode = args.includes("--json");
+  // PR-B (issue #28/#31):--show-tags 开关;默认 false → 行尾 <span> tags 不渲染。
+  const showTags = args.includes("--show-tags");
 
   if (!existsSync(knowledge)) {
     console.error(`ERROR: knowledge 目录不存在: ${knowledge}`);
@@ -461,8 +514,8 @@ function main() {
     const vars = { pluginVersion: readPluginVersion(), now };
     const idxPath = join(knowledge, "index.md");
     const glPath = join(knowledge, "glossary.md");
-    const idx = composeAggregateDoc(idxPath, "page-index.md", vars, renderIndexDynamic(pages), () => renderIndex(knowledge, pages));
-    const gl = composeAggregateDoc(glPath, "page-glossary.md", vars, renderGlossaryDynamic(pages), () => renderGlossary(pages));
+    const idx = composeAggregateDoc(idxPath, "page-index.md", vars, renderIndexDynamic(pages, { showTags }), () => renderIndex(knowledge, pages, { showTags }));
+    const gl = composeAggregateDoc(glPath, "page-glossary.md", vars, renderGlossaryDynamic(pages, { showTags }), () => renderGlossary(pages));
     // ponytail: v0.6.2+ overview.md 不再写入,见 renderOverview 注释
     return [
       [idxPath, idx],

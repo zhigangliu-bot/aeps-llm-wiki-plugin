@@ -6,6 +6,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plu
 ---
 
 > **change history**(本文件 v0.6.x 起每次变更追加一行):
+> - **v0.6.6 (PR-B)** — 步骤 14 / 15 同步 PR-B 渲染约定:glossary 按术语首字母分组输出 ## A / ## B / ... 节(中文术语归 ## 中文;空字母节省略);index.md 行尾 tags 默认不渲染(`<span style="color:gray">#tag</span>` 省略,避免灰底冲淡 description,#28),启用 `--show-tags` CLI 开关时恢复旧行为(#31 兼容);LLM 不再手工删除行尾 tags(由脚本统一控制)。
 > - **v0.6.6 (PR-C)** — 步骤 3 提示 LLM 在 batch.files[] 写 `entities[]` / `concepts[]`(对齐 build-related-pages.js:697-700 schema),append-log 据此追加;步骤 4 新增路径字段名 alias 提示(`source_path` / `file_path` / `file` → `path` 归一,init-batch `normalizeFileEntry` 实现,修复 issue #25);步骤 11 引用 lint-stub **R7.4** 字典前缀校验(修复 issue #21);步骤 17 追加 entity/concept 抽取列自动写入 log.md(修复 issue #30)。
 
 ## 脚本路径约定
@@ -304,6 +305,10 @@ LLM 决定:命名飘合并 / 改链等。
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
+# PR-B (issue #29):glossary 按术语首字母 A-Z 分组输出 ## A / ## B / ... 节;
+# 中文术语归 ## 中文 节;数字术语归 ## 0-9 节;空字母节省略(只输出实际有内容的字母节)。
+# PR-B (issue #28/#31):行尾 tags 默认不渲染;启用 --show-tags 开关恢复旧行为(行尾 <span>#tag</span>)。
+# node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --show-tags --json
 ```
 
 (本步为 query/synthesize 共享;ingest 跑完调一次,确保 index.md 反映新页)
@@ -312,12 +317,19 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLU
 
 - **sentinel 路径**:`index.md` / `glossary.md` 含 `<!-- AGGREGATE-START -->` / `<!-- AGGREGATE-END -->` 标记对时(issue #11 修复后的 init 产物默认含),脚本**删除两个标记之间的全部旧内容,在 END 标记前重写当前 knowledge/ 实际状态的索引数据**;标记之外的手写区(Overview、维护备注、手工术语批注)原样保留。
 - **占位清理**:init 模板的占位段(`## Sources({数量})`、A-Z `*(暂无)*` 字母节等)都在标记内,首次聚合后被真数据替换,不再「占位 + 真数据」并存。
+- **glossary 分组**(PR-B #29):动态区按术语首字母分组输出 `## A` / `## B` / ... / `## Z` 节;中文术语归 `## 中文` 节(用 `[一-鿿]` 判断);数字术语归 `## 0-9` 节;**空字母节省略**(只输出实际有内容的字母节)。每个术语条目行结构:`- **term** —— 参见 [page-title](./path):description`。
 - **幂等**:同状态连跑两次,sentinel 区间内容一致,不累积。
 - **向后兼容**:文件不含标记对(存量 wiki)→ 保持 v0.6.4 行为(按模板 + 动态区全量重建),不迁移、不把存量文件 sentinel 化。
 
 ### 步骤 15:更新 index.md
 
 由 aggregate-index.js(步骤 14)统一处理,幂等;写入方式为**替换 index.md 中 sentinel 标记区间的内容**(手写区保留),无标记对的存量文件保持 v0.6.4 全量重建行为。
+
+- **行结构**(PR-B #28 / #31 契约):每行 = `[title](link) —— description`(entity / concept / analysis / comparison / synthesis)或 `[[wikilink|alias]] —— description [status]`(source)。
+- **行尾 tags 默认不渲染**:`<span style="color:gray">#tag1 #tag2</span>` 默认省略(避免灰底冲淡 description,符合 #28 推荐 A 方案);`tags` 字段在 `frontmatter.tags` 读,不在 list 行展示。
+- **--show-tags 开关**:显式传 `--show-tags` 时恢复旧行为(行尾输出灰色 `<span>` 包装,#31 兼容);默认不传 = 不渲染。
+- **LLM 不再手工删除 tags 行**:脚本统一控制,不需要在 step 15 之后用 Edit 删 `<span>` 行。
+- 6 处 tags 渲染(source / entity / concept / analysis / comparison / synthesis)统一走 `renderTagsLineSuffix(fm, {showTags})` 共用函数(对齐 #31)。
 
 ### 步骤 16:更新 overview.md
 

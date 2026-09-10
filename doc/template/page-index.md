@@ -1,6 +1,11 @@
 <!-- 提示:本页是 plugin 自定义 reserved filename(OKF §8 index.md),无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。 -->
 
 <!-- change history:
+  - v0.6.6 (PR-B #28/#31): 行结构契约 —— 每行 `[title](link) —— description [status]`,默认不渲染
+    行尾 `<span style="color:gray">#tag</span>` tags(避免 #28 灰底冲淡 description)。`tags` 字段在
+    `frontmatter.tags` 读,不在 list 行渲染;启用 `--show-tags` CLI 开关时输出灰色 `<span>` 包装。
+    6 处 tags 渲染(source / entity / concept / analysis / comparison / synthesis)统一走
+    `renderTagsLineSuffix(fm, {showTags})` 共用函数(对齐 #31)。
   - v0.6.5 (P0 issue #5): 删除硬编码占位 wikilink(Karpathy / ISO 26262 / S32G / S32K3 / LayerZero /
     Wormhole / 分析页 / 综合页 等),改为「*(暂无)*」骨架。aggregate-index.js 在 init 后会被用户
     触发,真实数据写入。
@@ -35,7 +40,7 @@
 
 ## Sources({数量})
 
-【按 frontmatter `resource` 路径解析的 `raw/{subdir}/` 分组输出;子目录名去掉 `\d+_` 编号前缀。每条用 `[[wikilink|alias]]` 裸文件名 + title 别名格式,行末直接展示 frontmatter 的 `status` 与 `tags`(不做 emoji 包装,纯枚举值);无法解析 resource 路径的 source 归到 `### 其他`。LLM / 脚本生成,详见 `scripts/aggregate-index.js`。】
+【按 frontmatter `resource` 路径解析的 `raw/{subdir}/` 分组输出;子目录名去掉 `\d+_` 编号前缀。每条用 `[[wikilink|alias]]` 裸文件名 + title 别名格式,行结构 = `[[wikilink|alias]] —— description [status]`(默认);行尾 tags 默认不渲染(从 frontmatter.tags 读,不在 list 行展示);启用 `--show-tags` 时输出灰色 `<span style="color:gray">#tag</span>` 包装(对齐 #28)。无法解析 resource 路径的 source 归到 `### 其他`。LLM / 脚本生成,详见 `scripts/aggregate-index.js`。】
 
 ---
 
