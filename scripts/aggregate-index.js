@@ -487,7 +487,10 @@ function main() {
   const dryRun = args.includes("--dry-run");
   const jsonMode = args.includes("--json");
   // PR-B (issue #28/#31):--show-tags 开关;默认 false → 行尾 <span> tags 不渲染。
-  const showTags = args.includes("--show-tags");
+  // v0.6.7 (issue #32):默认翻转为 true —— index.md 行尾 tags 是 query 工作流步骤 1.2
+  // 「按 tags 关键词 grep 过滤候选页」的数据源,默认关闭把这条检索路径断了;
+  // --no-tags 恢复 PR-B 默认关行为(--show-tags 保留,等价默认)。
+  const showTags = !args.includes("--no-tags");
 
   if (!existsSync(knowledge)) {
     console.error(`ERROR: knowledge 目录不存在: ${knowledge}`);

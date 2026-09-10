@@ -1,14 +1,14 @@
 ---
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
-plugin-version: 0.6.6
+plugin-version: 0.6.7
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp *),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
 > **change history**(本文件 v0.6.x 起每次变更追加一行):
-> - **v0.6.6 (PR-B)** — 步骤 14 / 15 同步 PR-B 渲染约定:glossary 按术语首字母分组输出 ## A / ## B / ... 节(中文术语归 ## 中文;空字母节省略);index.md 行尾 tags 默认不渲染(`<span style="color:gray">#tag</span>` 省略,避免灰底冲淡 description,#28),启用 `--show-tags` CLI 开关时恢复旧行为(#31 兼容);LLM 不再手工删除行尾 tags(由脚本统一控制)。
-> - **v0.6.6 (PR-C)** — 步骤 3 提示 LLM 在 batch.files[] 写 `entities[]` / `concepts[]`(对齐 build-related-pages.js:697-700 schema),append-log 据此追加;步骤 4 新增路径字段名 alias 提示(`source_path` / `file_path` / `file` → `path` 归一,init-batch `normalizeFileEntry` 实现,修复 issue #25);步骤 11 引用 lint-stub **R7.4** 字典前缀校验(修复 issue #21);步骤 17 追加 entity/concept 抽取列自动写入 log.md(修复 issue #30)。
-> - **v0.6.6 (PR-D)** — 步骤 4 提示 + 步骤 18 改写:backup 目录名加日期前缀 `temp/raw_backup_{YYYY-MM-DD}_{hash}/`(issue #27),让 LLM / 用户一眼看出备份日期;步骤 18 新增 `scripts/cleanup-backups.js` 调用示例(默认 dry-run,--apply 才真删,--days 改 TTL,兼容旧格式无日期前缀用 mtime 推断);步骤 4 / 回滚点同步更新命名约定。
+> - **v0.6.7 (PR-B)** — 步骤 14 / 15 同步 PR-B 渲染约定:glossary 按术语首字母分组输出 ## A / ## B / ... 节(中文术语归 ## 中文;空字母节省略);index.md 行尾 tags 默认不渲染(`<span style="color:gray">#tag</span>` 省略,避免灰底冲淡 description,#28),启用 `--show-tags` CLI 开关时恢复旧行为(#31 兼容);LLM 不再手工删除行尾 tags(由脚本统一控制)。
+> - **v0.6.7 (PR-C)** — 步骤 3 提示 LLM 在 batch.files[] 写 `entities[]` / `concepts[]`(对齐 build-related-pages.js:697-700 schema),append-log 据此追加;步骤 4 新增路径字段名 alias 提示(`source_path` / `file_path` / `file` → `path` 归一,init-batch `normalizeFileEntry` 实现,修复 issue #25);步骤 11 引用 lint-stub **R7.4** 字典前缀校验(修复 issue #21);步骤 17 追加 entity/concept 抽取列自动写入 log.md(修复 issue #30)。
+> - **v0.6.7 (PR-D)** — 步骤 4 提示 + 步骤 18 改写:backup 目录名加日期前缀 `temp/raw_backup_{YYYY-MM-DD}_{hash}/`(issue #27),让 LLM / 用户一眼看出备份日期;步骤 18 新增 `scripts/cleanup-backups.js` 调用示例(默认 dry-run,--apply 才真删,--days 改 TTL,兼容旧格式无日期前缀用 mtime 推断);步骤 4 / 回滚点同步更新命名约定。
 
 ## 脚本路径约定
 
@@ -110,7 +110,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUD
 
 LLM 读取每个文件(原文件或 `.converted.md`),提议:
 - `target_subdir` ∈ 15 raw 子目录字典(`doc/template/rawdir-spec.md`);**`subdir` 与 `target_subdir` 等价,均可接受**(init-batch.js 会归一为 `target_subdir`,两者同时存在时显式 `target_subdir` 优先)
-- 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定),并**在 batch.files[] 提供 `entities[]` / `concepts[]` 数组,每项 `{type, slug, title?}`**(对齐 build-related-pages.js:697-700 schema;append-log 据此在 **Ingest** 行尾追加 entity/concept 抽取列,v0.6.6 PR-C #30)
+- 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定),并**在 batch.files[] 提供 `entities[]` / `concepts[]` 数组,每项 `{type, slug, title?}`**(对齐 build-related-pages.js:697-700 schema;append-log 据此在 **Ingest** 行尾追加 entity/concept 抽取列,v0.6.7 PR-C #30)
 
 命名飘检查:已有 wiki 页与新抽 entity slug Levenshtein ≤ 2 → WARN 提示强制改用。
 
@@ -139,7 +139,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 
 > ⚠️ `--files` / `--files-file` 的内容必须是**裸 JSON 数组**(`[{...}, {...}]`,即 scan-inbox JSON 的 `files` 字段取值本身)。**不能**包 `{files: [...]}` 外层——后者会被 init-batch.js 当输入数组处理,报 `inputFiles.map is not a function`。
 
-> **PR-C (v0.6.6) 字段名 alias**:batch.files[] 的路径字段**权威名 = `path`**;LLM 写 `source_path` / `file_path` / `file` 也可接受,init-batch.js 内部 `normalizeFileEntry()` 归一为 `path`,优先级 `path > source_path > file_path > file`(修复 issue #25 v0.6.6 回归 bug)。同步支持:`ext` / `file_ext`、`subdir` / `target_subdir`、`slug` / `source_slug` 别名归一;`entities[]` / `concepts[]` 透传(供步骤 17 append-log 追加)。
+> **PR-C (v0.6.7) 字段名 alias**:batch.files[] 的路径字段**权威名 = `path`**;LLM 写 `source_path` / `file_path` / `file` 也可接受,init-batch.js 内部 `normalizeFileEntry()` 归一为 `path`,优先级 `path > source_path > file_path > file`(修复 issue #25 v0.6.7 回归 bug)。同步支持:`ext` / `file_ext`、`subdir` / `target_subdir`、`slug` / `source_slug` 别名归一;`entities[]` / `concepts[]` 透传(供步骤 17 append-log 追加)。
 
 读 stdout JSON `batch_file`,后续 3 步脚本都用此文件。
 
@@ -208,7 +208,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --aliases "<别名1>,<别名2>" --stale-after "<ISO 8601 datetime>" --json
 ```
 
-> **PR-A (v0.6.6) 增量提示**:
+> **PR-A (v0.6.7) 增量提示**:
 >
 > - **stdout JSON 契约**(修复 issue #19/#26):所有调用加 `--json`;SKILL.md 解析 stdout `JSON.parse(...)`。
 >   关闭 `--json` 时保留旧 `OK: ...` / `HINT: ...` 文本(向后兼容老 LLM 客户端)。
@@ -242,7 +242,7 @@ LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 | `stale_after` | ISO 8601 **datetime** `"2027-09-09T00:00:00Z"`(带 `T…Z`;gen-page 缺省会自动按 `generated.at + 1 年` 推导,concept.standard +5 年) | 纯 date `"2027-09-09"` | schema/ lint FAIL,需改为 datetime |
 | `tags` | **5-10 条**,必含 `docform/` + `domain/` 轴(字典:`doc/template/tag-spec.md`;gen-page 缺省按 type 子类注入 5 条,LLM 应精修) | 少于 5 条 / 裸 tag 无轴前缀 / 人名进 tag | lint FAIL/WARN;检索退化 |
 
-> **PR-C (v0.6.6) lint-stub R7.4 字典前缀校验**:`scripts/ingest/lint-stub.js` v0.6.6 起新增 R7.4 校验 —— 每条 tag 必须匹配 `^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$`(对齐 `doc/schema/frontmatter-spec.md §4.2.4` + `doc/template/tag-spec.md §1.4`);违规 → ERROR(fail++,exit 2)。同步新增:**必填轴** `docform/` + `domain/` 各 ≥1 条(tag-spec.md §1.2)、**单值轴** `docform/` + `maturity/` 不可重复(tag-spec.md §1.3)。`STUB_VERSION` M2.4-stub → M2.5-stub。修复 issue #21。
+> **PR-C (v0.6.7) lint-stub R7.4 字典前缀校验**:`scripts/ingest/lint-stub.js` v0.6.7 起新增 R7.4 校验 —— 每条 tag 必须匹配 `^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$`(对齐 `doc/schema/frontmatter-spec.md §4.2.4` + `doc/template/tag-spec.md §1.4`);违规 → ERROR(fail++,exit 2)。同步新增:**必填轴** `docform/` + `domain/` 各 ≥1 条(tag-spec.md §1.2)、**单值轴** `docform/` + `maturity/` 不可重复(tag-spec.md §1.3)。`STUB_VERSION` M2.4-stub → M2.5-stub。修复 issue #21。
 
 ### 步骤 10:建 entity / concept 页 skeleton
 
@@ -259,7 +259,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --json
 ```
 
-- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` / `--source-resource` / `--source-title` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;**v0.6.6 起 description/summary 不再静默 fallback 到 title,留空字符串 + stderr WARN**(issue #20);stale_after 自动 `generated.at + 1y`);`--source-resource` / `--source-title` 都不传 → `sources: []` 且 stdout 给出 `HINT: sources 为空` 提示,LLM 需在步骤 11 用 `--patch-frontmatter-only` 补。
+- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` / `--source-resource` / `--source-title` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;**v0.6.7 起 description/summary 不再静默 fallback 到 title,留空字符串 + stderr WARN**(issue #20);stale_after 自动 `generated.at + 1y`);`--source-resource` / `--source-title` 都不传 → `sources: []` 且 stdout 给出 `HINT: sources 为空` 提示,LLM 需在步骤 11 用 `--patch-frontmatter-only` 补。
 
 **v0.6.5 起 `--project <用户工程根>` 必传**:`gen-page.js` 从 `<project>/doc/templates/` 找模板(issue #4-Bug3);
 不传 → `template not found` 错误(对齐 PR-AC-6,v0.5.8 起取消 cwd 兜底)。
@@ -267,7 +267,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 **entity.* / concept.* 通用骨架**:`gen-page.js` 按 `entity.<subtype>` 自动选 [`page-entity.md`](../doc/template/page-entity.md);按 `concept.<subtype>` 自动选 [`page-concept.md`](../doc/template/page-concept.md)。子类差异通过 `type` 字段 / `aliases` / `tags` / 自由正文组织,**不**用 H2 节名体现。
 
-> **PR-A (v0.6.6) 章节顺序约定**(issue #19):模板 `page-entity.md` / `page-concept.md` /
+> **PR-A (v0.6.7) 章节顺序约定**(issue #19):模板 `page-entity.md` / `page-concept.md` /
 > `page-source.md` 默认章节顺序为**「实质内容在前,关联导引/来源资料/维护说明在后」**。
 > LLM 在步骤 11 写正文时,把实质 H2 节(`## 个人背景` / `## 核心原理` / `## 适用范围` 等)
 > 放在 `## 关联导引` **之前**;`## 关联导引` / `## 来源资料` / `## 维护说明` 由 plugin
@@ -277,7 +277,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 
 自由发挥。`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);`sources[]` 传了 `--source-resource` / `--source-title` 时已是对象格式,否则为空数组(stdout 有 HINT)—— **LLM 需补 source 时重跑 `--patch-frontmatter-only --source-resource <slug> --source-title "<title>"`**(patch 模式全字段支持,CLI 未传字段不会被清空)。若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
 
-> **PR-A (v0.6.6) frontmatter 引号保持提示**(issue #23):LLM 在步骤 11-2 手工 Edit frontmatter 时,
+> **PR-A (v0.6.7) frontmatter 引号保持提示**(issue #23):LLM 在步骤 11-2 手工 Edit frontmatter 时,
 > **所有字符串字段必须保留双引号包裹**(`title: "X"` 而非 `title: X`;`description: "d"` 同理)。
 > 裸字符串会让下游 ajv schema / YAML 解析器把 `#` 注释行误当字段延续,触发 FAIL。
 > gen-page 自动生成的 frontmatter 已保证双引号(由 `JSON.stringify`);LLM 修改时只动值不动引号。
@@ -308,8 +308,8 @@ LLM 决定:命名飘合并 / 改链等。
 node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
 # PR-B (issue #29):glossary 按术语首字母 A-Z 分组输出 ## A / ## B / ... 节;
 # 中文术语归 ## 中文 节;数字术语归 ## 0-9 节;空字母节省略(只输出实际有内容的字母节)。
-# PR-B (issue #28/#31):行尾 tags 默认不渲染;启用 --show-tags 开关恢复旧行为(行尾 <span>#tag</span>)。
-# node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --show-tags --json
+# v0.6.7 (issue #32):index.md 行尾 tags 默认渲染(query 工作流按 tag grep 找候选页的数据源);
+# 不要行尾 tags 时显式传 --no-tags。
 ```
 
 (本步为 query/synthesize 共享;ingest 跑完调一次,确保 index.md 反映新页)
@@ -327,18 +327,21 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLU
 由 aggregate-index.js(步骤 14)统一处理,幂等;写入方式为**替换 index.md 中 sentinel 标记区间的内容**(手写区保留),无标记对的存量文件保持 v0.6.4 全量重建行为。
 
 - **行结构**(PR-B #28 / #31 契约):每行 = `[title](link) —— description`(entity / concept / analysis / comparison / synthesis)或 `[[wikilink|alias]] —— description [status]`(source)。
-- **行尾 tags 默认不渲染**:`<span style="color:gray">#tag1 #tag2</span>` 默认省略(避免灰底冲淡 description,符合 #28 推荐 A 方案);`tags` 字段在 `frontmatter.tags` 读,不在 list 行展示。
-- **--show-tags 开关**:显式传 `--show-tags` 时恢复旧行为(行尾输出灰色 `<span>` 包装,#31 兼容);默认不传 = 不渲染。
-- **LLM 不再手工删除 tags 行**:脚本统一控制,不需要在 step 15 之后用 Edit 删 `<span>` 行。
+- **行尾 tags 默认渲染**(v0.6.7,issue #32):每行尾输出灰色 `<span style="color:gray">#tag1 #tag2</span>`,供 query 工作流步骤 1.2 按 tag grep 找候选页;`--no-tags` 显式关闭(#28 兼容)。
+- **LLM 不手工增删 tags 行**:脚本统一控制。
 - 6 处 tags 渲染(source / entity / concept / analysis / comparison / synthesis)统一走 `renderTagsLineSuffix(fm, {showTags})` 共用函数(对齐 #31)。
 
-### 步骤 16:更新 overview.md
+### 步骤 16:更新 overview.md(每次 ingest 后必刷)
 
-overview.md 不由 aggregate-index.js 自动重建,改由 LLM 在"大图变化时"(新增 source / 完成 synthesis / 累计 analyses > 10 等)按 plugin 仓 `doc/template/page-overview.md` 骨架(在用户工程为 `doc/templates/page-overview.md`)增量更新:
+overview.md 不由 aggregate-index.js 自动重建,改由 LLM **每次 ingest 跑完后必刷**(v0.6.7,issue #33:原"大图变化时"触发过松,overview 长期挂 init 模板占位文本与示例假数据)按 plugin 仓 `doc/template/page-overview.md` 骨架(在用户工程为 `doc/templates/page-overview.md`)更新:
 
 - 保留已有骨架(一句话定位 / 主题领域分布 / 知识成熟度 / 未覆盖领域 / 维护 五节)
-- 按当前 knowledge/ 实际状态刷新"主题领域分布"与"知识成熟度"两节的引用
+- 按当前 knowledge/ 实际状态重写"主题领域分布"与"知识成熟度"两节(所有 `【占位】` / `{数量}` / init 示例条目必须清掉,填真实数据与真实 wikilink)
 - "未覆盖领域"由 LLM 读 log.md 近 30 天 query + knowledge/ 缺口自行判断
+
+### 步骤 16.1:wikilink 硬约束(贯穿步骤 7/11/12 所有正文写入)
+
+所有写入正文的 wikilink **必须用文件名形式 `[[filename]]`**(目标 .md 去 .md 的 basename),**禁止 title / alias 形式**:Obsidian 1.12.7 resolver 只索引文件名 basename,不读 frontmatter `aliases:`,title 形式 wikilink 点击会创建空白页。需要可读别名时写 `[[filename|显示别名]]`。lint R7.10 校验。
 
 ### 步骤 17:追加 log.md(最新在前,ISO 8601)
 
@@ -350,7 +353,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_P
 - 已有当天 H2 → 复用
 - 无 → 插入新 H2 (最新在前)
 - `**Ingest**` 行 wikilink 优先用 `batch.files[].slug`(不是 inbox 原文件名 basename);raw 路径用 `{slug}.{原扩展名}`。inbox 来源路径保留原文件名(人类追溯用)。
-- **PR-C (v0.6.6) entity/concept 抽取列**:若 `batch.files[].entities[]` / `batch.files[].concepts[]` 非空(步骤 3 已声明),脚本自动在 `**Ingest**` 行末尾追加 `+ entities/<dir>/<slug>.md + concepts/<dir>/<slug>.md`(元素 schema `{type, slug, title?}` 对齐 build-related-pages.js:697-700;type 子类 `entity.person` → 目录 `person`,剥 `entity.` 前缀)。LLM 无需手工补 entity/concept 列,知识图谱变化追溯完整(修复 issue #30);格式对齐 `doc/template/page-log.md` 模板示例。
+- **PR-C (v0.6.7) entity/concept 抽取列**:若 `batch.files[].entities[]` / `batch.files[].concepts[]` 非空(步骤 3 已声明),脚本自动在 `**Ingest**` 行末尾追加 `+ entities/<dir>/<slug>.md + concepts/<dir>/<slug>.md`(元素 schema `{type, slug, title?}` 对齐 build-related-pages.js:697-700;type 子类 `entity.person` → 目录 `person`,剥 `entity.` 前缀)。LLM 无需手工补 entity/concept 列,知识图谱变化追溯完整(修复 issue #30);格式对齐 `doc/template/page-log.md` 模板示例。
 
 ### 步骤 18:清理 temp/
 

@@ -206,6 +206,32 @@ function yamlListBody(items) {
   return items.map((t) => `  - ${t}`).join("\n");
 }
 
+// v0.6.7 (issues #34/#35): aliases 清洗管道 —— Obsidian 1.12.7 兼容
+//   - title 强制首项(#34:短标题 wikilink 依赖 aliases 含 title)
+//   - 剥 wikilink `[[...]]` 包裹与外层成对引号(#35 bug 2:引号字面量进 alias → Obsidian 渲染橙色纯文本)
+//   - Set 去重(#35 bug 1:重复 patch 累积重复项)
+//   - 输出统一 JSON.stringify 双引号包裹:含 `:` 的 title(如 "Beyond Code: ...")
+//     裸写会被 YAML 解析成 map,双引号包裹是合法 YAML 且 round-trip 安全
+function cleanAliases(items, title) {
+  const out = [];
+  for (const t of [title, ...(items || [])]) {
+    if (t === undefined || t === null) continue;
+    let s = String(t).trim();
+    if (!s) continue;
+    s = s.replace(/^\[\[/, "").replace(/\]\]$/, "").trim();
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+      s = s.slice(1, -1).trim();
+    }
+    if (s) out.push(s);
+  }
+  return [...new Set(out)];
+}
+
+/** aliases 专用 YAML list 块体:每项 JSON.stringify 双引号包裹(防 `:` 触发 YAML map 解析) */
+function yamlAliasListBody(items) {
+  return items.map((t) => `  - ${JSON.stringify(t)}`).join("\n");
+}
+
 /** 单个 sources 对象 → YAML object list 条目(合规格式,frontmatter-spec.md §4.4.1):
  *   - resource: "[[slug]]"
  *     title: "T"
@@ -441,8 +467,9 @@ function derivePlaceholders(type, args) {
     ph.NATIVE_TEXT = native;
     ph.CONVERTED_PATH = converted == null ? "null" : `"${converted}"`;
     // v0.6.5:page-source.md 模板起带 aliases 字段;CLI > [title] fallback
-    const srcAliases = parseListArg(args.aliases) || [title];
-    ph.ALIASES_BODY = yamlListBody(srcAliases);
+    // v0.6.7 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
+    const srcAliases = cleanAliases(parseListArg(args.aliases), title);
+    ph.ALIASES_BODY = yamlAliasListBody(srcAliases);
     ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底(自定义旧模板)
   } else if (isEntityConcept) {
     // entity.* / concept.*:最小合规 skeleton(issue #14)
@@ -469,8 +496,9 @@ function derivePlaceholders(type, args) {
     ph.SOURCES = ph.SOURCES_BODY === "[]" ? "" : ph.SOURCES_BODY; // legacy $SOURCES 兜底
 
     // aliases:CLI > [title] fallback(Obsidian 原生别名机制,frontmatter-spec §12.4)
+    // v0.6.7 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
     const cliAliases = parseListArg(args.aliases);
-    ph.ALIASES_BODY = yamlListBody(cliAliases || [title]);
+    ph.ALIASES_BODY = yamlAliasListBody(cleanAliases(cliAliases, title));
     ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底
   } else {
     // analysis / comparison / synthesis:模板未纳入 v0.6.5 三模板改造,保持 legacy $SOURCES 行为
@@ -546,7 +574,12 @@ function renderBody(type, tpl, args) {
       lines.push("【本次推演用到的关键 Wiki 事实与依据】");
       lines.push("");
       if (args.sources_used) {
-        const links = args.sources_used.split(",").map((s) => `[[${s.trim().replace(/^\.\/knowledge\//, "").replace(/\.md$/, "")}]]`).join(", ");
+        // v0.6.7 (#36):wikilink 文本收敛为裸 basename(去路径前缀与 .md)——
+        // Obsidian 1.12.7 resolver 唯一可靠输入;title/alias 形式一律不生成
+        const links = args.sources_used.split(",").map((s) => {
+          const b = s.trim().replace(/^\.\/knowledge\//, "").replace(/\.md$/, "");
+          return `[[${b.split("/").pop()}]]`;
+        }).join(", ");
         lines.push(`> 引用:${links}`);
       }
     } else if (h2.startsWith("相关页面")) {

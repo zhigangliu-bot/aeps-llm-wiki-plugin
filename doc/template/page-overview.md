@@ -7,7 +7,7 @@
 -->
 # 项目名 Wiki 大图
 
-> **plugin 版本**:0.6.6
+> **plugin 版本**:0.6.7
 > **最近更新**:2026-09-04T10:30:00Z
 >
 > 本文件无 frontmatter(本文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内);由 `/aeps-llm-wiki-ingest` 在"大图变化时"更新。

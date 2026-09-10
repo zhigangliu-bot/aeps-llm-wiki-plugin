@@ -80,7 +80,7 @@ await requireDeps({ 'js-yaml': 'js-yaml' });
 // 动态 import:必须在 requireDeps 之后
 const yaml = (await import('js-yaml')).default;
 
-const STUB_VERSION = 'M2.5-stub';
+const STUB_VERSION = 'M2.6-stub';
 const MIN_TAGS_LENGTH = 5; // 对齐 doc/schema/frontmatter.schema.json tags minItems
 // v0.6.5 (issue #12): R7.4 上限,对齐 frontmatter.schema.json tags maxItems
 const MAX_TAGS_LENGTH = 10;
@@ -177,6 +177,68 @@ function checkSourcesElements(value) {
     }
   });
   return errs;
+}
+
+// ---- v0.6.7 (issues #34/#35/#36) Obsidian 1.12.7 兼容规则 ----
+// 注意编号冲突:issue 建议的 R7.5-R7.8 已被 stale_after/sources 占用,这里顺延为 R7.7-R7.10:
+//   R7.7 (#35 方案B) aliases 数组重复项 → ERROR
+//   R7.8 (#35 方案B) aliases 项被 [[...]] 或成对引号包裹 → ERROR
+//   R7.9 (#34 方案C) frontmatter title 不在 aliases 数组 → ERROR(aliases 缺失时跳过,schema OPTIONAL)
+//   R7.10 (#36 方案B) 正文 wikilink 左段不匹配任何 .md basename → WARN
+
+/**
+ * R7.7/R7.8/R7.9 (v0.6.7):aliases 数组合规检查。
+ * 返回错误消息数组(可能多条),合规(或缺省)返回 []。
+ */
+function checkAliases(fm) {
+  const errs = [];
+  const aliases = fm.aliases;
+  if (!Array.isArray(aliases)) return errs; // OPTIONAL 字段,缺省不触发
+  // R7.7 去重
+  const seen = new Set();
+  for (const a of aliases) {
+    const key = typeof a === 'string' ? a : JSON.stringify(a);
+    if (seen.has(key)) {
+      errs.push(`R7.7 aliases 数组重复项: ${previewValue(a)}(Obsidian 容忍但掩盖流程 bug;gen-page.js v0.6.7 起 cleanAliases 已去重)`);
+    }
+    seen.add(key);
+  }
+  // R7.8 包裹检查
+  for (const a of aliases) {
+    if (typeof a !== 'string') continue;
+    if (/^\[\[.*\]\]$/.test(a.trim())) {
+      errs.push(`R7.8 aliases 项不允许 wikilink 语法包裹: ${previewValue(a)}(剥掉 [[ ]] 写纯字符串)`);
+    } else if ((/^".*"$/).test(a.trim()) || (/^'.*'$/).test(a.trim())) {
+      errs.push(`R7.8 aliases 项含字面外层引号: ${previewValue(a)}(YAML 引号应是语法不是内容;剥掉后写纯字符串)`);
+    }
+  }
+  // R7.9 title ∈ aliases(只查同时有 title 与 aliases 的页)
+  if (typeof fm.title === 'string' && fm.title && !aliases.includes(fm.title)) {
+    errs.push(`R7.9 frontmatter title 不在 aliases 数组中: ${previewValue(fm.title)}(title 必须作为 aliases 第一项;否则短标题 wikilink 在 Obsidian 1.12.7 跳空白页)`);
+  }
+  return errs;
+}
+
+/**
+ * R7.10 (v0.6.7, issue #36 方案B):正文 wikilink 左段必须匹配 vault 内某 .md basename。
+ * Obsidian 1.12.7 resolver 只索引文件名 basename(不读 aliases),不匹配 → 跳空白页 + vault 根堆空白文件。
+ * 带路径的 wikilink([[sources/foo]])只比对最后一段;带 # 子页锚点忽略。
+ * 返回警告消息数组,合规返回 []。
+ */
+function checkWikilinkBasenames(body, basenameSet, relPath) {
+  const warns = [];
+  const seen = new Set();
+  const re = /\[\[([^\]#|]+)(?:#[^\]#|]*)?(?:\|[^\]]*)?\]\]/g;
+  let m;
+  while ((m = re.exec(body || '')) !== null) {
+    const linkpath = m[1].trim().split('/').pop().replace(/\.md$/, '');
+    if (!linkpath || seen.has(linkpath)) continue;
+    seen.add(linkpath);
+    if (!basenameSet.has(linkpath)) {
+      warns.push(`${relPath}: R7.10 wikilink [[${m[1].trim()}]] 左段不匹配任何 .md basename(Obsidian 1.12.7 resolver 只认文件名,不读 aliases;点击会创建空白页;wikilink 文本必须用文件名形式)`);
+    }
+  }
+  return warns;
 }
 
 /**
@@ -291,6 +353,9 @@ async function main() {
   const flatWarnings = [];
   const flatErrors = [];
 
+  // v0.6.7 (issue #36) R7.10:全 vault .md basename 集合(去 .md,reserved 文件也入集 —— index/glossary 等可被 wikilink)
+  const basenameSet = new Set(pages.map((p) => p.relPath.split('/').pop().replace(/\.md$/, '')));
+
   for (const p of pages) {
     // v0.6.3: reserved filenames 走专属 R7.3 检查,跳过 R7.1 / R7.2(对齐 frontmatter-spec.md §3.3)
     const basename = p.relPath.split('/').pop();
@@ -347,6 +412,20 @@ async function main() {
       if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
       errorsByFile[p.relPath].push(msg);
       flatErrors.push(`${p.relPath}: ${msg}`);
+    }
+
+    // v0.6.7 (issues #34/#35): R7.7 重复 / R7.8 包裹 / R7.9 title∈aliases → ERROR
+    for (const msg of checkAliases(p.fm)) {
+      if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
+      errorsByFile[p.relPath].push(msg);
+      flatErrors.push(`${p.relPath}: ${msg}`);
+    }
+
+    // v0.6.7 (issue #36): R7.10 正文 wikilink 左段须匹配某 .md basename → WARN
+    for (const msg of checkWikilinkBasenames(p.body, basenameSet, p.relPath)) {
+      if (!warningsByFile[p.relPath]) warningsByFile[p.relPath] = [];
+      warningsByFile[p.relPath].push(msg);
+      flatWarnings.push(msg);
     }
 
     // C21 (v0.5.9): source 页 ## 重点摘录 之前缺自由追加节 → WARN

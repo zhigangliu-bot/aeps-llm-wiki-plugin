@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — Agent 操作手册
 
-> **plugin 版本**:0.6.6
+> **plugin 版本**:0.6.7
 > **初始化时间**:2026-09-04T10:30:00Z
 > **维护者**:zhigang.liu
 
