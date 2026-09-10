@@ -5,6 +5,9 @@ plugin-version: 0.6.6
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
+> **change history**(本文件 v0.6.x 起每次变更追加一行):
+> - **v0.6.6 (PR-C)** — 步骤 3 提示 LLM 在 batch.files[] 写 `entities[]` / `concepts[]`(对齐 build-related-pages.js:697-700 schema),append-log 据此追加;步骤 4 新增路径字段名 alias 提示(`source_path` / `file_path` / `file` → `path` 归一,init-batch `normalizeFileEntry` 实现,修复 issue #25);步骤 11 引用 lint-stub **R7.4** 字典前缀校验(修复 issue #21);步骤 17 追加 entity/concept 抽取列自动写入 log.md(修复 issue #30)。
+
 ## 脚本路径约定
 
 > **脚本路径约定**:本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin-root;该变量由调用方注入(plugin 自动注入或用户 shell 导出),或通过 `--plugin-root` CLI 参数显式传递冗余兜底。
@@ -105,7 +108,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUD
 
 LLM 读取每个文件(原文件或 `.converted.md`),提议:
 - `target_subdir` ∈ 15 raw 子目录字典(`doc/template/rawdir-spec.md`);**`subdir` 与 `target_subdir` 等价,均可接受**(init-batch.js 会归一为 `target_subdir`,两者同时存在时显式 `target_subdir` 优先)
-- 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定)
+- 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定),并**在 batch.files[] 提供 `entities[]` / `concepts[]` 数组,每项 `{type, slug, title?}`**(对齐 build-related-pages.js:697-700 schema;append-log 据此在 **Ingest** 行尾追加 entity/concept 抽取列,v0.6.6 PR-C #30)
 
 命名飘检查:已有 wiki 页与新抽 entity slug Levenshtein ≤ 2 → WARN 提示强制改用。
 
@@ -133,6 +136,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_P
 > `--files` 与 `--files-file` 互斥(二选一,都传/都不传 → ERROR exit 1)。
 
 > ⚠️ `--files` / `--files-file` 的内容必须是**裸 JSON 数组**(`[{...}, {...}]`,即 scan-inbox JSON 的 `files` 字段取值本身)。**不能**包 `{files: [...]}` 外层——后者会被 init-batch.js 当输入数组处理,报 `inputFiles.map is not a function`。
+
+> **PR-C (v0.6.6) 字段名 alias**:batch.files[] 的路径字段**权威名 = `path`**;LLM 写 `source_path` / `file_path` / `file` 也可接受,init-batch.js 内部 `normalizeFileEntry()` 归一为 `path`,优先级 `path > source_path > file_path > file`(修复 issue #25 v0.6.6 回归 bug)。同步支持:`ext` / `file_ext`、`subdir` / `target_subdir`、`slug` / `source_slug` 别名归一;`entities[]` / `concepts[]` 透传(供步骤 17 append-log 追加)。
 
 读 stdout JSON `batch_file`,后续 3 步脚本都用此文件。
 
@@ -235,6 +240,8 @@ LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 | `stale_after` | ISO 8601 **datetime** `"2027-09-09T00:00:00Z"`(带 `T…Z`;gen-page 缺省会自动按 `generated.at + 1 年` 推导,concept.standard +5 年) | 纯 date `"2027-09-09"` | schema/ lint FAIL,需改为 datetime |
 | `tags` | **5-10 条**,必含 `docform/` + `domain/` 轴(字典:`doc/template/tag-spec.md`;gen-page 缺省按 type 子类注入 5 条,LLM 应精修) | 少于 5 条 / 裸 tag 无轴前缀 / 人名进 tag | lint FAIL/WARN;检索退化 |
 
+> **PR-C (v0.6.6) lint-stub R7.4 字典前缀校验**:`scripts/ingest/lint-stub.js` v0.6.6 起新增 R7.4 校验 —— 每条 tag 必须匹配 `^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$`(对齐 `doc/schema/frontmatter-spec.md §4.2.4` + `doc/template/tag-spec.md §1.4`);违规 → ERROR(fail++,exit 2)。同步新增:**必填轴** `docform/` + `domain/` 各 ≥1 条(tag-spec.md §1.2)、**单值轴** `docform/` + `maturity/` 不可重复(tag-spec.md §1.3)。`STUB_VERSION` M2.4-stub → M2.5-stub。修复 issue #21。
+
 ### 步骤 10:建 entity / concept 页 skeleton
 
 ```bash
@@ -330,6 +337,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_P
 - 已有当天 H2 → 复用
 - 无 → 插入新 H2 (最新在前)
 - `**Ingest**` 行 wikilink 优先用 `batch.files[].slug`(不是 inbox 原文件名 basename);raw 路径用 `{slug}.{原扩展名}`。inbox 来源路径保留原文件名(人类追溯用)。
+- **PR-C (v0.6.6) entity/concept 抽取列**:若 `batch.files[].entities[]` / `batch.files[].concepts[]` 非空(步骤 3 已声明),脚本自动在 `**Ingest**` 行末尾追加 `+ entities/<dir>/<slug>.md + concepts/<dir>/<slug>.md`(元素 schema `{type, slug, title?}` 对齐 build-related-pages.js:697-700;type 子类 `entity.person` → 目录 `person`,剥 `entity.` 前缀)。LLM 无需手工补 entity/concept 列,知识图谱变化追溯完整(修复 issue #30);格式对齐 `doc/template/page-log.md` 模板示例。
 
 ### 步骤 18:清理 temp/
 

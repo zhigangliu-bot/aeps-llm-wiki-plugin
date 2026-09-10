@@ -49,6 +49,11 @@
  *   - **不引入新依赖**:仅用 node:fs / node:path / node:process / scripts/lib/*(iso8601 复用)。
  *
  * change history:
+ *   - 0.6.6 (issue #21 fix, PR-C):新增 R7.4 字典前缀校验 —— 每条 tag 必须匹配
+ *     ^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$ (对齐
+ *     frontmatter-spec.md §4.2.4 + tag-spec.md §1.4);违规 → ERROR(fail++);
+ *     必填轴 docform/ + domain/ 各 ≥1 条(对齐 tag-spec.md §1.2);单值轴
+ *     docform/ + maturity/ 不可重复(对齐 tag-spec.md §1.3);STUB_VERSION M2.4-stub → M2.5-stub
  *   - 0.6.5 (issue #12 fix):新增 R7.4 / R7.5 / R7.6 三条 ERROR 规则(tags 数量区间 /
  *     stale_after ISO datetime / sources[] 元素对象类型),全部计入 fail → exit 2;
  *     原 R7.1(tags<5 WARN)被 R7.4 取代,不再产出 WARN。
@@ -75,10 +80,18 @@ await requireDeps({ 'js-yaml': 'js-yaml' });
 // 动态 import:必须在 requireDeps 之后
 const yaml = (await import('js-yaml')).default;
 
-const STUB_VERSION = 'M2.4-stub';
+const STUB_VERSION = 'M2.5-stub';
 const MIN_TAGS_LENGTH = 5; // 对齐 doc/schema/frontmatter.schema.json tags minItems
 // v0.6.5 (issue #12): R7.4 上限,对齐 frontmatter.schema.json tags maxItems
 const MAX_TAGS_LENGTH = 10;
+// v0.6.6 (issue #21, PR-C) R7.4 字典前缀正则 —— 对齐 frontmatter-spec.md §4.2.4
+// 与 doc/template/tag-spec.md §1.4;6 轴字典权威位置为 tag-spec.md
+const TAG_AXIS_RE_SRC = '(?:domain|layer|phase|docform|maturity|tec)';
+const TAG_VALUE_RE = new RegExp(`^${TAG_AXIS_RE_SRC}/[a-z0-9][a-z0-9-]*$`);
+// v0.6.6 (issue #21, PR-C) R7.4 必填轴 —— 对齐 tag-spec.md §1.2
+const REQUIRED_TAG_AXES = ['docform', 'domain'];
+// v0.6.6 (issue #21, PR-C) R7.4 单值轴 —— 对齐 tag-spec.md §1.3
+const SINGLE_VALUE_TAG_AXES = new Set(['docform', 'maturity']);
 // v0.5.9: C21 — source 页 ## 重点摘录 之前缺自由追加节 WARN
 // (page-source.md v0.5.9 起把"自由追加节"从注释软指引升级为占位骨架 ## 阅读路线,
 //  强制 LLM 读完源文件后先问『这篇有什么独特结构』再写正文)
@@ -163,6 +176,41 @@ function checkSourcesElements(value) {
       errs.push(`R7.6 sources[${i}] 应为 {resource, ...} 对象,当前为 ${yamlTypeName(el)} ${previewValue(el)}(${SOURCES_FIX_HINT})`);
     }
   });
+  return errs;
+}
+
+/**
+ * R7.4 (v0.6.6, issue #21, PR-C) 字典前缀 / 必填轴 / 单值轴校验。
+ * 对齐 doc/schema/frontmatter-spec.md §4.2.4 + doc/template/tag-spec.md §1.2 / §1.3 / §1.4:
+ *   - (a) 每条 tag 必须匹配 ^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$
+ *   - (b) 必填轴 docform/ + domain/ 各 ≥1 条
+ *   - (c) 单值轴 docform/ + maturity/ 不可重复
+ * 返回错误消息数组(可能多条),合规(或缺省)返回 []。
+ */
+function checkR74TagsDictPrefix(tags) {
+  if (!Array.isArray(tags)) return [];
+  const errs = [];
+  // (a) 每条 tag 前缀正则
+  for (const t of tags) {
+    if (typeof t !== 'string' || !TAG_VALUE_RE.test(t)) {
+      const v = previewValue(t);
+      errs.push(`R7.4 tag 字典前缀校验失败: ${v} 不匹配 ^${TAG_AXIS_RE_SRC}/[a-z0-9][a-z0-9-]*$ (spec §4.2.4;6 轴字典见 doc/template/tag-spec.md §1.4)`);
+    }
+  }
+  // (b) 必填轴(docform + domain)
+  for (const axis of REQUIRED_TAG_AXES) {
+    const has = tags.some((t) => typeof t === 'string' && t.startsWith(`${axis}/`));
+    if (!has) {
+      errs.push(`R7.4 必填轴缺失: 至少需要 1 条 '${axis}/...' tag (tag-spec.md §1.2;domain 是文档主题最基础坐标,缺失会让检索退化为「扫全表」)`);
+    }
+  }
+  // (c) 单值轴(docform + maturity)
+  for (const axis of SINGLE_VALUE_TAG_AXES) {
+    const count = tags.filter((t) => typeof t === 'string' && t.startsWith(`${axis}/`)).length;
+    if (count > 1) {
+      errs.push(`R7.4 单值轴重复: '${axis}/' 出现 ${count} 次,最多 1 条 (tag-spec.md §1.3)`);
+    }
+  }
   return errs;
 }
 
@@ -276,6 +324,14 @@ async function main() {
       if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
       errorsByFile[p.relPath].push(r74);
       flatErrors.push(`${p.relPath}: ${r74}`);
+    }
+
+    // R7.4 (v0.6.6, issue #21, PR-C) 字典前缀 / 必填轴 / 单值轴校验
+    // 对齐 frontmatter-spec.md §4.2.4 + doc/template/tag-spec.md §1.2 / §1.3 / §1.4
+    for (const msg of checkR74TagsDictPrefix(tags)) {
+      if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
+      errorsByFile[p.relPath].push(msg);
+      flatErrors.push(`${p.relPath}: ${msg}`);
     }
 
     // R7.5 (v0.6.5, issue #12): stale_after 非 ISO 8601 datetime → ERROR(纯 date 必报错)

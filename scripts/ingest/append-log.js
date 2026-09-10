@@ -26,6 +26,13 @@
  *   2 - 写盘失败 / 缺依赖
  *
  * change history:
+ *   - 0.6.6 (issue #30 fix, PR-C):**Ingest** 行追加 entity / concept 抽取结果
+ *     (从 `batch.files[].entities[]` / `batch.files[].concepts[]` 读,元素 schema
+ *     `{type, slug, title?}` 与 build-related-pages.js:697-700 对齐);
+ *     log 行格式变为:
+ *       `**Ingest**: inbox/<basename> → raw/<subdir>/<target>;新建 [[slug]] + entities/<dir>/<slug>.md + concepts/<dir>/<slug>.md`
+ *     知识图谱变化追溯完整(不再残缺);与 doc/template/page-log.md 模板示例对齐,
+ *     修正 SKILL.md 步骤 17 / 模板 / 实现三方的契约漂移。
  *   - 0.5.6: P1-4 entries 数组(批次 3)
  *   - 0.5.6: inline preflight(批次 3)
  *   - 0.6.0: P1-#4 (issue #4) — wikilink 优先用 file.slug 而非 path basename:
@@ -178,8 +185,10 @@ function resolveTargetFileName(f) {
 
 /**
  * 构造本次 ingest 的日志条目
- * 形如:
+ * 形如(无 entity/concept):
  *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 [[foo-slug]]
+ * 形如(有 entity/concept,v0.6.6 PR-C #30):
+ *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 [[foo-slug]] + entities/person/andrew-ng.md + concepts/field/ai-engineering-skills.md
  */
 function buildEntries(files) {
   const lines = [];
@@ -193,9 +202,43 @@ function buildEntries(files) {
     if (f.converted_path) entry += ` (+ .converted.md)`;
     entry += ';新建 ';
     entry += `[[${slug}]]`;
+    // v0.6.6 PR-C #30:追加 entity / concept 抽取结果
+    // 元素 schema: {type, slug, title?} 与 build-related-pages.js:697-700 对齐
+    const extras = buildEntityConceptSuffix(f);
+    if (extras) entry += ' ' + extras;
     lines.push(entry);
   }
   return lines;
+}
+
+/**
+ * v0.6.6 (issue #30 fix, PR-C):把 f.entities[] / f.concepts[] 转成
+ * log.md 行末的 `+ entities/<dir>/<slug>.md + concepts/<dir>/<slug>.md` 段。
+ * type 子类 `entity.person` → 目录 `person`(剥 `entity.` 前缀);`concept.field` → `field`(剥 `concept.` 前缀);
+ * 与 doc/template/page-log.md 模板示例对齐。
+ */
+function buildEntityConceptSuffix(f) {
+  const parts = [];
+  const entities = Array.isArray(f.entities) ? f.entities : [];
+  for (const e of entities) {
+    if (!e || typeof e !== 'object') continue;
+    const slug = e.slug;
+    const type = e.type;
+    if (!slug || !type) continue;
+    const dir = String(type).replace(/^entity\./, '');
+    parts.push(`entities/${dir}/${slug}.md`);
+  }
+  const concepts = Array.isArray(f.concepts) ? f.concepts : [];
+  for (const c of concepts) {
+    if (!c || typeof c !== 'object') continue;
+    const slug = c.slug;
+    const type = c.type;
+    if (!slug || !type) continue;
+    const dir = String(type).replace(/^concept\./, '');
+    parts.push(`concepts/${dir}/${slug}.md`);
+  }
+  if (!parts.length) return '';
+  return '+ ' + parts.join(' + ');
 }
 
 /**
@@ -233,6 +276,9 @@ function buildEntriesPreview(files, sectionsOrFlag, today) {
       action = 'added';
       summary = `新建 [${today}] 节:${slug} → ${target}`;
     }
+    // v0.6.6 (issue #30, PR-C):summary 同步含 entity/concept 列表
+    const suffix = buildEntityConceptSuffix(f);
+    if (suffix) summary += ' ' + suffix;
     preview.push({ file: f.path, action, summary });
   }
   return preview;

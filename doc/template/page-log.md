@@ -24,7 +24,7 @@
 - 日期节格式:`## [YYYY-MM-DD]`(v0.5.6 起加方括号视觉区分,对齐 Karpathy LLM Wiki `wiki/log.md`)
 - 前缀 5 种(PRD §4.6 路径 B 注释):
   - `**Init**`:项目初始化
-  - `**Ingest**`:inbox → raw 迁移 + 知识页生成
+  - `**Ingest**`:inbox → raw 迁移 + 知识页生成。**v0.6.6 (PR-C)** 起,若 `batch.files[].entities[]` / `batch.files[].concepts[]` 非空,行末尾自动追加 `+ entities/<dir>/<slug>.md + concepts/<dir>/<slug>.md`;元素 schema `{type, slug, title?}` 与 build-related-pages.js:697-700 对齐;type 子类 `entity.person` → 目录 `person`(剥 `entity.` 前缀)
   - `**Creation**`:query 落档为 analysis 页(G11 M1)
   - `**LintFix**`:`--fix` 模式确定性结构修复
   - `**LintProposal**`:`--fix` 模式语义级问题(仅提案)

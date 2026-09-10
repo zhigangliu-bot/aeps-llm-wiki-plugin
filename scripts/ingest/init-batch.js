@@ -28,6 +28,13 @@
  *   - 0.6.0: P0-#1 (issue #1) — 保留 LLM 拍板字段(slug/target_subdir/route/...):
  *     旧版 map 重写 file 会把所有 LLM 决策字段静默丢为 null,导致下游 move-to-raw
  *     fail with "target_subdir 未指定"。改为 spread LLM 输入 + 脚本必需默认值覆盖。
+ *   - 0.6.6 (issue #25 fix, PR-C):新增 `normalizeFileEntry(raw)` 函数 ——
+ *     接受 `path` / `source_path` / `file_path` / `file` 4 种路径字段名别名
+ *     (SKILL.md 步骤 3 文档字段名 ↔ 脚本字段名漂移,导致 v0.6.6 ERR_INVALID_ARG_TYPE 回归);
+ *     优先级:path > source_path > file_path > file;归一后剔除非规范键,避免 batch 里两套字段并存
+ *     导致下游 move-to-raw 读 file.path 拿到 undefined。
+ *     同步支持:`ext` / `file_ext` / `path.extname` · `subdir` / `target_subdir` ·
+ *     `slug` / `source_slug` · `route` · `entities` / `concepts` 透传。
  *   - 0.6.5: WP-1 (issue #15) — 接受 `subdir` 作为 `target_subdir` 别名
  *     (SKILL.md 步骤 3 文档字段名与脚本字段名不一致导致 move-to-raw exit 2)。
  */
@@ -46,6 +53,59 @@ function nowIso() {
 function tsForFilename() {
   // 文件名安全版本:2026-09-07T10-00-00Z
   return nowIso().replace(/:/g, '-');
+}
+
+/**
+ * v0.6.6 (issue #25 fix, PR-C):把 LLM 在 batch.json 中写的"任意写法"统一归一为脚本权威字段。
+ *
+ * 接受多种字段名别名(优先级 = 排序):
+ *   - `path` > `source_path` > `file_path` > `file`         (路径,必有)
+ *   - `ext` > `file_ext` > `path.extname(path)`             (扩展名)
+ *   - `subdir` > `target_subdir`                             (raw 子目录,SKILL.md 别名)
+ *   - `slug` > `source_slug`                                 (知识页 slug,SKILL.md 别名)
+ *   - `route` / `converter` / `native_text` / `converted_path` /
+ *     `converted_emitted` / `mtime` / `size` / `entities` / `concepts`
+ *     等字段透传(原值,不做归一)
+ *
+ * 归一后剔除非规范键(source_path / file_path / file / file_ext /
+ * source_slug),避免下游脚本读 file.path 时与 file.source_path
+ * 同时存在导致歧义。
+ *
+ * 抛出:
+ *   - batch entry 非对象 → Error('batch entry 必须是对象,...')
+ *   - 路径字段全部缺失 → Error('batch entry 缺路径字段(接受 path / source_path / ...);actual keys: ...')
+ */
+export function normalizeFileEntry(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`batch entry 必须是对象,实际: ${typeof raw} ${JSON.stringify(raw)}`);
+  }
+  const pathVal = raw.path ?? raw.source_path ?? raw.file_path ?? raw.file;
+  if (!pathVal || typeof pathVal !== 'string') {
+    throw new Error(
+      `batch entry 缺路径字段(接受 path / source_path / file_path / file);` +
+      `actual keys: ${Object.keys(raw).join(', ')}`
+    );
+  }
+  const extVal = raw.ext ?? raw.file_ext ?? path.extname(pathVal);
+  // 优先级:target_subdir > subdir(显式权威字段 > 别名),与 v0.6.5 WP-1 一致
+  const subdirVal = raw.target_subdir ?? raw.subdir ?? null;
+  // 优先级:slug > source_slug(显式权威字段 > 别名)
+  const slugVal = raw.slug ?? raw.source_slug ?? null;
+
+  // 剔除非规范键,避免下游歧义;其他 LLM 字段透传
+  const dropKeys = new Set(['source_path', 'file_path', 'file', 'file_ext', 'source_slug', 'target_subdir', 'subdir']);
+  const rest = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!dropKeys.has(k)) rest[k] = v;
+  }
+
+  return {
+    ...rest,
+    path: pathVal,
+    ext: extVal,
+    target_subdir: subdirVal,
+    slug: slugVal,
+  };
 }
 
 async function readFilesArg(arg, isFile) {
@@ -121,23 +181,28 @@ async function main() {
   //   - 其余字段(path / size / ext / mtime / route / converter / native_text /
   //     converted_path / converted_emitted / slug / target_raw_path / dedupe_key)
   //     文档名 = 脚本名,经 spread 透传已一致,无同类漂移。
+  //
+  // v0.6.6 (issue #25 fix, PR-C):`normalizeFileEntry` 把 LLM 任意写法
+  //   (path / source_path / file_path / file 四种路径字段名别名)归一为权威字段;
+  //   下游 move-to-raw 读 file.path 不再拿到 undefined。
   const startedAt = nowIso();
-  const files = inputFiles.map((f) => {
-    const { subdir, ...rest } = f; // subdir 是 target_subdir 的文档别名(issue #15)
-    return {
-      ...rest, // 透传 LLM 决策字段(slug / target_subdir / route / converter / native_text / converted_path / 等)
-      path: f.path, // 必填,覆盖可能的 null
-      size: f.size || 0,
-      ext: f.ext,
-      mtime: f.mtime || null,
-      // 脚本必需默认值(LLM 误传也覆盖)
-      moved: false,
-      status: 'pending',
-      converted_emitted: f.converted_emitted ?? false,
-      // SKILL.md 步骤 3 LLM 拍板;`subdir` 为同义别名,显式 target_subdir 优先
-      target_subdir: f.target_subdir ?? subdir ?? null,
-    };
+  const normalizedFiles = inputFiles.map((f) => {
+    try {
+      return normalizeFileEntry(f);
+    } catch (e) {
+      console.error(`ERROR: ${e.message}`);
+      process.exit(1);
+    }
   });
+  const files = normalizedFiles.map((f) => ({
+    ...f,
+    size: f.size || 0,
+    mtime: f.mtime || null,
+    // 脚本必需默认值(LLM 误传也覆盖)
+    moved: false,
+    status: 'pending',
+    converted_emitted: f.converted_emitted ?? false,
+  }));
 
   const batch = {
     batch_id: batchId,
