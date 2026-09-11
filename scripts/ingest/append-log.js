@@ -26,6 +26,8 @@
  *   2 - 写盘失败 / 缺依赖
  *
  * change history:
+ *   - 0.6.x:**Ingest** 行 `新建 [[slug]]` 改为纯文本 `新建 slug`(log.md 不进知识图谱,
+ *     wikilink 会让 graph view 渲染混乱;对齐 page-log.md 模板示例,其本就无 wikilink)
  *   - 0.6.6 (issue #30 fix, PR-C):**Ingest** 行追加 entity / concept 抽取结果
  *     (从 `batch.files[].entities[]` / `batch.files[].concepts[]` 读,元素 schema
  *     `{type, slug, title?}` 与 build-related-pages.js:697-700 对齐);
@@ -186,9 +188,9 @@ function resolveTargetFileName(f) {
 /**
  * 构造本次 ingest 的日志条目
  * 形如(无 entity/concept):
- *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 [[foo-slug]]
+ *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 foo-slug
  * 形如(有 entity/concept,v0.6.6 PR-C #30):
- *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 [[foo-slug]] + entities/person/andrew-ng.md + concepts/field/ai-engineering-skills.md
+ *   **Ingest**: inbox/foo.pdf → raw/06_功能安全/foo-slug.pdf (+ .converted.md);新建 foo-slug + entities/person/andrew-ng.md + concepts/field/ai-engineering-skills.md
  */
 function buildEntries(files) {
   const lines = [];
@@ -201,7 +203,7 @@ function buildEntries(files) {
     let entry = `**Ingest**: inbox/${inboxName} → ${target}`;
     if (f.converted_path) entry += ` (+ .converted.md)`;
     entry += ';新建 ';
-    entry += `[[${slug}]]`;
+    entry += slug;
     // v0.6.6 PR-C #30:追加 entity / concept 抽取结果
     // 元素 schema: {type, slug, title?} 与 build-related-pages.js:697-700 对齐
     const extras = buildEntityConceptSuffix(f);
