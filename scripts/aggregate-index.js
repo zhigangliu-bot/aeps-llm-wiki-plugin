@@ -433,7 +433,8 @@ function renderGlossaryDynamic(pages, { showTags: _showTags = false } = {}) {
     lines.push(`## ${key}`);
     lines.push("");
     for (const e of buckets.get(key)) {
-      lines.push(`- **${e.term}** —— 参见 [${e.page.title}](./${e.page.rel.replace(/\\/g, "/")}):${e.page.description}`);
+      // 术语条目不带链接,纯数据解释(对齐 karpathy wiki glossary 风格)
+      lines.push(`- **${e.term}** —— ${e.page.description || "(暂无定义)"}`);
     }
     lines.push("");
   }

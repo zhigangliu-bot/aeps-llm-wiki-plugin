@@ -3,7 +3,7 @@
 <!-- change history:
   - v0.6.7 (PR-B #29): glossary 字母节契约 —— aggregate-index.js 按术语首字母分组输出 ## A / ## B /
     ... / ## Z;中文术语归 ## 中文 节(用 [一-鿿] 判断);数字术语归 ## 0-9 节;空字母节省略(只输出
-    实际有内容的字母节)。每个术语条目行结构 = `- **term** —— 参见 [page-title](./path):description`。
+    实际有内容的字母节)。每个术语条目行结构 = `- **term** —— description`(纯数据解释,不带链接)。
     排序:字母节按 A-Z 字母序,同节内按 `term.localeCompare` 字母序;中文节按 localeCompare('zh')
     排序。
   - v0.6.5 (P0 issue #5): 删除硬编码占位术语(AGI / ASIL / AUTOSAR / LLM / OKF / synthesis / TVL 等),
