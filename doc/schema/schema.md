@@ -9,6 +9,7 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | 0.5.6 | 2026-09-08 | 批次 4(P3-1)版本号字串审计后保持一致(本批次未变更 schema.md 内容,仅补章节以严格对齐批次 4 R4 验收) |
+| 0.6.7(措辞修正) | 2026-09-11 | prompt-audit 修正:`safe-mv.py` → `move-to-raw.js`、`scripts/convert-to-md.js` → `scripts/ingest/convert-to-md.js`(与 ingest SKILL.md 对齐);版本号不更新 |
 > **权威顺序**:OKF v0.2 规范 > **`doc/schema/frontmatter-spec.md`(人读字段规范,唯一权威)** > `doc/schema/frontmatter.schema.json`(机器读,跟随 spec) > 本 `schema.md`(工作流入口) > `knowledge/glossary.md`(术语表)
 >
 > 本 `schema.md` **不重复列字段**,而是直接引用 `doc/schema/frontmatter-spec.md` (人读字段规范)与 `doc/schema/frontmatter.schema.json` (机器读) (PRD §10 Q1)。**字段定义以 `frontmatter-spec.md` 为最终裁决**,若本工作流描述与 spec 冲突,以 spec 为准。
@@ -25,8 +26,8 @@
 2. 跑 `/aeps-llm-wiki-ingest`
 3. SKILL.md 读 inbox 文件 → 按扩展名分流(详见 `doc/template/README.md` §1):
    - 纯文本(`.md` / `.txt` / `.json` / ...):直接读,**不生成 .converted.md**
-   - 非文本(`.pdf` / `.docx` / `.pptx` / `.xlsx` / `.png` / ...):走 `scripts/convert-to-md.js` 转换,产物落 `raw/{subdir}/{basename}.{ext}.converted.md`
-4. LLM 提议 `raw/{subdir}/` 分类 + 用户拍板 → `safe-mv.py --apply` 同时迁原文件 + md 副本(走过转换的)
+   - 非文本(`.pdf` / `.docx` / `.pptx` / `.xlsx` / `.png` / ...):走 `scripts/ingest/convert-to-md.js` 转换,产物落 `raw/{subdir}/{basename}.{ext}.converted.md`
+4. LLM 提议 `raw/{subdir}/` 分类 + 用户拍板 → `move-to-raw.js --apply` 同时迁原文件 + md 副本(走过转换的)
 5. LLM 生成 `type: source` 源页(必选 3 节骨架 + LLM 自由追加节 + 强制溯源)+ 自动抽取 entity / concept 子页
    - **📋 最终正文结构(一眼看完)**:
      ```

@@ -5,11 +5,6 @@ plugin-version: 0.6.7
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp *),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
-> **change history**(本文件 v0.6.x 起每次变更追加一行):
-> - **v0.6.7 (PR-B)** — 步骤 14 / 15 同步 PR-B 渲染约定:glossary 按术语首字母分组输出 ## A / ## B / ... 节(中文术语归 ## 中文;空字母节省略);index.md 行尾 tags 默认不渲染(`<span style="color:gray">#tag</span>` 省略,避免灰底冲淡 description,#28),启用 `--show-tags` CLI 开关时恢复旧行为(#31 兼容);LLM 不再手工删除行尾 tags(由脚本统一控制)。
-> - **v0.6.7 (PR-C)** — 步骤 3 提示 LLM 在 batch.files[] 写 `entities[]` / `concepts[]`(对齐 build-related-pages.js:697-700 schema),append-log 据此追加;步骤 4 新增路径字段名 alias 提示(`source_path` / `file_path` / `file` → `path` 归一,init-batch `normalizeFileEntry` 实现,修复 issue #25);步骤 11 引用 lint-stub **R7.4** 字典前缀校验(修复 issue #21);步骤 17 追加 entity/concept 抽取列自动写入 log.md(修复 issue #30)。
-> - **v0.6.7 (PR-D)** — 步骤 4 提示 + 步骤 18 改写:backup 目录名加日期前缀 `temp/raw_backup_{YYYY-MM-DD}_{hash}/`(issue #27),让 LLM / 用户一眼看出备份日期;步骤 18 新增 `scripts/cleanup-backups.js` 调用示例(默认 dry-run,--apply 才真删,--days 改 TTL,兼容旧格式无日期前缀用 mtime 推断);步骤 4 / 回滚点同步更新命名约定。
-
 ## 脚本路径约定
 
 > **脚本路径约定**:本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin-root;该变量由调用方注入(plugin 自动注入或用户 shell 导出),或通过 `--plugin-root` CLI 参数显式传递冗余兜底。
@@ -110,7 +105,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUD
 
 LLM 读取每个文件(原文件或 `.converted.md`),提议:
 - `target_subdir` ∈ 15 raw 子目录字典(`doc/template/rawdir-spec.md`);**`subdir` 与 `target_subdir` 等价,均可接受**(init-batch.js 会归一为 `target_subdir`,两者同时存在时显式 `target_subdir` 优先)
-- 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定),并**在 batch.files[] 提供 `entities[]` / `concepts[]` 数组,每项 `{type, slug, title?}`**(对齐 build-related-pages.js:697-700 schema;append-log 据此在 **Ingest** 行尾追加 entity/concept 抽取列,v0.6.7 PR-C #30)
+- 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定),并**在 batch.files[] 提供 `entities[]` / `concepts[]` 数组,每项 `{type, slug, title?}`**(对齐 build-related-pages.js:697-700 schema;append-log 据此在 **Ingest** 行尾追加 entity/concept 抽取列)
 
 命名飘检查:已有 wiki 页与新抽 entity slug Levenshtein ≤ 2 → WARN 提示强制改用。
 
@@ -327,8 +322,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLU
 由 aggregate-index.js(步骤 14)统一处理,幂等;写入方式为**替换 index.md 中 sentinel 标记区间的内容**(手写区保留),无标记对的存量文件保持 v0.6.4 全量重建行为。
 
 - **行结构**(PR-B #28 / #31 契约):每行 = `[title](link) —— description`(entity / concept / analysis / comparison / synthesis)或 `[[wikilink|alias]] —— description [status]`(source)。
-- **行尾 tags 默认渲染**(v0.6.7,issue #32):每行尾输出灰色 `<span style="color:gray">#tag1 #tag2</span>`,供 query 工作流步骤 1.2 按 tag grep 找候选页;`--no-tags` 显式关闭(#28 兼容)。
-- **LLM 不手工增删 tags 行**:脚本统一控制。
+- **行尾 tags 默认渲染**:每行尾输出灰色 `<span style="color:gray">#tag1 #tag2</span>`,供 query 工作流步骤 1.2 按 tag grep 找候选页;`--no-tags` 显式关闭。
+- tags 行由脚本统一控制,LLM 不手工增删。
 - 6 处 tags 渲染(source / entity / concept / analysis / comparison / synthesis)统一走 `renderTagsLineSuffix(fm, {showTags})` 共用函数(对齐 #31)。
 
 ### 步骤 16:更新 overview.md(每次 ingest 后必刷)
