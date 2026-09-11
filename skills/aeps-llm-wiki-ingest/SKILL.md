@@ -90,7 +90,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLU
 读 stdout JSON:
 - `route == 1` → 纯文本,**不调** `convert-to-md.js`
 - `route == 2` → PDF 原生可读,**不调** `convert-to-md.js`
-- `route == 3` → 调 `convert-to-md.js`(PDF/HTML 走 anydoc;docx/pptx/xlsx 走 docling)
+- `route == 3` → 调 `convert-to-md.js`(PDF/HTML 走 anydoc;docx/pptx/xlsx 走 pyoffice → anydoc → docling 逐级降级,见 scripts/RULES.md §1)
 - `route == 4` → 调 `convert-to-md.js`(paddleocr);若 classify.js 返回 `fail: true` → 路径 4 不可用,询问用户装 paddleocr,**FAIL 不降级**(G6 + implement-ingest.md §1.1)
 - PDF 原生失败 → 用 `--route 3` 覆盖默认(SKILL.md 显式重跑)
 

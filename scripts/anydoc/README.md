@@ -85,7 +85,9 @@ for %f in (inbox\*.pdf) do node anydoc/anydoc_pdf_to_md.js "%f"
 
 ---
 
-## 二、docling 路径(docx / pptx / xlsx,精)
+## 二、docling 路径(docx / pptx / xlsx 最后兜底,精)
+
+> **docx/pptx/xlsx 优先级**(见 `../RULES.md` §1):`../pyoffice/pyoffice_to_md.py`(python 库,第一)→ `anydoc_office_to_md.js`(本目录,第二)→ `docling_to_md.py`(本节,兜底;含图 / 复杂版面时质量最好)。
 
 ### 2.1 环境
 

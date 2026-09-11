@@ -32,7 +32,7 @@
 |---|---|---|---|
 | `source_file` | wikilink 文本 | source 必填 | Obsidian wikilink 文本,指向 raw/ 原文件;Obsidian 渲染为蓝色下划线可点击链接,跨 reader 降级显示原始文本。例:`[[06-功能安全/iso26262.pdf]]`。详见 `frontmatter-spec.md` §12.5 |
 | `format` | string | source 必填 | 原文件扩展名(小写):`pdf` / `pptx` / `docx` / `png` ... |
-| `converter` | string\|null | source 必填 | 实际走过的转换器:`anydoc` / `paddleocr` / `claude-native` / `null`(纯文本) |
+| `converter` | string\|null | source 必填 | 实际走过的转换器:`pyoffice` / `anydoc` / `docling` / `libreoffice` / `paddleocr` / `claude-native` / `null`(纯文本);office 优先级 pyoffice → anydoc → docling(见 scripts/RULES.md §1) |
 | `native_text` | bool | source 必填 | 是否原生纯文本;决定是否生成 `.converted.md` |
 | `converted_path` | path\|null | source 必填 | `.converted.md` 副本路径(程序消费);纯文本为 `null`。与 `source_file` 分工,详见 `frontmatter-spec.md` §12.5 |
 | `sources_used` | string[] | analysis 必填 | 本次 query 参考的 wiki 页相对路径列表;lint C15.2 验存在 |

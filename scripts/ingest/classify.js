@@ -12,7 +12,7 @@
  *     converter=null, native_text=true, converted_path=null, 不调 convert-to-md
  *   路径 2 (.pdf Claude Code 原生可读): converter=claude-native, native_text=true, converted_path=null
  *   路径 3 (.pptx/.docx/.xlsx/.pdf 失败时/.html):
- *     pdf→anydoc, pptx/docx/xlsx→docling, html→anydoc, native_text=false, converted_path 模板
+ *     pdf→anydoc, pptx/docx/xlsx→pyoffice(失败降级 anydoc→docling,见 convert-to-md.js), html→anydoc, native_text=false, converted_path 模板
  *   路径 4 (.png/.jpg/.jpeg/.bmp/.tiff): paddleocr 强依赖, 缺则 FAIL 不降级
  *
  * Exit codes:
@@ -47,10 +47,10 @@ const PATH_MAP = {
   xml:      { route: 1, converter: null,             native_text: true,  converted: false },
   // 路径 2 (PDF 原生可读 — 由 SKILL.md 探测后覆盖为 path 3 若失败)
   pdf:      { route: 2, converter: 'claude-native',  native_text: true,  converted: false },
-  // 路径 3 (docx/pptx/xlsx → docling; pdf 失败 / html → anydoc)
-  pptx:     { route: 3, converter: 'docling',        native_text: false, converted: true },
-  docx:     { route: 3, converter: 'docling',        native_text: false, converted: true },
-  xlsx:     { route: 3, converter: 'docling',        native_text: false, converted: true },
+  // 路径 3 (docx/pptx/xlsx → pyoffice 优先,失败 convert-to-md.js 降级 anydoc → docling; pdf 失败 / html → anydoc)
+  pptx:     { route: 3, converter: 'pyoffice',       native_text: false, converted: true },
+  docx:     { route: 3, converter: 'pyoffice',       native_text: false, converted: true },
+  xlsx:     { route: 3, converter: 'pyoffice',       native_text: false, converted: true },
   html:     { route: 3, converter: 'anydoc',         native_text: false, converted: true },
   htm:      { route: 3, converter: 'anydoc',         native_text: false, converted: true },
   // 路径 4 (OCR 强依赖 paddleocr)
@@ -76,7 +76,8 @@ function buildConvertedPath(file, subdir) {
  */
 function checkPaddleocr() {
   const py = process.platform === 'win32' ? 'python' : 'python3';
-  const r = spawnSync(py, ['-c', 'import paddleocr'], {
+  // Windows shell:true 下 -c 参数必须自带双引号,否则整段被拆散
+  const r = spawnSync(py, ['-c', '"import paddleocr"'], {
     encoding: 'utf8',
     windowsHide: true,
     shell: process.platform === 'win32',
@@ -85,11 +86,13 @@ function checkPaddleocr() {
 }
 
 /**
- * 探查 docling 是否可用
+ * 探查 pyoffice 依赖(python-docx / python-pptx / openpyxl)是否可用
+ * 缺失时 convert-to-md.js 会降级 anydoc → docling,这里只提示不 FAIL
  */
-function checkDocling() {
+function checkPyoffice() {
   const py = process.platform === 'win32' ? 'python' : 'python3';
-  const r = spawnSync(py, ['-c', 'import docling'], {
+  // 注意:Windows shell:true 下 -c 参数必须自带双引号,否则整段被拆散
+  const r = spawnSync(py, ['-c', '"import docx,pptx,openpyxl"'], {
     encoding: 'utf8',
     windowsHide: true,
     shell: process.platform === 'win32',
@@ -157,11 +160,9 @@ function classifyOne(file, opts = {}) {
     return result;
   }
 
-  // 路径 3 docling 依赖:若 SKILL.md 调用时 --check-deps 可探查
-  if ((ext === 'pptx' || ext === 'docx' || ext === 'xlsx') && opts.checkDeps && !checkDocling()) {
-    result.error = 'docling 未安装;路径 3 (docx/pptx/xlsx) 必须装 docling';
-    result.fail = true;
-    return result;
+  // 路径 3 pyoffice 依赖:缺失不 FAIL(convert-to-md.js 会降级 anydoc → docling)
+  if ((ext === 'pptx' || ext === 'docx' || ext === 'xlsx') && opts.checkDeps && !checkPyoffice()) {
+    result.note = 'pyoffice 依赖(python-docx/python-pptx/openpyxl)未装全;convert-to-md.js 将降级 anydoc → docling';
   }
 
   // 路径 3 anydoc 依赖:若需要

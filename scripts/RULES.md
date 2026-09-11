@@ -15,9 +15,9 @@
 | **`.pdf`** 普通单栏 ≤10 页 | firecrawl/anydoc | docling | `anydoc/anydoc_pdf_to_md.js` | < 2s |
 | **`.pdf`** 双栏 / 复杂排版 / 含表格 | firecrawl/anydoc | docling(慢) | 同上 | anydoc < 2s,docling 可能 >25min |
 | **`.pdf`** 扫描件(anydoc exit=3) | `pdftoppm` 转图 + PaddleOCR/RapidOCR | — | `ocr/pdf_to_ocr_to_md.py` | 5-15s/页 |
-| **`.pptx`** 含图 | **docling** | ❌ 不用 anydoc(丢图) | `anydoc/docling_to_md.py` | < 1s(3 图),线性增长 |
-| **`.docx`** 含表格 / 图 / 代码 | **docling** | — | `anydoc/docling_to_md.py` | 数秒 ~ 5min(64 图 TDA4) |
-| **`.xlsx`** 多表 / 跨表 | docling | — | `anydoc/docling_to_md.py` | 历史 ~25s(13MB) |
+| **`.pptx`** | **pyoffice**(python-pptx,快、纯文本) | anydoc → docling(含图 / 要版面) | `pyoffice/pyoffice_to_md.py` → `anydoc/anydoc_office_to_md.js` → `anydoc/docling_to_md.py` | pyoffice < 1s |
+| **`.docx`** | **pyoffice**(python-docx,标题 + 表格) | anydoc → docling(含图 / 复杂版面) | 同上 | pyoffice < 1s |
+| **`.xlsx`** | **pyoffice**(openpyxl,每 sheet 出表格) | anydoc → docling | 同上 | pyoffice 数秒 |
 | **`.ppt` / `.doc` / `.xls`** 老格式 | **LibreOffice 转现代格式** → docling | — | `soffice --headless --convert-to pptx` | 转几秒 + docling 几秒 |
 | **`.jpg` / `.png` / `.jpeg` / `.bmp`** 手机截图 / 扫描件 | **PaddleOCR**(快) / **RapidOCR**(准) | docling(慢但出表格) | `ocr/ocr_to_md.py` / `ocr/rapidocr_to_md.py` | < 5s |
 | **`.jpg` / `.png`** 复杂版面 / 海报 / 表格截图 | **docling** | PaddleOCR/RapidOCR | `anydoc/docling_to_md.py` | 首次 ~3min,稳态 ~10s |
@@ -57,7 +57,9 @@ input file
   │    └─ 用户明确要版面 / 抽图 / 图内 OCR → 改走 docling(慢)
   │
   ├─ ext ∈ {.pptx, .docx, .xlsx}?
-  │    └─ → docling(自带版面 + 抽图 + 图内 OCR,一站式)
+  │    ├─ → pyoffice(python-docx/python-pptx/openpyxl,第一优先级)
+  │    ├─ 失败 → anydoc(anydoc_office_to_md.js)
+  │    └─ 再失败 → docling(兜底:抽图 + 图内 OCR + 版面)
   │
   └─ ext ∈ {.jpg, .png, .jpeg, .bmp}?
        ├─ 是简单文字截图 / 扫描件 → PaddleOCR(默认) / RapidOCR(准确度优先)
@@ -98,7 +100,7 @@ input file
 |---|---|---|
 | 1 | LLM 原生读得了 | null(不转换) |
 | 2 | LLM 原生能识别 | claude-native |
-| 3 | 二进制 office / 普通 PDF | anydoc(快) / docling(精) |
+| 3 | 二进制 office / 普通 PDF | office:pyoffice → anydoc → docling;PDF:anydoc(快) / docling(精) |
 | 4 | 纯图片 / 扫描件 | PaddleOCR / RapidOCR / docling(带版面) |
 
 ---
@@ -120,9 +122,12 @@ input file
 
 ```
 scripts/
+├── pyoffice/
+│   └── pyoffice_to_md.py      # python-docx/python-pptx/openpyxl,docx/pptx/xlsx 第一优先级
 ├── anydoc/
 │   ├── anydoc_pdf_to_md.js    # firecrawl/anydoc CLI 包装,只接 .pdf
-│   ├── docling_to_md.py       # docling 主入口,接 office/pdf/图片
+│   ├── anydoc_office_to_md.js # firecrawl/anydoc CLI 包装,接 .docx/.pptx/.xlsx(第二优先级)
+│   ├── docling_to_md.py       # docling 主入口,接 office/pdf/图片(office 最后兜底)
 │   └── README.md
 ├── ocr/
 │   ├── ocr_to_md.py           # PaddleOCR 入口,接单图

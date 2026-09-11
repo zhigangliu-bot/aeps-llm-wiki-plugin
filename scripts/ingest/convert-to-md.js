@@ -7,7 +7,8 @@
  *
  * 路径分流(由 classify.js 决策后传入):
  *   .pdf → anydoc/anydoc_pdf_to_md.js
- *   .pptx/.docx/.xlsx/.html/.htm → anydoc/docling_to_md.py
+ *   .pptx/.docx/.xlsx → pyoffice/pyoffice_to_md.py → anydoc/anydoc_office_to_md.js → anydoc/docling_to_md.py(逐级降级)
+ *   .html/.htm → anydoc/docling_to_md.py
  *   .png/.jpg/.jpeg/.bmp/.tiff → ocr/ocr_to_md.py (paddleocr)
  *
  * 纯文本 (.md/.txt/...) 不调本脚本 (SKILL.md 直接读)
@@ -32,7 +33,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS_ROOT = path.resolve(__dirname, '..');
 
 const PDF_EXTS = new Set(['pdf']);
-const DOCLING_EXTS = new Set(['pptx', 'docx', 'xlsx', 'html', 'htm']);
+// office 转换链(RULES.md §1):pyoffice → anydoc → docling(兜底)
+const PYOFFICE_EXTS = new Set(['pptx', 'docx', 'xlsx']);
+const DOCLING_EXTS = new Set(['html', 'htm']);
 const OCR_EXTS = new Set(['png', 'jpg', 'jpeg', 'bmp', 'tiff']);
 
 function findBin(name) {
@@ -89,43 +92,47 @@ async function main() {
   }
 
   const ext = path.extname(file).toLowerCase().replace(/^\./, '');
-  if (!PDF_EXTS.has(ext) && !DOCLING_EXTS.has(ext) && !OCR_EXTS.has(ext)) {
+  if (!PDF_EXTS.has(ext) && !PYOFFICE_EXTS.has(ext) && !DOCLING_EXTS.has(ext) && !OCR_EXTS.has(ext)) {
     console.error(`ERROR: 不支持的扩展名: .${ext}(路径 1/2 纯文本不调本脚本)`);
     process.exit(4);
   }
 
   await fs.mkdir(emitTo, { recursive: true });
 
-  let r;
-  let scriptUsed;
+  const outFile = path.join(emitTo, `${path.basename(file, path.extname(file))}.md`);
+
+  // 按优先级排列的尝试链;前者失败(non-zero exit / spawn error)降级后者
+  const attempts = [];
   if (PDF_EXTS.has(ext)) {
-    const bin = path.join(SCRIPTS_ROOT, 'anydoc', 'anydoc_pdf_to_md.js');
-    scriptUsed = 'anydoc_pdf_to_md.js';
-    r = runNode(bin, [file, '-o', path.join(emitTo, `${path.basename(file, path.extname(file))}.md`)]);
+    attempts.push({ script: 'anydoc_pdf_to_md.js', run: () => runNode(path.join(SCRIPTS_ROOT, 'anydoc', 'anydoc_pdf_to_md.js'), [file, '-o', outFile]) });
+  } else if (PYOFFICE_EXTS.has(ext)) {
+    attempts.push(
+      { script: 'pyoffice_to_md.py', run: () => runPython(path.join('pyoffice', 'pyoffice_to_md.py'), [file, '-o', outFile]) },
+      { script: 'anydoc_office_to_md.js', run: () => runNode(path.join(SCRIPTS_ROOT, 'anydoc', 'anydoc_office_to_md.js'), [file, '-o', outFile]) },
+      { script: 'docling_to_md.py', run: () => runPython(path.join('anydoc', 'docling_to_md.py'), [file, '-o', outFile]) },
+    );
   } else if (DOCLING_EXTS.has(ext)) {
-    scriptUsed = 'docling_to_md.py';
-    r = runPython(path.join('anydoc', 'docling_to_md.py'), [
-      file,
-      '-o',
-      path.join(emitTo, `${path.basename(file, path.extname(file))}.md`),
-    ]);
+    attempts.push({ script: 'docling_to_md.py', run: () => runPython(path.join('anydoc', 'docling_to_md.py'), [file, '-o', outFile]) });
   } else {
     // OCR
-    scriptUsed = 'ocr_to_md.py';
-    r = runPython(path.join('ocr', 'ocr_to_md.py'), [
-      file,
-      '-o',
-      path.join(emitTo, `${path.basename(file, path.extname(file))}.md`),
-    ]);
+    attempts.push({ script: 'ocr_to_md.py', run: () => runPython(path.join('ocr', 'ocr_to_md.py'), [file, '-o', outFile]) });
   }
 
-  if (r.status !== 0) {
-    const errMsg = (r.stderr || r.stdout || `exit ${r.status}`).toString().trim();
-    console.error(`FAIL: ${scriptUsed} exit=${r.status}: ${errMsg.slice(0, 2000)}`);
+  let r = null;
+  let scriptUsed = null;
+  for (const attempt of attempts) {
+    r = attempt.run();
+    scriptUsed = attempt.script;
+    if (r.status === 0) break;
+    console.error(`WARN: ${attempt.script} 失败(exit=${r.status}),${attempts.indexOf(attempt) < attempts.length - 1 ? '降级下一优先级' : '无更多降级'}`);
+  }
+
+  if (!r || r.status !== 0) {
+    const errMsg = (r?.stderr || r?.stdout || `exit ${r?.status}`).toString().trim();
+    console.error(`FAIL: ${scriptUsed} exit=${r?.status}: ${errMsg.slice(0, 2000)}`);
     process.exit(2);
   }
 
-  const outFile = path.join(emitTo, `${path.basename(file, path.extname(file))}.md`);
   const outStat = await fs.stat(outFile).catch(() => null);
   const result = {
     ok: true,

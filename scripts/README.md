@@ -114,9 +114,13 @@ npm install      # 读 package.json + package-lock.json 装出 node_modules/
 # PDF(anydoc 路径,快)
 node scripts/anydoc/anydoc_pdf_to_md.js <file.pdf>
 
-# docx / pptx / xlsx(docling 路径,精,自动抽内嵌图)
-python scripts/anydoc/docling_to_md.py <file.docx>
-python scripts/anydoc/docling_to_md.py <file.pptx>
+# docx / pptx / xlsx(第一优先级:python 库,快)
+python scripts/pyoffice/pyoffice_to_md.py <file.docx>
+
+# 第二优先级:anydoc CLI 包装
+node scripts/anydoc/anydoc_office_to_md.js <file.pptx>
+
+# 最后兜底:docling(精,自动抽内嵌图)
 python scripts/anydoc/docling_to_md.py <file.xlsx>
 
 # PDF(走 docling,慢但版面精;会打 stderr 警告)
