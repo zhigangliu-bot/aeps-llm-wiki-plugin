@@ -179,7 +179,7 @@ function checkSourcesElements(value) {
   return errs;
 }
 
-// ---- v0.6.7 (issues #34/#35/#36) Obsidian 1.12.7 兼容规则 ----
+// ---- v0.6.8 (issues #34/#35/#36) Obsidian 1.12.7 兼容规则 ----
 // 注意编号冲突:issue 建议的 R7.5-R7.8 已被 stale_after/sources 占用,这里顺延为 R7.7-R7.10:
 //   R7.7 (#35 方案B) aliases 数组重复项 → ERROR
 //   R7.8 (#35 方案B) aliases 项被 [[...]] 或成对引号包裹 → ERROR
@@ -187,7 +187,7 @@ function checkSourcesElements(value) {
 //   R7.10 (#36 方案B) 正文 wikilink 左段不匹配任何 .md basename → WARN
 
 /**
- * R7.7/R7.8/R7.9 (v0.6.7):aliases 数组合规检查。
+ * R7.7/R7.8/R7.9 (v0.6.8):aliases 数组合规检查。
  * 返回错误消息数组(可能多条),合规(或缺省)返回 []。
  */
 function checkAliases(fm) {
@@ -199,7 +199,7 @@ function checkAliases(fm) {
   for (const a of aliases) {
     const key = typeof a === 'string' ? a : JSON.stringify(a);
     if (seen.has(key)) {
-      errs.push(`R7.7 aliases 数组重复项: ${previewValue(a)}(Obsidian 容忍但掩盖流程 bug;gen-page.js v0.6.7 起 cleanAliases 已去重)`);
+      errs.push(`R7.7 aliases 数组重复项: ${previewValue(a)}(Obsidian 容忍但掩盖流程 bug;gen-page.js v0.6.8 起 cleanAliases 已去重)`);
     }
     seen.add(key);
   }
@@ -220,7 +220,7 @@ function checkAliases(fm) {
 }
 
 /**
- * R7.10 (v0.6.7, issue #36 方案B):正文 wikilink 左段必须匹配 vault 内某 .md basename。
+ * R7.10 (v0.6.8, issue #36 方案B):正文 wikilink 左段必须匹配 vault 内某 .md basename。
  * Obsidian 1.12.7 resolver 只索引文件名 basename(不读 aliases),不匹配 → 跳空白页 + vault 根堆空白文件。
  * 带路径的 wikilink([[sources/foo]])只比对最后一段;带 # 子页锚点忽略。
  * 返回警告消息数组,合规返回 []。
@@ -353,7 +353,7 @@ async function main() {
   const flatWarnings = [];
   const flatErrors = [];
 
-  // v0.6.7 (issue #36) R7.10:全 vault .md basename 集合(去 .md,reserved 文件也入集 —— index/glossary 等可被 wikilink)
+  // v0.6.8 (issue #36) R7.10:全 vault .md basename 集合(去 .md,reserved 文件也入集 —— index/glossary 等可被 wikilink)
   const basenameSet = new Set(pages.map((p) => p.relPath.split('/').pop().replace(/\.md$/, '')));
 
   for (const p of pages) {
@@ -414,14 +414,14 @@ async function main() {
       flatErrors.push(`${p.relPath}: ${msg}`);
     }
 
-    // v0.6.7 (issues #34/#35): R7.7 重复 / R7.8 包裹 / R7.9 title∈aliases → ERROR
+    // v0.6.8 (issues #34/#35): R7.7 重复 / R7.8 包裹 / R7.9 title∈aliases → ERROR
     for (const msg of checkAliases(p.fm)) {
       if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
       errorsByFile[p.relPath].push(msg);
       flatErrors.push(`${p.relPath}: ${msg}`);
     }
 
-    // v0.6.7 (issue #36): R7.10 正文 wikilink 左段须匹配某 .md basename → WARN
+    // v0.6.8 (issue #36): R7.10 正文 wikilink 左段须匹配某 .md basename → WARN
     for (const msg of checkWikilinkBasenames(p.body, basenameSet, p.relPath)) {
       if (!warningsByFile[p.relPath]) warningsByFile[p.relPath] = [];
       warningsByFile[p.relPath].push(msg);

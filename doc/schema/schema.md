@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — Agent 操作手册
 
-> **plugin 版本**:0.6.7
+> **plugin 版本**:0.6.8
 > **初始化时间**:2026-09-04T10:30:00Z
 > **维护者**:zhigang.liu
 
@@ -9,7 +9,7 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | 0.5.6 | 2026-09-08 | 批次 4(P3-1)版本号字串审计后保持一致(本批次未变更 schema.md 内容,仅补章节以严格对齐批次 4 R4 验收) |
-| 0.6.7(措辞修正) | 2026-09-11 | prompt-audit 修正:`safe-mv.py` → `move-to-raw.js`、`scripts/convert-to-md.js` → `scripts/ingest/convert-to-md.js`(与 ingest SKILL.md 对齐);版本号不更新 |
+| 0.6.8(措辞修正) | 2026-09-11 | prompt-audit 修正:`safe-mv.py` → `move-to-raw.js`、`scripts/convert-to-md.js` → `scripts/ingest/convert-to-md.js`(与 ingest SKILL.md 对齐);版本号不更新 |
 > **权威顺序**:OKF v0.2 规范 > **`doc/schema/frontmatter-spec.md`(人读字段规范,唯一权威)** > `doc/schema/frontmatter.schema.json`(机器读,跟随 spec) > 本 `schema.md`(工作流入口) > `knowledge/glossary.md`(术语表)
 >
 > 本 `schema.md` **不重复列字段**,而是直接引用 `doc/schema/frontmatter-spec.md` (人读字段规范)与 `doc/schema/frontmatter.schema.json` (机器读) (PRD §10 Q1)。**字段定义以 `frontmatter-spec.md` 为最终裁决**,若本工作流描述与 spec 冲突,以 spec 为准。

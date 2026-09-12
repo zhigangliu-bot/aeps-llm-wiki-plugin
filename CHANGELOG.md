@@ -2,6 +2,18 @@
 
 All notable changes to `aeps-llm-wiki-plugin` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.8] - 2026-09-12
+
+### Added
+
+- **M2.3 query skill** `skills/aeps-llm-wiki-query/SKILL.md` (新增): `/aeps-llm-wiki-query {question}` 12 步编排(对齐 PRD §4.3 流程表 0-11 + 共享聚合步骤 11.5),intent 三档路由 + 4 跳扫描 + G11 gating 落档询问 + analysis 落档。
+- `scripts/query/count-pages.js` (新增): wiki 规模探查,三档分流(<500 纯 index / 500-1000 优先 qmd / >1000 必须 qmd);`QUERY_INDEX_THRESHOLD=500` / `QUERY_QMD_REQUIRED_THRESHOLD=1000`。
+- `scripts/check-qmd.js` (新增): qmd 可用性探查(spawn `qmd --version`,3s 超时),design §4.2 契约。
+- `scripts/query/gating-check.js` (新增): G11 gating 4×4 矩阵机械判定(triggers 任一 + skips 全不命中 → 询问落档),intent 由 LLM 传入,算术归脚本。
+- `scripts/query/comparison-counter.js` (新增): 路径 B 计数器,持久化 `knowledge/.aeps-state/comparison-counter.json`;increment 仅在 intent=comparison 且用户拍板落档后(design §7.5),`should_propose = count >= 3`。
+- `scripts/query/append-log.js` (新增): `**Creation**: query "..." → analyses/...` 行追加 log.md,当天 H2 复用 / 新 H2 最新在前。
+- `doc/design/implement-query.md` (新增): M2.3 实施设计 v0.1.0 冻结 + v0.1.1 用例参数修正。
+
 ## [0.6.7] - 2026-09-10
 
 ### Fixed

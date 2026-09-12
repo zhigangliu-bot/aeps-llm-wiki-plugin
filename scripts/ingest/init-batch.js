@@ -28,9 +28,9 @@
  *   - 0.6.0: P0-#1 (issue #1) — 保留 LLM 拍板字段(slug/target_subdir/route/...):
  *     旧版 map 重写 file 会把所有 LLM 决策字段静默丢为 null,导致下游 move-to-raw
  *     fail with "target_subdir 未指定"。改为 spread LLM 输入 + 脚本必需默认值覆盖。
- *   - 0.6.7 (issue #25 fix, PR-C):新增 `normalizeFileEntry(raw)` 函数 ——
+ *   - 0.6.8 (issue #25 fix, PR-C):新增 `normalizeFileEntry(raw)` 函数 ——
  *     接受 `path` / `source_path` / `file_path` / `file` 4 种路径字段名别名
- *     (SKILL.md 步骤 3 文档字段名 ↔ 脚本字段名漂移,导致 v0.6.7 ERR_INVALID_ARG_TYPE 回归);
+ *     (SKILL.md 步骤 3 文档字段名 ↔ 脚本字段名漂移,导致 v0.6.8 ERR_INVALID_ARG_TYPE 回归);
  *     优先级:path > source_path > file_path > file;归一后剔除非规范键,避免 batch 里两套字段并存
  *     导致下游 move-to-raw 读 file.path 拿到 undefined。
  *     同步支持:`ext` / `file_ext` / `path.extname` · `subdir` / `target_subdir` ·
@@ -56,7 +56,7 @@ function tsForFilename() {
 }
 
 /**
- * v0.6.7 (issue #25 fix, PR-C):把 LLM 在 batch.json 中写的"任意写法"统一归一为脚本权威字段。
+ * v0.6.8 (issue #25 fix, PR-C):把 LLM 在 batch.json 中写的"任意写法"统一归一为脚本权威字段。
  *
  * 接受多种字段名别名(优先级 = 排序):
  *   - `path` > `source_path` > `file_path` > `file`         (路径,必有)
@@ -182,7 +182,7 @@ async function main() {
   //     converted_path / converted_emitted / slug / target_raw_path / dedupe_key)
   //     文档名 = 脚本名,经 spread 透传已一致,无同类漂移。
   //
-  // v0.6.7 (issue #25 fix, PR-C):`normalizeFileEntry` 把 LLM 任意写法
+  // v0.6.8 (issue #25 fix, PR-C):`normalizeFileEntry` 把 LLM 任意写法
   //   (path / source_path / file_path / file 四种路径字段名别名)归一为权威字段;
   //   下游 move-to-raw 读 file.path 不再拿到 undefined。
   const startedAt = nowIso();
@@ -209,7 +209,7 @@ async function main() {
     project: project.replace(/\\/g, '/'),
     emit_dir: emitDir.replace(/\\/g, '/'),
     started_at: startedAt,
-    plugin_version: '0.6.7',
+    plugin_version: '0.6.8',
     files,
   };
 
