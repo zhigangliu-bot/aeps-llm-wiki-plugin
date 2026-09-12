@@ -1,7 +1,7 @@
 <!-- 提示:本页是 plugin 自定义 reserved filename,无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。 -->
 
 <!-- change history:
-  - v0.6.7 (PR-B #29): glossary 字母节契约 —— aggregate-index.js 按术语首字母分组输出 ## A / ## B /
+  - v0.6.8 (PR-B #29): glossary 字母节契约 —— aggregate-index.js 按术语首字母分组输出 ## A / ## B /
     ... / ## Z;中文术语归 ## 中文 节(用 [一-鿿] 判断);数字术语归 ## 0-9 节;空字母节省略(只输出
     实际有内容的字母节)。每个术语条目行结构 = `- **term** —— description`(纯数据解释,不带链接)。
     排序:字母节按 A-Z 字母序,同节内按 `term.localeCompare` 字母序;中文节按 localeCompare('zh')
@@ -16,7 +16,7 @@
 -->
 # 项目名 Wiki 术语表
 
-> **plugin 版本**:0.6.7
+> **plugin 版本**:0.6.8
 > **最近更新**:2026-09-04T10:30:00Z
 >
 > 本文件无 frontmatter(本文件是 plugin 自定义 reserved filename,不在 OKF §3.1 列表内);由 `/aeps-llm-wiki-init` 创建 + `/aeps-llm-wiki-ingest` 增量更新。

@@ -206,7 +206,7 @@ function yamlListBody(items) {
   return items.map((t) => `  - ${t}`).join("\n");
 }
 
-// v0.6.7 (issues #34/#35): aliases 清洗管道 —— Obsidian 1.12.7 兼容
+// v0.6.8 (issues #34/#35): aliases 清洗管道 —— Obsidian 1.12.7 兼容
 //   - title 强制首项(#34:短标题 wikilink 依赖 aliases 含 title)
 //   - 剥 wikilink `[[...]]` 包裹与外层成对引号(#35 bug 2:引号字面量进 alias → Obsidian 渲染橙色纯文本)
 //   - Set 去重(#35 bug 1:重复 patch 累积重复项)
@@ -467,7 +467,7 @@ function derivePlaceholders(type, args) {
     ph.NATIVE_TEXT = native;
     ph.CONVERTED_PATH = converted == null ? "null" : `"${converted}"`;
     // v0.6.5:page-source.md 模板起带 aliases 字段;CLI > [title] fallback
-    // v0.6.7 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
+    // v0.6.8 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
     const srcAliases = cleanAliases(parseListArg(args.aliases), title);
     ph.ALIASES_BODY = yamlAliasListBody(srcAliases);
     ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底(自定义旧模板)
@@ -496,7 +496,7 @@ function derivePlaceholders(type, args) {
     ph.SOURCES = ph.SOURCES_BODY === "[]" ? "" : ph.SOURCES_BODY; // legacy $SOURCES 兜底
 
     // aliases:CLI > [title] fallback(Obsidian 原生别名机制,frontmatter-spec §12.4)
-    // v0.6.7 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
+    // v0.6.8 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
     const cliAliases = parseListArg(args.aliases);
     ph.ALIASES_BODY = yamlAliasListBody(cleanAliases(cliAliases, title));
     ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底
@@ -574,7 +574,7 @@ function renderBody(type, tpl, args) {
       lines.push("【本次推演用到的关键 Wiki 事实与依据】");
       lines.push("");
       if (args.sources_used) {
-        // v0.6.7 (#36):wikilink 文本收敛为裸 basename(去路径前缀与 .md)——
+        // v0.6.8 (#36):wikilink 文本收敛为裸 basename(去路径前缀与 .md)——
         // Obsidian 1.12.7 resolver 唯一可靠输入;title/alias 形式一律不生成
         const links = args.sources_used.split(",").map((s) => {
           const b = s.trim().replace(/^\.\/knowledge\//, "").replace(/\.md$/, "");

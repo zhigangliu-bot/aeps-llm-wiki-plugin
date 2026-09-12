@@ -1,7 +1,7 @@
 <!-- 提示:本页是 plugin 自定义 reserved filename(OKF §8 index.md),无 frontmatter;若本批次未来加上 frontmatter,tags 示例务必 ≥ 6 条,避免 LLM 按 5 条填导致 WARN。详见 P3-4 修复。 -->
 
 <!-- change history:
-  - v0.6.7 (PR-B #28/#31): 行结构契约 —— 每行 `[title](link) —— description [status]`,默认不渲染
+  - v0.6.8 (PR-B #28/#31): 行结构契约 —— 每行 `[title](link) —— description [status]`,默认不渲染
     行尾 `<span style="color:gray">#tag</span>` tags(避免 #28 灰底冲淡 description)。`tags` 字段在
     `frontmatter.tags` 读,不在 list 行渲染;启用 `--show-tags` CLI 开关时输出灰色 `<span>` 包装。
     6 处 tags 渲染(source / entity / concept / analysis / comparison / synthesis)统一走
@@ -19,7 +19,7 @@
 -->
 # 项目名 Wiki 主目录
 
-> **plugin 版本**:0.6.7
+> **plugin 版本**:0.6.8
 > **最近更新**:2026-09-04T10:30:00Z
 > **自动生成**:本文件由 `/aeps-llm-wiki-init` 与 `/aeps-llm-wiki-ingest` 维护,不要手工编辑。
 >
