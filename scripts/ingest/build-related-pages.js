@@ -175,12 +175,15 @@ const RELATED_DESC_PLACEHOLDER = '本节由 `/aeps-llm-wiki-ingest` 自动追加
 const SOURCES_DESC_PLACEHOLDER = '本节由 `/aeps-llm-wiki-ingest` 自动追加(追加 + 保留语义;详见 SKILL.md)。';
 
 // ---- frontmatter 解析 ----
+// 返回 fm(对象,用于 ajv 校验等)+ fmRaw(原文 '---...---\n',写盘直接拼回,避免 yaml.dump 重写丢引号)
 function parseFrontmatter(mdText) {
   const m = mdText.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
-  if (!m) return { fm: {}, body: mdText };
+  if (!m) return { fm: {}, fmRaw: '', body: mdText };
   let fm = {};
   try { fm = yaml.load(m[1]) || {}; } catch { fm = {}; }
-  return { fm, body: m[2] };
+  // 保留原 fm 块文本 + 收尾 '\n';字段顺序/注释行/引号风格原样保留。
+  const fmRaw = `---\n${m[1]}\n---\n`;
+  return { fm, fmRaw, body: m[2] };
 }
 
 // ---- v0.6.5 (issue #12 / #17): sources 字段类型检测 ----
@@ -221,9 +224,11 @@ function sourcesTypeErrors(rawSources) {
   return errs;
 }
 
-// 渲染 frontmatter block (保留原样)
-function renderFrontmatterBlock(fm) {
-  return '---\n' + yaml.dump(fm, { lineWidth: -1, quotingType: '"', forceQuotes: false }) + '---\n';
+// 渲染 frontmatter block:issue #37 fix,改用 parse 时保留的原文 fmRaw 直接返回;
+// 不再 yaml.dump 重写(forceQuotes:false 会丢字符串双引号,违反 frontmatter-spec.md §4.1 +
+// issue #23 强约束)。fm 形参名保留但仅用于提示契约,实际不读。
+function renderFrontmatterBlock(_fm, fmRaw = '') {
+  return fmRaw;
 }
 
 // 把 path 标准化(正斜杠)
@@ -270,7 +275,7 @@ async function scanSources(knowledgeDir) {
   const out = [];
   for (const f of files) {
     const txt = await fs.readFile(f, 'utf8');
-    const { fm, body } = parseFrontmatter(txt);
+    const { fm, fmRaw, body } = parseFrontmatter(txt);
     if (fm.type !== 'source') continue;
     out.push({
       file: f,
@@ -279,6 +284,7 @@ async function scanSources(knowledgeDir) {
       title: fm.title || path.basename(f, '.md'),
       resource: norm(fm.resource || ''),
       fm,
+      fmRaw,
       body,
     });
   }
@@ -297,7 +303,7 @@ async function scanEntityConcept(knowledgeDir) {
     const dir = path.join(knowledgeDir, 'entities', sub);
     for (const f of await listMarkdown(dir)) {
       const txt = await fs.readFile(f, 'utf8');
-      const { fm, body } = parseFrontmatter(txt);
+      const { fm, fmRaw, body } = parseFrontmatter(txt);
       if (!fm.type || !fm.type.startsWith('entity.')) continue;
       const invalid = !validate(fm);
       // v0.6.5 (issue #12/#17): sources 字段类型不符检测 → ERROR 通道(stderr ERROR + exit 2)
@@ -319,6 +325,7 @@ async function scanEntityConcept(knowledgeDir) {
         type: fm.type,
         sources: Array.isArray(fm.sources) ? fm.sources : [],
         fm,
+        fmRaw,
         body,
         invalid,
         srcTypeErrs,
@@ -329,7 +336,7 @@ async function scanEntityConcept(knowledgeDir) {
     const dir = path.join(knowledgeDir, 'concepts', sub);
     for (const f of await listMarkdown(dir)) {
       const txt = await fs.readFile(f, 'utf8');
-      const { fm, body } = parseFrontmatter(txt);
+      const { fm, fmRaw, body } = parseFrontmatter(txt);
       if (!fm.type || !fm.type.startsWith('concept.')) continue;
       const invalid = !validate(fm);
       // v0.6.5 (issue #12/#17): sources 字段类型不符检测 → ERROR 通道(stderr ERROR + exit 2)
@@ -351,6 +358,7 @@ async function scanEntityConcept(knowledgeDir) {
         type: fm.type,
         sources: Array.isArray(fm.sources) ? fm.sources : [],
         fm,
+        fmRaw,
         body,
         invalid,
         srcTypeErrs,
@@ -762,7 +770,7 @@ async function main() {
       // 全部空,无区块也无新增 → 不动
       action = 'related-unchanged';
     }
-    const newContent = renderFrontmatterBlock(s.fm) + '\n' + newBody;
+    const newContent = renderFrontmatterBlock(s.fm, s.fmRaw) + '\n' + newBody;
     writes.push({ file: s.file, content: newContent, action });
   }
 
@@ -791,7 +799,7 @@ async function main() {
     } else {
       action = 'sources-unchanged';
     }
-    const newContent = renderFrontmatterBlock(ec.fm) + '\n' + newBody;
+    const newContent = renderFrontmatterBlock(ec.fm, ec.fmRaw) + '\n' + newBody;
     writes.push({ file: ec.file, content: newContent, action });
   }
 
