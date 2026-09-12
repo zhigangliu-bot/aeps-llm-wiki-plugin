@@ -693,11 +693,14 @@ async function main() {
   }
 
   // 5. 计算 source → entities / concepts 反向映射
-  //    反查:扫所有 entity/concept,若其 sources 指向此 source → 加到此 source 的 entities/concepts
+  //    v0.6.8 (issue #38 fix,D-1):batch.files[].entities/concepts[] 声明 = 权威,
+  //    直接全部写入 source 页 Related Pages;entity-page.sources[] 反查仅作兜底补充(不覆盖 batch 声明)。
+  //    D-2:WARN 只在「batch 已声明但未写入 source 页」时触发,正常路径静默。
   const sourceToEc = new Map(); // source.slug → { entities:[], concepts:[] }
   for (const s of sources) {
     sourceToEc.set(s.slug, { entities: [], concepts: [] });
   }
+  // 5a. 先扫 entity/concept → sources 反查(兜底通道)
   for (const ec of ecPages) {
     for (const src of ec.sources) {
       const matched = resolveSourceByResource(src.resource);
@@ -708,6 +711,67 @@ async function main() {
       else if (ec.type.startsWith('concept.')) bucket.concepts.push({ slug: ec.slug, title: ec.title });
     }
   }
+
+  // 5b. 收集 batch 声明:本 batch files[].entities/concepts[] 中的 slug + title
+  //    batch 由 init-batch.js 步骤 4 已写入 files[].slug/path/...;entities/concepts 是 LLM 在步骤 3 拍板的 {type, slug, title?}
+  //    用 batchSourceSlugs (源 slug 集合) 决定哪些 source 页要接收 batch 声明。
+  //    entity/concept 的 title 优先用 batch 声明的 title,否则在 knowledge/ 找页(否则空标题,render 时按 slug 排序仍 OK)
+  const ecTitleBySlug = new Map(); // slug → title (从 knowledge/ 实体概念页 frontmatter 抽)
+  for (const ec of ecPages) {
+    ecTitleBySlug.set(ec.slug, ec.title);
+  }
+  // batch 文件级声明 → 按 source slug 分桶
+  const batchDeclaredBySource = new Map(); // sourceSlug → { entities:[], concepts:[] }
+  for (const f of (batch.files || [])) {
+    const sourceSlug = inboxToSlug(f.path);
+    if (!sourceSlug) continue;
+    if (!batchSourceSlugs.has(sourceSlug)) continue; // 不在本 batch 的 source 不接收声明
+    const bucket = { entities: [], concepts: [] };
+    const seenE = new Set();
+    const seenC = new Set();
+    const ents = Array.isArray(f.entities) ? f.entities : [];
+    for (const e of ents) {
+      if (!e || !e.slug) continue;
+      if (seenE.has(e.slug)) continue;
+      seenE.add(e.slug);
+      bucket.entities.push({ slug: e.slug, title: e.title || ecTitleBySlug.get(e.slug) || e.slug });
+    }
+    const cons = Array.isArray(f.concepts) ? f.concepts : [];
+    for (const c of cons) {
+      if (!c || !c.slug) continue;
+      if (seenC.has(c.slug)) continue;
+      seenC.add(c.slug);
+      bucket.concepts.push({ slug: c.slug, title: c.title || ecTitleBySlug.get(c.slug) || c.slug });
+    }
+    if (bucket.entities.length || bucket.concepts.length) {
+      batchDeclaredBySource.set(sourceSlug, bucket);
+    }
+  }
+
+  // 5c. 合并:batch 声明为权威(写入路径全覆盖),反查只补 batch 未声明的 slug。
+  //    D-1 方案 A:batch.entities/concepts[] 直接全部写入;反查作为兜底补充,不覆盖 batch 声明。
+  //    合并顺序:先 batch 声明(保留其声明顺序),再补反查独有项,最后按 title 排序的渲染由 renderRelatedBlock 处理。
+  const sourceToEcMerged = new Map();
+  for (const [slug, decl] of batchDeclaredBySource) {
+    const fallback = sourceToEc.get(slug) || { entities: [], concepts: [] };
+    const entSeen = new Set(decl.entities.map(e => e.slug));
+    const conSeen = new Set(decl.concepts.map(c => c.slug));
+    const mergedE = decl.entities.slice();
+    for (const e of fallback.entities) if (!entSeen.has(e.slug)) { mergedE.push(e); entSeen.add(e.slug); }
+    const mergedC = decl.concepts.slice();
+    for (const c of fallback.concepts) if (!conSeen.has(c.slug)) { mergedC.push(c); conSeen.add(c.slug); }
+    sourceToEcMerged.set(slug, { entities: mergedE, concepts: mergedC });
+  }
+  // 不在 batch 声明但有反查命中的 source 也保留旧行为(兜底通道生效)
+  for (const [slug, ec] of sourceToEc) {
+    if (!sourceToEcMerged.has(slug) && (ec.entities.length || ec.concepts.length)) {
+      sourceToEcMerged.set(slug, ec);
+    }
+  }
+
+  // 用合并后的 sourceToEcMerged 覆盖原 sourceToEc(下游代码读 sourceToEc)
+  sourceToEc.clear();
+  for (const [slug, ec] of sourceToEcMerged) sourceToEc.set(slug, ec);
 
   const writes = [];
 
@@ -724,6 +788,30 @@ async function main() {
     const tags = Array.isArray(ec.fm.tags) ? ec.fm.tags : [];
     if (tags.length < 5) {
       pushWarning(ec.relPath, `tags 仅 ${tags.length} 条,需 ≥5 条`);
+    }
+  }
+
+  // v0.6.8 (issue #38 fix, D-2):batch 已声明的 entity/concept slug 若在 knowledge/ 找不到对应页 → WARN
+  //   这条规则保证「batch 声明的 entity/concept 必须有实体/概念页存在」,否则 source 页 Related Pages
+  //   会写出 [[ghost]] 这种孤儿 wikilink,Obsidian 点开是空白页——这条 WARN 是「应当写但实体页不存在」的诊断。
+  //   正常路径(实体页存在 + batch 声明)→ 静默。
+  const knownEcSlugs = new Set(ecPages.map(ec => ec.slug));
+  for (const [sourceSlug, decl] of batchDeclaredBySource) {
+    const sourceObj = sources.find(s => s.slug === sourceSlug);
+    const sourceFile = sourceObj ? sourceObj.relPath : `sources/${sourceSlug}.md`;
+    for (const e of decl.entities) {
+      if (!knownEcSlugs.has(e.slug)) {
+        const msg = `batch declared entity [[${e.slug}]] for source ${sourceFile} but no entity page exists in knowledge/;orphan wikilink will point to blank page`;
+        pushWarning(sourceFile, msg);
+        console.error(`WARN: ${msg}`);
+      }
+    }
+    for (const c of decl.concepts) {
+      if (!knownEcSlugs.has(c.slug)) {
+        const msg = `batch declared concept [[${c.slug}]] for source ${sourceFile} but no concept page exists in knowledge/;orphan wikilink will point to blank page`;
+        pushWarning(sourceFile, msg);
+        console.error(`WARN: ${msg}`);
+      }
     }
   }
 
