@@ -334,6 +334,85 @@ overview.md 不由 aggregate-index.js 自动重建,改由 LLM **每次 ingest �
 - 按当前 knowledge/ 实际状态重写"主题领域分布"与"知识成熟度"两节(所有 `【占位】` / `{数量}` / init 示例条目必须清掉,填真实数据与真实 wikilink)
 - "未覆盖领域"由 LLM 读 log.md 近 30 天 query + knowledge/ 缺口自行判断
 
+#### 16.A 职责边界(overview.md / log.md / index.md 三文件时间性对照)
+
+> v0.6.8 (issue #39 fix):overview.md 长期被 LLM 写成"本批 +X / 上批基础 / 本次 N 文件 ingest 后"等增量历史叙述,与文件"每次 ingest 整体刷的纯当前快照"定位冲突。先把三文件的时间性边界说清,再谈 overview.md 写法约束。
+
+| 文件 | 时间性 | 职责 |
+|---|---|---|
+| `knowledge/overview.md` | **纯当前快照**(每次 ingest 整体刷) | 描述 knowledge/ 长什么样、缺什么、下一步干什么。LLM 写 overview 时永远只描述"此刻 knowledge/ 的状态",不写"从 XX 演变到 YY" |
+| `knowledge/log.md` | **append-only 历史时间线** | 谁在哪天 ingest 了什么、每个 source 的实体抽取记录。历史/增量走 log.md |
+| `knowledge/index.md` / `glossary.md` | **当前索引**(动态区间刷) | 列出全部页标题 + description + tags,grep 检索用 |
+
+#### 16.B 纯快照硬约束(禁词清单)
+
+> overview.md 是"每次 ingest 整体刷的纯当前快照",**禁止任何增量历史叙述**(v0.6.8,issue #39)。
+
+**禁词清单**(LLM 写 overview.md 时,以下表达**严禁出现**):
+
+- `本批 +X` / `本批新增` / `本批深化` / `本批未变`
+- `本次` / `本次 ingest` / `本次 N 文件 ingest 后`
+- `上批` / `上批基础` / `上一步`
+- `近 30 天`(在"未覆盖领域"节出现的"近 30 天 query"是描述查询动作,不算增量历史,允许;但在主题领域/知识成熟度节出现即违规)
+- `累计 \d+` / `已增至` / `本批未变`
+- 任何"知识成熟度阶段"的演变描述(只写当前阶段,不写"从 XX 阶段进入 XX 阶段" / "由 XX 阶段演变至 XX 阶段")
+
+**允许**:
+
+- 节首 ISO 8601 时间戳(机器读 + LLM 读),作为节首元数据(`按当前 knowledge/ 70 页实际状态(2026-09-12):` 合法)
+- 当前页数、当前分类清单、当前决策建议(纯当前快照的事实陈述)
+- 历史追溯走 `knowledge/log.md`(append-only ISO 8601 流水)+ git blame(行级历史),**不要在 overview.md 正文里写"增量叙述"**
+
+#### 16.C 写作样例(正反对照)
+
+> 直接复用 issue #39 "实际产出对比" 那段 markdown 作为锚定样例,LLM 写 overview 时逐字对照。
+
+**❌ LLM 当前典型写法**(本次 ingest 后,违规):
+
+```markdown
+## 主题领域分布
+
+按当前 knowledge/ 70 页实际状态(2026-09-12,本次 3 文件 ingest 后):
+
+- **AUTOSAR Classic / Adaptive + BMW BAC/aBAC 生态**(7 页,本批未变)
+  - ...
+
+- **中国汽车产销与行业研究簇**(本批 +3 篇 source + 5 篇 concept 术语;共 14 source + 5 组织 + 11 concept)
+  - 月度产销 source(本批 +3,共 9):
+    - [中汽协 2026 年 7 月汽车工业产销报告](./sources/caam-2026-07-auto-report.md) **本批新增**
+    - [中汽协 2026 年 8 月汽车工业产销报告](./sources/caam-2026-08-auto-report.md) **本批新增**
+
+## 知识成熟度
+
+当前知识库进入**「宏观行业簇成熟期」**(2026-09-12,本次 3 文件 ingest 后):
+
+- **sources**:21 篇(本次 +3)— 既有 18 篇(车规基础软件 7 + 上批 11 篇汽车产销);新增 3 篇
+- **log.md**:本批 3 条 Ingest(累计 14 条)
+```
+
+**✅ 期望写法**(纯当前快照,无历史标签):
+
+```markdown
+## 主题领域分布
+
+按当前 knowledge/ 70 页实际状态(2026-09-12):
+
+- **AUTOSAR Classic / Adaptive + BMW BAC/aBAC 生态**(7 页)
+  - ...
+
+- **中国汽车产销与行业研究簇**(共 14 source + 5 组织 + 11 concept)
+  - 月度产销 source(共 9 篇):
+    - [中汽协 2026 年 7 月汽车工业产销报告](./sources/caam-2026-07-auto-report.md)
+    - [中汽协 2026 年 8 月汽车工业产销报告](./sources/caam-2026-08-auto-report.md)
+
+## 知识成熟度
+
+当前知识库进入**「宏观行业簇成熟期」**(2026-09-12):
+
+- **sources**:21 篇(车规基础软件 7 + 汽车产销 14)
+- **log.md**:append-only ISO 8601 索引(查 `knowledge/log.md` 取历史 ingest 流水)
+```
+
 ### 步骤 16.1:wikilink 硬约束(贯穿步骤 7/11/12 所有正文写入)
 
 所有写入正文的 wikilink **必须用文件名形式 `[[filename]]`**(目标 .md 去 .md 的 basename),**禁止 title / alias 形式**:Obsidian 1.12.7 resolver 只索引文件名 basename,不读 frontmatter `aliases:`,title 形式 wikilink 点击会创建空白页。需要可读别名时写 `[[filename|显示别名]]`。lint R7.10 校验。
