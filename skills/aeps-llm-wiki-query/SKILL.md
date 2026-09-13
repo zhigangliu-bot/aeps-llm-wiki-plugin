@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-query
 description: 用户提问,从 knowledge/ 做规模探查与 4 跳扫描找答案,每条断言附 wikilink 不编造;满足 G11 gating 才询问落档为 analysis 页
-plugin-version: 0.6.8
+plugin-version: 0.6.9
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/count-pages.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/gating-check.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/append-log.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/check-qmd.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js *)
 ---
 
