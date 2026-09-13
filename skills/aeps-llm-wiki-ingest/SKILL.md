@@ -499,13 +499,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 - **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
 - C21(只对 `type: source` 触发)对 reserved file 天然不触发(其 `fm.type` 不为 `'source'`),无需额外豁免
 
-**reserved filenames 豁免**(对齐 `doc/schema/frontmatter-spec.md §3.3` plugin 扩展 reserved + OKF §3.2):
-
-- reserved filenames:**`index.md` / `log.md` / `overview.md` / `glossary.md`**
-- **不参与** R7.1(tags < 5)/ R7.2(updated 非 ISO 8601)(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
-- **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
-- C21(只对 `type: source` 触发)对 reserved file 天然不触发(其 `fm.type` 不为 `'source'`),无需额外豁免
-
 ## 拍板门总结
 
 | 时机 | 拍板内容 | 默认 |
