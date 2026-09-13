@@ -32,12 +32,19 @@ function findAnydocBin() {
 
 function runAnydoc(input) {
   const bin = findAnydocBin();
-  const r = spawnSync(bin, [input], {
-    encoding: "utf8",
-    maxBuffer: 200 * 1024 * 1024,
-    windowsHide: true,
-    shell: process.platform === "win32",
-  });
+  // ponytail: windows 下必须走 shell 执行 .cmd(Node 禁止无 shell spawn .cmd),
+  // 而 shell 模式 args 数组不自动加引号,路径含空格会被 cmd 截断(#40),手工拼引号串。
+  const useShell = process.platform === "win32";
+  const r = spawnSync(
+    useShell ? `"${bin}" "${input}"` : bin,
+    useShell ? undefined : [input],
+    {
+      encoding: "utf8",
+      maxBuffer: 200 * 1024 * 1024,
+      windowsHide: true,
+      shell: useShell,
+    }
+  );
   if (r.status === 0) return r.stdout;
   if (r.status === 3) {
     throw new Error(
@@ -46,7 +53,9 @@ function runAnydoc(input) {
         `  python ../ocr/ocr_to_md.py page-1.png`
     );
   }
-  throw new Error(r.stderr || r.error?.message || `anydoc exit=${r.status}`);
+  throw new Error(
+    `anydoc exit=${r.status}, cmd: ${bin} ${input}\n${r.stderr || r.error?.message || ""}`
+  );
 }
 
 // ponytail: frontmatter 由 wiki-plugin ingest skill 在入库时补,

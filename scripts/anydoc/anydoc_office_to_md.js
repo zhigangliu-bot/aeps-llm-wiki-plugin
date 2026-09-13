@@ -26,14 +26,22 @@ function findAnydocBin() {
 
 function runAnydoc(input) {
   const bin = findAnydocBin();
-  const r = spawnSync(bin, [input], {
-    encoding: "utf8",
-    maxBuffer: 200 * 1024 * 1024,
-    windowsHide: true,
-    shell: process.platform === "win32",
-  });
+  // ponytail: 同 anydoc_pdf_to_md.js —— shell 模式手工加引号,避开路径空格截断(#40)
+  const useShell = process.platform === "win32";
+  const r = spawnSync(
+    useShell ? `"${bin}" "${input}"` : bin,
+    useShell ? undefined : [input],
+    {
+      encoding: "utf8",
+      maxBuffer: 200 * 1024 * 1024,
+      windowsHide: true,
+      shell: useShell,
+    }
+  );
   if (r.status === 0) return r.stdout;
-  throw new Error(r.stderr || r.error?.message || `anydoc exit=${r.status}`);
+  throw new Error(
+    `anydoc exit=${r.status}, cmd: ${bin} ${input}\n${r.stderr || r.error?.message || ""}`
+  );
 }
 
 function parseArgs(argv) {
