@@ -269,9 +269,29 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 > 放在 `## 关联导引` **之前**;`## 关联导引` / `## 来源资料` / `## 维护说明` 由 plugin
 > 脚本追加 / 维护,LLM 不必手工改这 3 节。
 
-### 步骤 11:LLM 填 entity / concept 正文
+### 步骤 11:LLM 填 entity / concept 正文(**强制项,不可省略**)
 
-自由发挥。`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);`sources[]` 传了 `--source-resource` / `--source-title` 时已是对象格式,否则为空数组(stdout 有 HINT)—— **LLM 需补 source 时重跑 `--patch-frontmatter-only --source-resource <slug> --source-title "<title>"`**(patch 模式全字段支持,CLI 未传字段不会被清空)。若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
+> **v0.6.9 强化**(issue #40 修复):多文件 ingest 时,LLM 在步骤 7 完成后倾向"已建立 skeleton 即跳过本步",导致 entity / concept 全部只跑步骤 10 出的 skeleton 占位页(无实质正文)。步骤 11 现为**强制项**——LLM 必须为本次 ingest 产生的每个 entity / concept 子页填至少 1-2 个实质 H2 节(放 ## 关联导引 **之前**);`frontmatter` 不动,只动正文。
+
+**正文填写要求**:
+
+- **每页 ≥ 1 个实质 H2 节**(如 `## 核心定义` / `## 设计要点` / `## 与同类对比`),放 `## 关联导引` 之前,符合 PR-A v0.6.8 章节顺序约定("实质内容在前,关联导引/来源资料/维护说明在后");
+- 每节 50-150 字精要 + 1-3 个跨页 wikilink 反链(`[[xxx]]` 或 `[[xxx|alias]]`);
+- 严禁保留 `【LLM 自动填充:...】` 占位字符串;
+- 严禁把 entity / concept 子页合并为 source 页 `## 相关页面` 的扁平反链——反链粒度退化会丢信息。
+
+**frontmatter 字段保护**:`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);`sources[]` 传了 `--source-resource` / `--source-title` 时已是对象格式,否则为空数组(stdout 有 HINT)—— **LLM 需补 source 时重跑 `--patch-frontmatter-only --source-resource <slug> --source-title "<title>"`**(patch 模式全字段支持,CLI 未传字段不会被清空)。若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
+
+**跳过的边界**:
+
+- 本次 ingest 无 entity / concept 抽取(LLM 在步骤 9 判定 `entities[]: []` + `concepts[]: []`)→ 跳过本步是允许的;
+- 已有页仅 patch(不新增 entity / concept 子页)→ 跳过本步是允许的;
+- **其余情况必须走本步,不可省略**。
+
+> **PR-A (v0.6.8) frontmatter 引号保持提示**(issue #23):LLM 在步骤 11-2 手工 Edit frontmatter 时,
+> **所有字符串字段必须保留双引号包裹**(`title: "X"` 而非 `title: X`;`description: "d"` 同理)。
+> 裸字符串会让下游 ajv schema / YAML 解析器把 `#` 注释行误当字段延续,触发 FAIL。
+> gen-page 自动生成的 frontmatter 已保证双引号(由 `JSON.stringify`);LLM 修改时只动值不动引号。
 
 > **PR-A (v0.6.8) frontmatter 引号保持提示**(issue #23):LLM 在步骤 11-2 手工 Edit frontmatter 时,
 > **所有字符串字段必须保留双引号包裹**(`title: "X"` 而非 `title: X`;`description: "d"` 同理)。
@@ -441,9 +461,15 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp <用户工程根>/t
 node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp <用户工程根>/temp/ --apply --days 14
 ```
 
-### 步骤 19:lint C17/C18/C19 校验本次产出
+### 步骤 19:lint 校验本次产出(**强制项,本批新增 entity/concept 子页必须有正文才能完成**)
 
-调 lint skill(M2.4 实现)校验 C17(模板一致性)/ C18(原生+副本矛盾)/ C19(降级日志);FAIL 必须修复后才算 ingest 完成。
+> **v0.6.9 强化**(issue #40 修复):步骤 19 不仅是 C17 / C18 / C19 的产出校验,也是**步骤 11(LLM 填 entity / concept 正文)完成态的硬校验点**。本次 ingest 新增的任何 entity / concept 子页若 C9(半成品骨架页)命中 → **本次 ingest 视为未完成,LLM 必须返回步骤 11 把缺失正文补完再重跑步骤 19**。
+
+调 lint skill(M2.4 实现)校验:
+
+- **C9(半成品骨架页,FAIL)**:**本次 ingest 新增的 entity / concept 子页必须有实质正文**;若本次 ingest 抽取了 N 个 entity/concept,必须看到 N 个 entity/concept 页通过 C9(否则回到步骤 11 补)
+- **C17(模板一致性,FAIL)** / **C18(原生+副本矛盾,FAIL)** / **C19(降级日志,WARN)**:沿用原 lint 契约
+- FAIL **必须修复**后才算 ingest 完成;WARN 建议修复
 
 当前为 M2.4 预留 stub:
 
@@ -454,10 +480,24 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 读 stdout JSON:
 
 - `linted` 字段:扫到的 knowledge/ 页数
-- `fail`:规则 R7.2(frontmatter `updated` 非 ISO 8601)失败数;`>0` → exit 2(FAIL 必须修复后才算 ingest 完成)
+- `fail`:规则命中数(含 C9 / R7.2);**>0 → 必须修复后重跑,本次 ingest 未完成**
 - `warn`:规则 R7.1(frontmatter `tags` < 5 条)+ **R7.3(reserved filename 误含 frontmatter)** + C21 命中数;`>0` → WARN(建议修复)
 - `warnings_by_file` / `errors_by_file`:聚合到文件级别,SKILL.md 可按路径展示
 - M2.4 真实实现替换 stub 内容,字段含义不变。
+
+**步骤 11 完成态自检流程**(LLM 在步骤 19 必走):
+
+1. 读 stdout JSON 的 `fail == 0` + `warn == 0` → ingest 完成
+2. 读 `fail > 0` → 按 `errors_by_file` 路径筛 C9 命中 → 逐页返回步骤 11 用 Edit 补正文(不动 frontmatter)
+3. 补完重跑步骤 19,直到 `fail == 0`
+4. `warn > 0` 是建议项,不阻塞;记入本批 ingest 备注给后续 lint 轮次处理
+
+**reserved filenames 豁免**(对齐 `doc/schema/frontmatter-spec.md §3.3` plugin 扩展 reserved + OKF §3.2):
+
+- reserved filenames:**`index.md` / `log.md` / `overview.md` / `glossary.md`**
+- **不参与** R7.1(tags < 5)/ R7.2(updated 非 ISO 8601)(这两个规则的前提是文件有 frontmatter,reserved file 没有所以无意义)
+- **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
+- C21(只对 `type: source` 触发)对 reserved file 天然不触发(其 `fm.type` 不为 `'source'`),无需额外豁免
 
 **reserved filenames 豁免**(对齐 `doc/schema/frontmatter-spec.md §3.3` plugin 扩展 reserved + OKF §3.2):
 
