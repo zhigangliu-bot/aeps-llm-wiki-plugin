@@ -42,6 +42,7 @@ plugin 仓根目录与 sync-files 同步出的用户工程根目录布局不同,
 - **拍板门强制**:raw/ 子目录分类 / 已存在同名 / 命名飘 → 必须用户拍板,脚本不静默决定。
 - **batch.json 状态总线**:本次 ingest 所有文件状态共享 `temp/ingest-batch-{ts}.json`,后续脚本顺序读。
 - **JSON stdout**:所有 ingest 脚本输出结构化 JSON 到 stdout,SKILL.md 用 `JSON.parse` 解析。
+- **单次阅读原则**:每个文件只 Read 一次;步骤 3 阅读时一次性确定 `target_subdir` + slug + `entities[]`/`concepts[]` + description/summary 草稿 + tags,步骤 5/7/9 复用该次阅读结果,禁止重复 Read 同一文件(除非 context 被 compact 导致内容丢失)。
 
 ## 编排流程(SKILL.md 只编排,不写实现)
 
