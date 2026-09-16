@@ -15,7 +15,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/count-pages.js *),B
 
 # /aeps-llm-wiki-query
 
-用户提问,plugin 从 `knowledge/` 里找答案:wiki 规模探查 → 引擎分流(index + 4 跳 / qmd)→ intent 三档路由 → 4 跳扫描组织回答(每条断言附 `[[wikilink]]`,不编造)→ G11 gating 判定 → 满足才询问落档为 `analyses/{timestamp}-{slug}.md` + log `**Creation**` 行 + index 刷新。
+用户提问,plugin 从 `knowledge/` 里找答案:wiki 规模探查 → 引擎分流(index + 4 跳 / qmd)→ intent 三档路由 → 4 跳扫描组织回答(每条断言附 `[[wikilink]]`,不编造)→ G11 gating 判定 → 满足才询问落档为 `analyses/{timestamp}-{slug}.md` + log `**Creation**` 行 + index 刷新 + overview「近期分析」节重建。
 
 ## 触发
 
@@ -169,6 +169,16 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js increment \
 node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js reset --project <用户工程根> --json
 ```
 
+### 步骤 11.6:重建 overview.md「近期分析(analyses/)」节(非阻塞,LLM 维护)
+
+落档 analysis 后,LLM 对 `knowledge/overview.md` 的「近期分析」节做一次**完全重建**(`aggregate-index.js` v0.6.2 起不写 overview,overview 由 LLM 按 `doc/template/page-overview.md` 骨架维护;本步与 ingest 末尾更新 4 件顶层索引同口径,保证 analysis 不变孤儿页):
+
+- 节标题固定 `## 近期分析(analyses/)`,按 overview 既有结构就近放置(下一步 / 近期活动区)。
+- 条目按 frontmatter `updated` 倒序(最新在前),每条一行:`- YYYY-MM-DD:[[basename]] — 一句话摘要`(日期取 `updated` 日期段,摘要取 frontmatter `description`)。
+- **幂等**:每次落档整节完全重建,不保留人工条目(对齐 source 页 Related Pages「每次完全重建」约定)。
+- **空态**:`analyses/` 下无任何 analysis 页 → 整节省略,不留空标题。
+- wikilink 用文件名 basename 形式(与步骤 6 / 10 同款硬约束)。
+
 ## 拍板门总结
 
 | 时机 | 拍板内容 | 默认 |
@@ -207,6 +217,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js reset --project <
 - 步骤 0-8:**无写副作用**(count-pages / check-qmd / gating-check / counter read 全部只读或内存态),任意重跑。
 - 步骤 9 之后:analysis 页写坏 → 删除 `knowledge/analyses/{slug}.md` 重跑步骤 9-10。
 - 步骤 11:log.md 行写错 → 手改该行。
+- 步骤 11.6:overview「近期分析」节写坏 → 重跑本步整节重建(幂等,每次完全重建)。
 - counter 写坏 → 删 `knowledge/.aeps-state/comparison-counter.json`(下次 increment 自动重建);误 increment → `reset` 归零后按正确次数补 increment。
 
 ## 引用

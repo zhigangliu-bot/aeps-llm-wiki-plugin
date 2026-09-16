@@ -1,6 +1,6 @@
 # aeps-llm-wiki-plugin — implement-query (M2.3)
 
-> **状态**:frozen(v0.1.0,2026-09-12 用户确认;§1.1 comparison-counter 语义读法 A 已拍板:increment 仅在 intent=comparison 且用户拍板落档后,reset 仅在用户拍板建常驻 comparison 页后)
+> **状态**:frozen(v0.1.2,2026-09-16 用户确认 v0.1.1 后落地修正:§2 新增步骤 11.6 overview「近期分析」节重建,承接 issue #43 孤儿 analysis 治理)
 > **上游契约**:`prd.md v0.4.1` §4.3 + AC-3/11/12/13 + `design.md v0.1.1` §4.2/§7.4/§7.5/§7.6 + `schema.md` §1.2 + `frontmatter-spec.md`(字段权威)
 > **范围**:仅 `aeps-llm-wiki-query` skill 实现细节;init / ingest / lint / synthesize 各有独立文档,本文件不交叉污染
 > **完成定义(M2.3 done =)**:本 `implement-query.md` 冻结 + `skills/aeps-llm-wiki-query/SKILL.md` + `scripts/query/*` + `scripts/check-qmd.js` 全套写完 + 单元测试 + gating e2e + `trellis-check` 全套通过
@@ -11,6 +11,7 @@
 
 | 版本 | 日期 | 变更 | 作者 |
 |---|---|---|---|
+| v0.1.2 | 2026-09-16 | issue #43 落地:§2 流程表新增步骤 11.6 —— 落档 analysis 后 LLM 完全重建 `overview.md`「近期分析(analyses/)」节(`updated` 倒序、`- YYYY-MM-DD:[[basename]] — 一句话摘要`、幂等重建、空态整节省略),保证 query 产出的 analysis 不变孤儿页;lint 侧孤儿豁免见 implement-lint.md v0.1.2。零脚本改动(overview 由 LLM 维护,aggregate-index.js v0.6.2 起不写 overview) | zhigang.liu(Claude Code) |
 | v0.1.0 | 2026-09-12 | 冻结候选初版:5 个脚本契约(count-pages / check-qmd / gating-check / comparison-counter / append-log)+ qmd 三档分流 + 4 跳扫描编排 + G11 gating 4×4 矩阵 + 路径 B 计数器 + 12 步流程对齐 PRD §4.3 + 测试矩阵 AC-3/11/12/13 | zhigang.liu(Claude Code 起草) |
 | v0.1.1 | 2026-09-12 | M2.3 落地修正:§3.1 "gating 200 字边界" 用例与 §1.1 判定表(PRD §4.3 "命中源 < 2 个"不触发)矛盾,用例参数改为"双源同目录"表达字数边界语义;判定逻辑本身零改动 | zhigang.liu(Claude Code 实施 + 复核) |
 
@@ -184,6 +185,7 @@ node scripts/query/append-log.js --project <用户工程根> --question "<原问
 | 10 | LLM 填正文(不锁 H2 骨架;`summary` 首行 `**问题**: {原问句}`;文末 `> 引用:` 行与 `sources_used` Set 一致;出现 `## 摘要`/`## Summary` → 内容迁移 frontmatter) | LLM | 是 |
 | 11 | `append-log.js` 追加 `**Creation**` 行 | 脚本 | 否 |
 | 11.5 | `aggregate-index.js` 刷 index.md(共享步骤)+ intent=comparison 时 `comparison-counter.js increment` | 脚本 | 否 |
+| 11.6 | LLM 完全重建 `overview.md`「近期分析(analyses/)」节:`updated` 倒序,每条 `- YYYY-MM-DD:[[basename]] — 一句话摘要`(摘要取 `description`);空态整节省略(issue #43 孤儿页治理,lint 孤儿扫描对被 overview/index 反链的 analysis 豁免) | LLM | 否 |
 
 ### 硬约束(写入 SKILL.md)
 

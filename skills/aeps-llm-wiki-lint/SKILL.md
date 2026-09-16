@@ -74,12 +74,12 @@ PRD §4.4 步骤 1-11 的全部规则评估由脚本一趟完成,LLM 读 JSON �
 | C15.4 | FAIL | analysis 正文存在 `> 引用:` 行(任意位置,习惯文末) | 按 `sources_used` 生成追加(仅当该页 C7 无 FAIL 项) |
 | C15.5 | WARN | 标准 markdown 链接残留(`[text](目标.md)`) | 转 `[[basename]]`(text == basename)或 `[[basename|text]]`;指向 `raw/` 等非 wiki 页的链接不转 |
 | C17 | FAIL | 模板一致性:模板必有 H2 须为页面 H2 序列子序列(运行时读 `<project>/doc/templates/page-*.md`,与 gen-page.js 同源零漂移) | 提案(--fix 不代排骨架) |
-| C18 | FAIL | source 三字段一致性矛盾(claude-native + converted_path 非 null / native_text true + converted_path 非 null / converter 非空但 native_text ≠ false) | 提案 |
+| C18 | FAIL | source 三字段一致性矛盾(claude-native + converted_path 非 null / native_text true + converted_path 非 null / 真转换器(pyoffice/anydoc/docling/libreoffice/paddleocr)但 native_text ≠ false;`converter: claude-native` 豁免第 3 条 —— 它与 native_text 正交,表示「Claude 原生直读无副本」,是 path 1/2 的默认合法组合) | 提案 |
 | C19 | WARN | converter ∈ {pyoffice, anydoc, docling, libreoffice, paddleocr} 但 `knowledge/log.md` 无含该原文件名的 `**Ingest**` 行 | 提案(提示补 log) |
 | C20 | 软约束 | source 页 `## 维护说明` 之前非 3 节必选 / 非脚本生成区块的 H2 → 「自由追加节」清单 | 无(进 LLM 溯源自检报告,不 FAIL) |
 | C21 | WARN | source converted_path 副本图片链接 resolve(AC-16;`.converted.md` 悬空单列 WARN;http(s):// 图片跳过不查) | 无(--fix 不改 raw 副本) |
 
-无编号机械扫描(全部 proposal 级,`fixable: false`):孤儿页(全 wiki 无任何其他页正文 `[[该页 basename]]` 链入)/ 陈旧页(`stale_after` 已填且过期;未填静默跳过)/ 漏链(其他页 basename / aliases 在本页正文出现 ≥ 2 次但无对应 wikilink)/ 命名飘(同 type 子目录内 Levenshtein ≤ 2 或互为前缀 ≥ 4 字符)/ 矛盾 hint(仅候选对)。
+无编号机械扫描(全部 proposal 级,`fixable: false`):孤儿页(全 wiki 无任何其他页正文 `[[该页 basename]]` 链入;`analyses/` 页豁免 —— 被顶层 `overview.md` / `index.md` 反链即不算孤儿,query 落档后「近期分析」节保证反链)/ 陈旧页(`stale_after` 已填且过期;未填静默跳过)/ 漏链(其他页 basename / aliases 在本页正文出现 ≥ 2 次但无对应 wikilink)/ 命名飘(同 type 子目录内 Levenshtein ≤ 2 或互为前缀 ≥ 4 字符)/ 矛盾 hint(仅候选对)。
 
 边界行为:模板缺失(`<project>/doc/templates/` 缺对应文件)→ C9 / C17 **降级 WARN** 并注明,不 crash;单文件读失败 → 跳过并 stderr WARN。
 

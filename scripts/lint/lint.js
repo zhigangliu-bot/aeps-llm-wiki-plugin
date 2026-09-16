@@ -19,11 +19,13 @@
  *   C15.4 FAIL  analysis 正文存在 `> 引用:` 行(AC-12:任意位置,习惯文末)
  *   C15.5 WARN  标准 markdown 链接残留(--fix 转 wikilink;page-source.md「C15.5 反转」命名)
  *   C17   FAIL  模板一致性(运行时读 <project>/doc/templates/page-*.md,§2.2 子序列)
- *   C18   FAIL  source 三字段一致性矛盾(converter / native_text / converted_path)
+ *   C18   FAIL  source 三字段一致性矛盾(claude-native + converted_path 非 null / native_text true +
+ *               converted_path 非 null / 真转换器但 native_text ≠ false;claude-native 豁免第 3 条,issue #41)
  *   C19   WARN  路径 3/4 converter 但 log.md 无含原文件名的 **Ingest** 行
  *   C20   软约束 source 自由追加节清单(不 FAIL,进 JSON `c20_free_sections` + 文本报告)
  *   C21   WARN  source converted_path 副本图片链接 resolve(AC-16;悬空单列,http(s) 跳过)
- *   §2.3  proposal 孤儿 / 陈旧 / 漏链 / 命名飘 / 矛盾 hint(矛盾判定归 LLM,脚本零产出)
+ *   §2.3  proposal 孤儿 / 陈旧 / 漏链 / 命名飘 / 矛盾 hint(矛盾判定归 LLM,脚本零产出;
+ *         孤儿对 analysis 豁免 overview.md / index.md 反链,issue #43)
  *   C4 编号保留空缺不复用(v0.5.6 起 analyses 不校验 H2 骨架,被 C15.4 取代)
  *
  * exit code: 0 成功(含 wiki 为空)/ 1 用法或环境错误 / 2 存在 FAIL(--fix 后仍剩也为 2)
@@ -70,7 +72,9 @@ const TAG_REQUIRED_AXES = ['docform', 'domain'];
 const TAGS_MIN = 5;
 const TAGS_MAX = 10;
 
-// C19:路径 3/4 converter 集合(对齐 frontmatter.schema.json converter enum,排除 null 与 claude-native)
+// 真转换器集合:路径 3/4 converter(C19;对齐 frontmatter.schema.json converter enum,排除 null 与 claude-native)。
+// C18 第 3 条同用此集合:仅真转换器要求 native_text === false;claude-native 表示「Claude 原生直读无副本」,
+// 与 native_text 正交而非互斥,豁免第 3 条(issue #41:否则 path 1/2 默认合法组合全部误报)
 const C19_CONVERTERS = new Set(['pyoffice', 'anydoc', 'docling', 'libreoffice', 'paddleocr']);
 
 // C21:detail 图片名列表上限(超过截断为「前 5 个, 等 N 个」,防大副本刷屏)
@@ -416,6 +420,9 @@ async function runScan(project, knowledgeDir, validate) {
     relSet: new Set(records.map((r) => r.rel)),
     stemSet: new Set(records.map((r) => r.stem)),
     logContent: await fs.readFile(path.join(knowledgeDir, 'log.md'), 'utf8').catch(() => ''),
+    // 顶层 index / overview 正文(保留文件不进 records;孤儿扫描对 analysis 的豁免反链源,issue #43)
+    indexContent: await fs.readFile(path.join(knowledgeDir, 'index.md'), 'utf8').catch(() => ''),
+    overviewContent: await fs.readFile(path.join(knowledgeDir, 'overview.md'), 'utf8').catch(() => ''),
   };
 
   // 模板运行时读取(C17 / C9 同源)
@@ -435,7 +442,7 @@ async function runScan(project, knowledgeDir, validate) {
   await convertedScan(records, project, warns);
 
   // 跨页机械扫描(§2.3,全部 proposal 级)
-  mechanicalScan(records, proposals);
+  mechanicalScan(records, proposals, ctx);
 
   return { records, reservedSkipped, fails, warns, proposals, c20, ctx };
 }
@@ -592,8 +599,8 @@ function evalPage(rec, tools, ctx, fails, warns, c20) {
       if (fm.native_text === true && hasConverted) {
         clauses.push('native_text: true 但 converted_path 非 null');
       }
-      if (fm.converter != null && fm.converter !== '' && fm.native_text !== false) {
-        clauses.push('converter 非空但 native_text ≠ false');
+      if (C19_CONVERTERS.has(fm.converter) && fm.native_text !== false) {
+        clauses.push('converter 非空但 native_text ≠ false(仅真转换器;claude-native 豁免)');
       }
       if (clauses.length) {
         fails.push(entry('C18', rec, `${joinParts(clauses)}(--fix 不自动改,语义级)`));
@@ -785,15 +792,23 @@ function resolveMdTarget(target, rec, ctx) {
 
 // ---------- 跨页机械扫描(§2.3) ----------
 
-function mechanicalScan(records, proposals) {
+function mechanicalScan(records, proposals, ctx) {
   const MAX_CONTRA_HINTS = 20; // ponytail: 矛盾候选对硬上限,防大 wiki 刷屏;真需要再按 domain 细分
 
   // wikilink 入链图(保留页不在 records,天然不作为链源)
   const linkSets = new Map(records.map((r) => [r.rel, new Set(wikilinkTargets(r.body))]));
 
-  // 孤儿页:全 wiki 无任何其他页正文 [[basename]] 链入
+  // 孤儿页:全 wiki 无任何其他页正文 [[basename]] 链入。
+  // analysis 页豁免(issue #43):被顶层 overview.md / index.md 反链即不算孤儿 —— query 落档后
+  // 由 overview「近期分析(analyses/)」节保证反链;保留 4 文件不进 records,须单独取其正文。
+  const reservedLinkStems = new Set([
+    ...wikilinkTargets(ctx.indexContent || ''),
+    ...wikilinkTargets(ctx.overviewContent || ''),
+  ]);
   for (const rec of records) {
-    const linked = records.some((o) => o.rel !== rec.rel && linkSets.get(o.rel).has(rec.stem));
+    const isAnalysis = rec.type === 'analysis' || rec.dir.split('/')[0] === 'analyses';
+    const linked = records.some((o) => o.rel !== rec.rel && linkSets.get(o.rel).has(rec.stem))
+      || (isAnalysis && reservedLinkStems.has(rec.stem));
     if (!linked) {
       proposals.push({ kind: 'orphan', file: rec.rel, detail: `全 wiki 无任何其他页正文 [[${rec.stem}]] 链入(孤儿页)`, fixable: false });
     }
