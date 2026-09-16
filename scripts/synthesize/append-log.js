@@ -1,0 +1,211 @@
+#!/usr/bin/env node
+/**
+ * append-log.js — synthesize 步骤 5:向 knowledge/log.md 追加 synthesis 留痕行
+ * (实现权威:doc/design/implement-synthesize.md v0.1.0 冻结 §1.2)
+ *
+ * Usage:
+ *   node scripts/synthesize/append-log.js --project <用户工程根> \
+ *     --topic "<topic>" --synthesis-path "syntheses/<slug>.md" [--skipped | --update] --json
+ *
+ * 行为(三选一,默认 Creation):
+ *   - 默认(新建常驻综合页落档):
+ *       **Creation**: synthesis "<topic>" → syntheses/<slug>.md
+ *   - --skipped(步骤 2 拍板拒绝;对齐 comparison 拒绝路径留痕语义;
+ *     无需 --synthesis-path —— 拒绝时尚未建页):
+ *       **Creation Skipped**: synthesis "<topic>"(sources_count 不足,用户拒绝)
+ *   - --update(update 路径刷新既有常驻页;步骤 0 检出语义相近既有页时):
+ *       **Update**: synthesis "<topic>" → syntheses/<slug>.md(刷新纳入页与正文)
+ *   - --skipped 与 --update 互斥,同传 exit 1
+ *
+ * 日期 H2 契约与 scripts/query/append-log.js 一致(独立实现,不 import query 脚本,
+ * 对齐 implement-lint.md「不与 append-log.js 契约耦合」先例):
+ *   - 已有当天 `## [YYYY-MM-DD]` H2 → 行追加到该 H2 下**末尾**
+ *   - 无当天 H2 → 新 H2 插到最新在前位置(第一个更旧日期 H2 之前;
+ *     无更旧 → `## 维护` 节之前;无 → 文件末尾)
+ *   - 已有 frontmatter / 旧日期节 / `## 维护` 节原样保留(round-trip 安全)
+ *
+ * 边界:
+ *   - knowledge/ 目录不存在 → ERROR exit 1(先跑 init)
+ *   - log.md 不存在 → 创建(仅当天 H2 + 行,不代写 init 骨架)
+ *   - --synthesis-path 归一:剥前导 knowledge/ 与 ./,反斜杠归一正斜杠
+ *
+ * JSON stdout 契约(--json):
+ *   { "written": true, "date": "YYYY-MM-DD", "action": "appended|new-section|created",
+ *     "log_path": "...", "line": "..." }
+ *   exit 0 成功 / 1 用法或环境错误 / 2 写盘失败
+ */
+
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import process from 'node:process';
+
+function nowIso() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function parseArgs(argv) {
+  const args = { project: null, topic: null, synthesisPath: null, skipped: false, update: false, json: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--project') args.project = argv[++i];
+    else if (a === '--topic') args.topic = argv[++i];
+    else if (a === '--synthesis-path') args.synthesisPath = argv[++i];
+    else if (a === '--skipped') args.skipped = true;
+    else if (a === '--update') args.update = true;
+    else if (a === '--json') args.json = true;
+  }
+  return args;
+}
+
+const DATE_H2_RE = /^##\s+\[(\d{4}-\d{2}-\d{2})\]\s*$/;
+
+/** 归一 --synthesis-path:剥前导 knowledge/ 与 ./(循环,容忍 `knowledge/./x` 组合);反斜杠 → 正斜杠 */
+function normalizeSynthesisPath(p) {
+  let s = String(p).trim().replace(/\\/g, '/');
+  while (s.startsWith('./') || s.startsWith('knowledge/')) {
+    s = s.startsWith('knowledge/') ? s.slice('knowledge/'.length) : s.slice(2);
+  }
+  return s;
+}
+
+/**
+ * 在 lines 中定位当天节:
+ *   返回 { h2Idx, endIdx } — endIdx 为节内容区 exclusive 上界
+ *   (下一个日期 H2 行 / `## 维护` 行 / lines.length 三者取最小且 > h2Idx)
+ */
+function findSection(lines, today) {
+  let h2Idx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(DATE_H2_RE);
+    if (m && m[1] === today) { h2Idx = i; break; }
+  }
+  if (h2Idx === -1) return null;
+  let endIdx = lines.length;
+  for (let i = h2Idx + 1; i < lines.length; i++) {
+    if (DATE_H2_RE.test(lines[i]) || lines[i].trim() === '## 维护') { endIdx = i; break; }
+  }
+  return { h2Idx, endIdx };
+}
+
+/** 把行追加到当天节末尾(`---` 水平线之前,保持节尾水平线语义) */
+function appendIntoSection(lines, section, line) {
+  const { h2Idx, endIdx } = section;
+  // 从节尾向上找最后一个非空行 p(h2Idx < p < endIdx)
+  let p = endIdx - 1;
+  while (p > h2Idx && lines[p].trim() === '') p--;
+  if (p === h2Idx) {
+    // 空节:H2 后直接放行
+    lines.splice(h2Idx + 1, 0, '', line);
+    return;
+  }
+  if (lines[p].trim() === '---') {
+    // 有水平线:插到 `---` 之前,且 line 与 `---` 之间留空行
+    //(`---` 紧跟文本行会被 markdown 解析成 setext H2,必须隔开)
+    const prevBlank = p - 1 > h2Idx && lines[p - 1].trim() === '';
+    lines.splice(p, 0, ...(prevBlank ? [line, ''] : ['', line, '']));
+    return;
+  }
+  // 普通内容节尾:空行 + line
+  lines.splice(p + 1, 0, '', line);
+}
+
+/** 新日期节插入:最新在前(第一个更旧日期 H2 之前;fallback `## 维护` / EOF) */
+function insertNewSection(lines, today, line) {
+  let insertAt = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(DATE_H2_RE);
+    if (m && m[1] < today) { insertAt = i; break; }
+  }
+  if (insertAt === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() === '## 维护') { insertAt = i; break; }
+    }
+  }
+  const block = [`## [${today}]`, '', line, ''];
+  if (insertAt === -1 || insertAt >= lines.length) {
+    // EOF:剥掉 split 产生的尾部空串,补规范结尾
+    while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+    lines.push(...block);
+    return;
+  }
+  // 中间插入:与上文留空行分隔
+  if (insertAt > 0 && lines[insertAt - 1].trim() !== '' && lines[insertAt - 1].trim() !== '---') {
+    block.unshift('');
+  }
+  lines.splice(insertAt, 0, ...block);
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.project) { console.error('ERROR: --project <用户工程根> 必填'); process.exit(1); }
+  if (!args.topic || !String(args.topic).trim()) {
+    console.error('ERROR: --topic "<topic>" 必填');
+    process.exit(1);
+  }
+  if (args.skipped && args.update) {
+    console.error('ERROR: --skipped 与 --update 互斥(三选一:默认 Creation / --skipped / --update)');
+    process.exit(1);
+  }
+  if (!args.skipped && !args.synthesisPath) {
+    console.error('ERROR: --synthesis-path 必填(除非显式传 --skipped 记拍板拒绝留痕行)');
+    process.exit(1);
+  }
+
+  const project = path.resolve(args.project);
+  const knowledgeDir = path.join(project, 'knowledge');
+  const logPath = path.join(knowledgeDir, 'log.md');
+
+  const knowledgeExists = await fs.access(knowledgeDir).then(() => true).catch(() => false);
+  if (!knowledgeExists) {
+    console.error(`ERROR: knowledge/ 目录不存在: ${knowledgeDir}(先跑 /aeps-llm-wiki-init)`);
+    process.exit(1);
+  }
+
+  const today = nowIso().slice(0, 10); // UTC 日期,对齐 ingest / query append-log 口径
+  const topic = String(args.topic).trim();
+  let line;
+  if (args.skipped) {
+    line = `**Creation Skipped**: synthesis "${topic}"(sources_count 不足,用户拒绝)`;
+  } else if (args.update) {
+    line = `**Update**: synthesis "${topic}" → ${normalizeSynthesisPath(args.synthesisPath)}(刷新纳入页与正文)`;
+  } else {
+    line = `**Creation**: synthesis "${topic}" → ${normalizeSynthesisPath(args.synthesisPath)}`;
+  }
+
+  const logExists = await fs.access(logPath).then(() => true).catch(() => false);
+  const existedBefore = logExists;
+  const content = logExists ? await fs.readFile(logPath, 'utf8') : '';
+  const lines = content.split('\n');
+
+  let action;
+  const section = findSection(lines, today);
+  if (section) {
+    appendIntoSection(lines, section, line);
+    action = 'appended';
+  } else {
+    insertNewSection(lines, today, line);
+    action = existedBefore ? 'new-section' : 'created';
+  }
+
+  try {
+    await fs.writeFile(logPath, lines.join('\n'), 'utf8');
+  } catch (e) {
+    console.error(`ERROR: 写 log.md 失败: ${e.message}`);
+    process.exit(2);
+  }
+
+  console.error(`[append-log] ${action} @ ${today}: ${line}`);
+  console.log(JSON.stringify({
+    written: true,
+    date: today,
+    action,
+    log_path: logPath.replace(/\\/g, '/'),
+    line,
+  }, null, 2));
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error(`ERROR: ${err.message}`);
+  process.exit(2);
+});
