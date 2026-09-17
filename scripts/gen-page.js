@@ -43,6 +43,13 @@
 //       不需改代码;SKILL.md 步骤 11-2 加 LLM 提示保持引号。
 //     - #24 stale_after 基准文档化:默认 generated.at + TTL;新增 --stale-after-base <generated|updated>
 //       开关;stderr 输出基准来源便于 LLM 调试。
+//   - 0.6.9 (M2A / task 09-17-fix-m2a-template-sources):
+//     - B1 根修:analysis / comparison / synthesis 三模板 sources / sources_used 行内占位符
+//       改多行块形式,渲染统一走 *_BODY 块替换管道(replaceListBlock),产物恒为合法 YAML;
+//       analysis 的 sources 缺省由 --sources-used 自动推导(对象数组,每条含 resource)。
+//     - N4 分治(用户拍板 2026-09-17):entity.* / concept.* 页禁止 sources 字段 ——
+//       不再注入 SOURCES_BODY(--source-resource/--source-title/--sources 入参忽略并 WARN),
+//       渲染时显式删除模板 / 旧自定义模板遗留 sources 块;物理定位由 source 页顶层 resource 承载。
 //   - 0.6.5: WP-2 (issues #16/#17/#14) — frontmatter 注入管道统一重构:
 //     ① 统一优先级「CLI 传入 > 脚本自动推导 > 模板默认」;--tags / --aliases /
 //        --source-resource / --source-title 与 --description / --summary / --stale-after 同管道。
@@ -246,6 +253,17 @@ function yamlSourceObjBody(obj) {
 function renderSourcesBody(arr) {
   if (!arr.length) return "[]";
   return arr.map((item) => (item && typeof item === "object" ? yamlSourceObjBody(item) : `  - ${item}`)).join("\n");
+}
+
+/** M2A B1/N4:综合类 sources 入参元素归一为 schema 合规对象({resource, ...})。
+ *  字符串(路径 / wikilink / 裸 slug)→ { resource: "[[stem]]" }(stem = 去 .md 的 basename,
+ *  依赖 Obsidian 唯一名解析);对象(patch 模式 existingFm.sources 既有条目)原样保留。
+ */
+function toSourceObj(item) {
+  if (item && typeof item === "object") return item;
+  const stem = String(item).trim().replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim()
+    .replace(/\.md$/, "").split("/").pop();
+  return { resource: `[[${stem}]]` };
 }
 
 // ponytail: PR-A (#22/#26) — 脚本生成 H2 特征串正则
@@ -475,25 +493,19 @@ function derivePlaceholders(type, args) {
     // entity.* / concept.*:最小合规 skeleton(issue #14)
     ph.TYPE = args.type || type;
 
-    // sources:对象格式 [{resource: "[[<source-slug>]]", title: "<source title>"}](issue #17)
-    // 优先级:--source-resource/--source-title > legacy --sources > [](空但合规 + stdout HINT)
-    const srcResource = typeof args.source_resource === "string" ? args.source_resource.trim() : "";
-    const srcTitle = typeof args.source_title === "string" ? args.source_title.trim() : "";
-    if (srcResource || srcTitle) {
-      // 已带 [[..]] 的入参不重复包裹;只传其一 → 另一者用同一 slug 兜底
-      const link = srcResource ? srcResource.replace(/^\[\[/, "").replace(/\]\]$/, "") : srcTitle;
-      ph.SOURCES_BODY = renderSourcesBody([{ resource: `[[${link}]]`, title: srcTitle || link }]);
-    } else if (Array.isArray(args.sources)) {
-      // patch 模式:existingFm.sources YAML load 后的数组(对象 / legacy 字符串混排均可)
-      ph.SOURCES_BODY = renderSourcesBody(args.sources);
-    } else if (args.sources) {
-      // legacy --sources 字符串列表(analysis 家族兼容写法;lint 对非对象格式会提示)
-      ph.SOURCES_BODY = yamlListBody(String(args.sources).split(",").map((s) => s.trim()).filter(Boolean));
-    } else {
-      ph.SOURCES_BODY = "[]"; // 空但合规;main 向 stdout 提示 LLM 需补 source
-      hints.push('sources 为空:LLM 需补 source(重跑 --patch-frontmatter-only --source-resource <source-slug> --source-title "<source title>")');
+    // N4 分治(v0.6.9 / M2A,用户拍板 2026-09-17):entity.* / concept.* 页**禁止 sources 字段** ——
+    // 物理定位由 source 页顶层 resource 承载,反链走正文 ## 来源资料 区块(build-related-pages)。
+    // - 不再注入任何 sources 内容;显式置 SOURCES_BODY = "" → replaceListBlock 删除
+    //   旧自定义模板遗留的 sources 块(含 legacy `sources: $SOURCES` 占位行)。
+    // - --source-resource / --source-title / --sources 入参不再消费,stderr WARN 提示。
+    if (args.source_resource || args.source_title || args.sources) {
+      process.stderr.write(
+        "[gen-page] WARN: entity/concept 页不再支持 sources 字段(N4 分治,2026-09-17 拍板);"
+        + "--source-resource / --source-title / --sources 入参被忽略,来源反链由 build-related-pages 的 ## 来源资料 区块承载\n"
+      );
     }
-    ph.SOURCES = ph.SOURCES_BODY === "[]" ? "" : ph.SOURCES_BODY; // legacy $SOURCES 兜底
+    ph.SOURCES_BODY = ""; // 删除模板 / 旧模板遗留 sources 块
+    ph.SOURCES = "";      // legacy $SOURCES 占位行兜底删除
 
     // aliases:CLI > [title] fallback(Obsidian 原生别名机制,frontmatter-spec §12.4)
     // v0.6.8 (#34/#35):走 cleanAliases(title 首项 + 去重 + 剥包裹 + 双引号包裹)
@@ -501,14 +513,25 @@ function derivePlaceholders(type, args) {
     ph.ALIASES_BODY = yamlAliasListBody(cleanAliases(cliAliases, title));
     ph.ALIASES = ph.ALIASES_BODY; // legacy $ALIASES 兜底
   } else {
-    // analysis / comparison / synthesis:模板未纳入 v0.6.5 三模板改造,保持 legacy $SOURCES 行为
+    // analysis / comparison / synthesis:M2A B1 根修 —— sources 统一走 *_BODY 块替换管道渲染,
+    // 模板为多行示例块(不再是 `sources: $SOURCES` 行内占位符),产物恒为合法 YAML。
     ph.TYPE = args.type || type;
+    // 入参归一:patch 模式 existingFm.sources(array)> CLI --sources(逗号分隔 string)> null
+    let srcList = null;
     if (Array.isArray(args.sources)) {
-      ph.SOURCES = renderSourcesBody(args.sources);
-    } else if (args.sources) {
-      ph.SOURCES = yamlListBody(String(args.sources).split(",").map((s) => s.trim()).filter(Boolean));
+      srcList = args.sources;
+    } else if (args.sources !== undefined && args.sources !== null) {
+      srcList = parseListArg(args.sources) || [];
+    }
+    // analysis 缺省:从 --sources-used 推导(所引 wiki 页 → {resource: "[[stem]]"})
+    if (!srcList && type === "analysis" && args.sources_used) {
+      srcList = parseListArg(args.sources_used) || [];
+    }
+    if (srcList && srcList.length) {
+      ph.SOURCES_BODY = renderSourcesBody(srcList.map(toSourceObj));
     } else {
-      ph.SOURCES = ""; // 模板里 sources: $SOURCES 整行被替换为空 → YAML 无 sources 字段
+      ph.SOURCES_BODY = "[]"; // 空但合规(行内空数组);lint C5 对综合类空 sources FAIL 兜底
+      hints.push("sources 为空:analysis / comparison / synthesis 必填 sources(重跑补 --sources <逗号分隔的所引 wiki 页路径>)");
     }
   }
 
@@ -517,7 +540,13 @@ function derivePlaceholders(type, args) {
     if (args.sources_count) {
       ph.SOURCES_COUNT = args.sources_count;
     } else if (args.sources_used) {
-      ph.SOURCES_COUNT = String(args.sources_used.split(",").length);
+      // M2A 修复:patch 模式 existingFm.sources_used 可能是 array,统一走 parseListArg
+      ph.SOURCES_COUNT = String((parseListArg(args.sources_used) || []).length);
+    } else if (Array.isArray(args.sources)) {
+      // M2A:patch 模式 existingFm.sources 数组 / 综合 --sources 亦可推导 count
+      ph.SOURCES_COUNT = String(args.sources.length);
+    } else if (args.sources) {
+      ph.SOURCES_COUNT = String(parseListArg(args.sources)?.length || 0);
     } else {
       ph.SOURCES_COUNT = "0";
     }
@@ -525,12 +554,14 @@ function derivePlaceholders(type, args) {
   // analysis 专属必填
   if (type === "analysis") {
     ph.ANSWER_TO = args.answer_to || "";
-    // sources_used:多行 YAML list 块
+    // sources_used:M2A B1 根修 —— 走 *_BODY 块替换管道(模板为多行示例块),
+    // 不再走 legacy 行内 $SOURCES_USED token 替换(多行 body 拼进同行会产出非法 YAML)
     if (args.sources_used) {
-      const arr = parseListArg(args.sources_used) || [];
-      ph.SOURCES_USED = yamlListBody(arr);
+      ph.SOURCES_USED_BODY = yamlListBody(parseListArg(args.sources_used) || []);
+    } else if (Array.isArray(args.sources_used)) {
+      ph.SOURCES_USED_BODY = yamlListBody(args.sources_used);
     } else {
-      ph.SOURCES_USED = "";
+      ph.SOURCES_USED_BODY = ""; // 未传 → 整块删除(lint C1 必填 FAIL 兜底)
     }
   }
   return { ph, hints };
@@ -576,7 +607,8 @@ function renderBody(type, tpl, args) {
       if (args.sources_used) {
         // v0.6.8 (#36):wikilink 文本收敛为裸 basename(去路径前缀与 .md)——
         // Obsidian 1.12.7 resolver 唯一可靠输入;title/alias 形式一律不生成
-        const links = args.sources_used.split(",").map((s) => {
+        // M2A 修复:patch 模式 sources_used 可能是 array,统一走 parseListArg
+        const links = (parseListArg(args.sources_used) || []).map((s) => {
           const b = s.trim().replace(/^\.\/knowledge\//, "").replace(/\.md$/, "");
           return `[[${b.split("/").pop()}]]`;
         }).join(", ");
@@ -646,8 +678,15 @@ function main() {
     console.error("ERROR: --type analysis 必须 --answer-to (query 问题原文,30-80 字)");
     process.exit(1);
   }
-  if (["analysis", "comparison", "synthesis"].includes(type) && !args.sources_used && !args.sources_count) {
-    console.error(`ERROR: --type ${type} 必须 --sources-used 或 --sources-count`);
+  if (["analysis", "comparison", "synthesis"].includes(type)
+    && !args.sources_used && !args.sources_count && args.sources === undefined) {
+    console.error(`ERROR: --type ${type} 必须 --sources / --sources-used / --sources-count 之一`);
+    process.exit(1);
+  }
+  // M2A N4:comparison / synthesis 必填 sources(--sources 逗号分隔所引 wiki 页);
+  // analysis 的 sources 可由 --sources-used 自动推导,不强制 --sources。
+  if ((type === "comparison" || type === "synthesis") && args.sources === undefined) {
+    console.error(`ERROR: --type ${type} 必须 --sources <逗号分隔的所引 wiki 页路径>(N4 分治:综合类 sources 必填)`);
     process.exit(1);
   }
 

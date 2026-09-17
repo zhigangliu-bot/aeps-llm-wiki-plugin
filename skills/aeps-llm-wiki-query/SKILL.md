@@ -127,6 +127,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --project <用户工程根> \
 
 - `{timestamp}-{slug}` 整体作为 `--slug` 传入,落 `knowledge/analyses/{slug}.md`。
 - `--answer-to` + `--sources-used` 为 analysis 必填(gen-page 校验,缺失即报错,不落半成品)。
+- **frontmatter `sources` 由脚本渲染**(M2A B1/N4 根修):gen-page 自动从 `--sources-used` 推导为对象数组(每条 `resource: "[[<页 stem>]]"`),产物恒为合法 YAML;LLM 不手写 frontmatter sources 块,如需覆盖清单重跑加 `--sources "<逗号分隔>"`。
 - `sources_used` 只收**阶段 2-5 实际读过的 wiki 页相对路径**,不收正文出现过但未读的页。
 - tags 走 6 轴字典(`doc/template/tag-spec.md`),必含 `docform/` + `domain/`,≥ 5 条;skeleton 自带示例 tags,LLM 按需用 `--patch-frontmatter-only` 精修。
 

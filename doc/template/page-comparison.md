@@ -1,3 +1,10 @@
+<!--
+change history:
+- 2026-09-17 (M2A / task 09-17-fix-m2a-template-sources):
+  - B1 根修:`sources: $SOURCES` 行内占位符改为多行块形式(gen-page 走 *_BODY 块替换管道渲染),
+    修复渲染产物 frontmatter 非 YAML 的问题。
+  - N4 分治:sources 为 comparison 必填对象数组(每条含 resource),gen-page 按 --sources 渲染。
+-->
 <!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
@@ -13,8 +20,11 @@ tags:
   - maturity/comparison
   - phase/architecture
 
-# OKF §5.1 sources(对比的两个对象 wiki 页)
-sources: $SOURCES
+# OKF §5.1 sources(对比的两个对象 wiki 页;对象数组,每条含 resource,
+# ≥ 2 条 entity/concept 页,gen-page 按 --sources 渲染;下方示例块渲染时整体重写)
+sources:
+  - resource: "[[<entity-or-concept-slug>]]"
+    title: "对照页标题"
 
 # OKF §5.2 generated
 generated:

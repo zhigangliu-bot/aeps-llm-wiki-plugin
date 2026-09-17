@@ -1,5 +1,12 @@
 <!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 <!--
+change history:
+- 2026-09-17 (M2A / task 09-17-fix-m2a-template-sources):
+  - N4 分治:entity.* 页禁止 sources 字段(物理定位由 source 页顶层 resource 承载),
+    模板 sources 示例块删除;gen-page 不再注入,--source-resource/--source-title 忽略。
+    反链由正文 `## 来源资料` 区块(build-related-pages)承载。
+-->
+<!--
 LLM 阅读提示: 本模板默认章节顺序为「实质内容在前, 脚本生成区块在后」。
 步骤 11 填正文时, 请把你写的实质 H2 节 (## 个人背景 / ## 适用范围 等)
 放在 ## 关联导引 之前。
@@ -19,11 +26,6 @@ tags:
   - tec/claude
   - maturity/standard
   - phase/learning
-
-# OKF §5.1 sources(指向关联的源页/原始资料;对象格式,gen-page 按 --source-resource/--source-title 注入)
-sources:
-  - resource: "[[<source-slug>]]"
-    title: "来源页标题"
 
 # OKF §5.2 generated
 generated:

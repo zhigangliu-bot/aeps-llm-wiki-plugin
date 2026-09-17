@@ -3,6 +3,9 @@
   "$id": "https://github.com/zhigangliu-bot/aeps-llm-wiki-plugin/schema/frontmatter.schema.json",
   "title": "aeps-llm-wiki-plugin frontmatter schema",
   "description": "OKF v0.2 原生字段 + plugin 扩展字段。OKF reader 按未知字段忽略(MUST NOT reject, MUST preserve on round-trip;OKF §4.1 + §11)。plugin 扩展字段命名不加前缀(PRD §10 Q8)。",
+  "x-change-history": [
+    "2026-09-17 (M2A / task 09-17-fix-m2a-template-sources):N4 sources 分治(用户拍板)——entity.*/concept.* 必填组移除 sources(禁止,物理定位由 source 页顶层 resource 承载);analysis/comparison/synthesis 保持必填;sources 字段描述改写(删『type: source 页必填指向自己』)。"
+  ],
   "type": "object",
   "additionalProperties": true,
   "required": ["type"],
@@ -64,7 +67,7 @@
     },
     "sources": {
       "type": "array",
-      "description": "OKF §5.1。该概念引用的原始资料。type: source 页必填,指向自己。",
+      "description": "OKF §5.1。**M2A N4 分治(2026-09-17 拍板)**:仅 analysis / synthesis / comparison(三综合类)必填——多源融合的对象数组,每条至少含 resource(source 页自指条目已移除);source / entity.* / concept.* **禁止**本字段(物理定位由 source 页顶层 resource 承载,反链走正文链接;lint C5 对其余 type 出现 sources FAIL,--fix 删除)。",
       "items": {
         "type": "object",
         "required": ["resource"],
@@ -268,14 +271,14 @@
       "description": "type: entity.* 必填字段组",
       "if": { "properties": { "type": { "pattern": "^entity\\." } } },
       "then": {
-        "required": ["title", "description", "tags", "sources", "generated", "updated"]
+        "required": ["title", "description", "tags", "generated", "updated"]
       }
     },
     {
       "description": "type: concept.* 必填字段组",
       "if": { "properties": { "type": { "pattern": "^concept\\." } } },
       "then": {
-        "required": ["title", "description", "tags", "sources", "generated", "updated"]
+        "required": ["title", "description", "tags", "generated", "updated"]
       }
     }
   ],

@@ -66,7 +66,7 @@ PRD §4.4 步骤 1-11 的全部规则评估由脚本一趟完成,LLM 读 JSON �
 | C1t | WARN | tags 数量 < 5 / > 10,或缺 `docform/` + `domain/` 必填轴,或单条非 6 轴字典格式(对齐 tag-spec 六轴) | 提案(--fix 不代定 tags) |
 | C2 | FAIL | `## 摘要` / `## Summary` H2 残留 | 内容迁 frontmatter `summary` 后删 H2 区块 |
 | C3 | FAIL | source 3 节骨架(重点摘录 / 我的思考 / 总结:最有收获的一句话) | 文末追加占位 H2 |
-| C5 | FAIL | comparison `sources` 必填非空 | 提案(值语义未知) |
+| C5 | FAIL | sources 分治(M2A N4):analysis / synthesis / comparison `sources` 必填非空;其余 type 出现 `sources` → FAIL | 三综合类缺失/空 → 提案(值语义未知);非综合类 → `--fix` 删除该字段 |
 | C6 | WARN | synthesis `sources_count < 3` | 无 |
 | C7 | FAIL | analysis `sources_used` 每条解析到真实 `knowledge/**/*.md` | 提案(删哪条语义未知) |
 | C8 | WARN | `> 引用:` 行 wikilink Set ≠ `sources_used` Set | 重写该行对齐 `sources_used`(仅当该页 C7 无 FAIL 项) |
