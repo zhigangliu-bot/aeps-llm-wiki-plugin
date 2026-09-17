@@ -11,7 +11,8 @@
  *   C1t   WARN  tags 数量 <5 / >10,或缺 docform/ + domain/ 必填轴(含单条非 6 轴字典格式)
  *   C2    FAIL  `## 摘要` / `## Summary` H2 残留
  *   C3    FAIL  source 3 节骨架(重点摘录 / 我的思考 / 总结:最有收获的一句话)
- *   C5    FAIL  comparison sources 必填非空
+ *   C5    FAIL  sources 分治(M2A N4):analysis / synthesis / comparison 必填非空;
+ *               其余 type(source / entity.* / concept.*)出现 sources → FAIL(--fix 删除)
  *   C6    WARN  synthesis sources_count < 3
  *   C7    FAIL  analysis sources_used 每条解析到真实 knowledge/ 下 .md 页面
  *   C8    WARN  `> 引用:` 行 wikilink Set ≠ sources_used Set
@@ -53,6 +54,9 @@ let yaml = null;
 
 // 保留 4 文件(任意层级按 basename 豁免,不扫)
 const RESERVED_FILENAMES = new Set(['index.md', 'overview.md', 'glossary.md', 'log.md']);
+
+// C5 sources 分治(M2A N4):三综合类必填,其余 type 禁止
+const SYNTH_TYPES = new Set(['analysis', 'comparison', 'synthesis']);
 
 // §2.1 C1 per-type 必填表(全部行 + per-type 追加行;与 frontmatter.schema.json allOf 对齐兜底)
 const C1_COMMON_REQUIRED = ['type', 'updated', 'title', 'description', 'tags'];
@@ -547,13 +551,17 @@ function evalPage(rec, tools, ctx, fails, warns, c20) {
       if (free.length) c20.push({ file: rec.rel, sections: free });
     }
 
-    // ---- C5:comparison sources 必填非空 ----
-    if (type === 'comparison') {
+    // ---- C5:sources 分治(M2A N4,用户拍板 2026-09-17)----
+    // analysis / synthesis / comparison(三综合类)→ sources 必填非空(对象数组);
+    // 其余 type(source / entity.* / concept.*)→ sources 禁止(--fix 直接删除字段)。
+    if (SYNTH_TYPES.has(type)) {
       if (!('sources' in fm)) {
-        fails.push(entry('C5', rec, 'comparison 必填 sources(字段缺失;值语义未知,--fix 不自动补)'));
+        fails.push(entry('C5', rec, `${type} 必填 sources(字段缺失;值语义未知,--fix 不自动补)`));
       } else if (Array.isArray(fm.sources) && fm.sources.length === 0) {
-        fails.push(entry('C5', rec, 'comparison sources 为空数组(值语义未知,--fix 不自动补)'));
+        fails.push(entry('C5', rec, `${type} sources 为空数组(值语义未知,--fix 不自动补)`));
       }
+    } else if ('sources' in fm) {
+      fails.push(entry('C5', rec, `type=${type} 禁止 sources 字段(N4 分治:物理定位由 source 页顶层 resource 承载;--fix 删除该字段)`));
     }
 
     // ---- C6:synthesis sources_count < 3 ----
@@ -907,6 +915,13 @@ async function applyFix(rec, ctx, fixed) {
   const fixes = [];
 
   if (fm !== null) {
+    // ---- C5:N4 分治——非综合类 sources 禁止(确定性删除)----
+    if (fm.sources !== undefined && !SYNTH_TYPES.has(rec.type)) {
+      delete fm.sources;
+      fmChanged = true;
+      fixes.push({ rule: 'C5', action: '删除非综合类页禁止的 sources 字段(N4 分治)' });
+    }
+
     // ---- C1:补占位(仅 §4 白名单字段)----
     for (const f of fx.c1Missing) {
       if (!C1_FILLABLE.has(f)) continue; // converter 等 → 提案,不补

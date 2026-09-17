@@ -234,7 +234,7 @@ LLM 读 raw + `concept-entities-spec.md` 判 18 子类。
 
 | 字段 | ✅ 正确写法 | ❌ 错误写法 | 后果 |
 |---|---|---|---|
-| `sources[]` | 对象列表 `sources:\n  - resource: "[[<source-slug>]]"\n    title: "来源页标题"`(gen-page 用 `--source-resource <slug> --source-title "<title>"` 注入) | 字符串列表 `- "[[xxx]]"` | build-related-pages 校验失败;反链失效 |
+| `sources` | **不写**(M2A N4 分治,2026-09-17 拍板:entity/concept 页禁止 `sources` 字段;物理定位由 source 页顶层 `resource` 承载,反链走正文 `## 来源资料` 区块) | 手写任何 `sources:` 块(含旧版对象格式) | lint C5 FAIL(非综合类出现 sources;`--fix` 删除) |
 | `stale_after` | ISO 8601 **datetime** `"2027-09-09T00:00:00Z"`(带 `T…Z`;gen-page 缺省会自动按 `generated.at + 1 年` 推导,concept.standard +5 年) | 纯 date `"2027-09-09"` | schema/ lint FAIL,需改为 datetime |
 | `tags` | **5-10 条**,必含 `docform/` + `domain/` 轴(字典:`doc/template/tag-spec.md`;gen-page 缺省按 type 子类注入 5 条,LLM 应精修) | 少于 5 条 / 裸 tag 无轴前缀 / 人名进 tag | lint FAIL/WARN;检索退化 |
 
@@ -248,14 +248,14 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --title "<title>" \
   --description "<一句话 30-80 字>" \
   --tags "docform/<...>,domain/<...>,layer/<...>,maturity/<...>,phase/<...>" \
-  --source-resource "<source-slug>" --source-title "<source title>" \
   --aliases "<别名1>,<别名2>" \
   --summary "<50-150 字精要>" \
   --stale-after "<ISO 8601 datetime,如 2027-09-09T00:00:00Z>" \
   --json
 ```
 
-- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` / `--source-resource` / `--source-title` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;**v0.6.8 起 description/summary 不再静默 fallback 到 title,留空字符串 + stderr WARN**(issue #20);stale_after 自动 `generated.at + 1y`);`--source-resource` / `--source-title` 都不传 → `sources: []` 且 stdout 给出 `HINT: sources 为空` 提示,LLM 需在步骤 11 用 `--patch-frontmatter-only` 补。
+- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;**v0.6.8 起 description/summary 不再静默 fallback 到 title,留空字符串 + stderr WARN**(issue #20);stale_after 自动 `generated.at + 1y`)。
+- **`--source-resource` / `--source-title` 已废除**(M2A N4 分治):entity/concept 页不再有 `sources` 字段,传入会被忽略(stderr WARN);source ↔ entity/concept 反链由步骤 3 batch 声明 + build-related-pages 的 `## 来源资料` / `## 相关页面` 区块承载。
 
 **v0.6.5 起 `--project <用户工程根>` 必传**:`gen-page.js` 从 `<project>/doc/templates/` 找模板(issue #4-Bug3);
 不传 → `template not found` 错误(对齐 PR-AC-6,v0.5.8 起取消 cwd 兜底)。
@@ -280,7 +280,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 - 严禁保留 `【LLM 自动填充:...】` 占位字符串;
 - 严禁把 entity / concept 子页合并为 source 页 `## 相关页面` 的扁平反链——反链粒度退化会丢信息。
 
-**frontmatter 字段保护**:`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);`sources[]` 传了 `--source-resource` / `--source-title` 时已是对象格式,否则为空数组(stdout 有 HINT)—— **LLM 需补 source 时重跑 `--patch-frontmatter-only --source-resource <slug> --source-title "<title>"`**(patch 模式全字段支持,CLI 未传字段不会被清空)。若用户改 entity/concept 的 sources 引用,build-related-pages.js 步骤 12 会自动反向重建。
+**frontmatter 字段保护**:`tags` / `aliases` / `description` / `summary` / `stale_after` 在 gen-page 阶段已注入最小合规 skeleton(步骤 10);**entity/concept 页不写 `sources` 字段**(M2A N4 分治)——来源反链由 build-related-pages.js 步骤 12 按 batch 声明自动写入正文 `## 来源资料` 区块,LLM 不在 frontmatter 补 source 引用。
 
 **跳过的边界**:
 

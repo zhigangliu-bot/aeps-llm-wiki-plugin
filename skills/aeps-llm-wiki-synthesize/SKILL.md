@@ -71,6 +71,7 @@ LLM 按三信号决定纳入页集合:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type synthesis --slug {topic-slug} \
   --project <用户工程根> \
   --title "<综合页标题>" --description "<≤ 280 字一句话定位>" --summary "<≤ 280 字精要>" \
+  --sources "<逗号分隔的步骤 1 纳入页相对路径,如 concepts/term/asil.md,entities/product/xxx.md>" \
   --sources-count {n} --json
 ```
 
@@ -78,7 +79,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type synthesis --slug {topic-sl
 - 落 `knowledge/syntheses/{topic-slug}.md`,**不带时间戳,常驻**。
 - **陷阱 1**:`--sources-count` 必须显式传(见设计原则)。
 - **`--description` 必传**:lint C1 对所有 type 必查 `description`;gen-page 对空占位符是**整行删除**(不传 → 产物无该字段 → C1 FAIL)。
-- **不传 `--sources`**:gen-page 冻结产物(v0.6.9)对 synthesis 模板 `sources: $SOURCES` 行内占位符的渲染会把列表首项拼进 `sources:` 同行,产出非法 YAML;`sources:` 块统一由步骤 4 写入(implement-synthesize §1.3 示例的落地修正)。
+- **`--sources` 必传**(M2A B1/N4 根修):synthesis 的 `sources` 必填(对象数组,每条含 `resource`);gen-page 按多行块管道渲染为合法 YAML(每条 `resource: "[[<页 stem>]]"`),LLM **不手写 frontmatter sources 块**。
 - 全量模式静默覆盖已存在文件 → 走到这里的唯一前提是步骤 0 `syntheses[]` 确认无同名页(陷阱 2)。
 
 ### 步骤 3b:update 既有页(步骤 0 检出语义相近页时,阻塞)
@@ -86,16 +87,17 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type synthesis --slug {topic-sl
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type synthesis --slug {同一 slug} \
   --project <用户工程根> \
-  --sources "" --sources-count {n} --summary "<≤ 280 字精要>" --json --patch-frontmatter-only
+  --sources "<逗号分隔的更新后纳入页相对路径>" \
+  --sources-count {n} --summary "<≤ 280 字精要>" --json --patch-frontmatter-only
 ```
 
 - `--patch-frontmatter-only`:只重渲染 frontmatter,**正文不动**;`updated` 随 patch 刷新。
-- `--sources ""` 显式清空:防既有 `sources:` 块经 gen-page 重渲染产出非法 YAML;`sources:` 块由步骤 4 重写。
+- `--sources` 传**更新后的完整清单**:gen-page 以脚本渲染重写整个 `sources:` 块(合法 YAML,LLM 不手改)。
 - **禁止**全量重生成(正文会被占位符覆盖);update 时正文由 LLM 直改(步骤 4)。
 
-### 步骤 4:LLM 填正文 + frontmatter sources 块(阻塞)
+### 步骤 4:LLM 填正文(阻塞)
 
-- **frontmatter `sources:` 块机械重写**为合法 YAML list(每条一行 `  - <rel>`,相对 `knowledge/`),清单 = 步骤 1 `sources[]`,条数 = `sources_count`。写在模板 `# OKF §5.1 sources` 注释行之后。
+- frontmatter `sources:` 块**已由步骤 3/3b 的 gen-page 脚本渲染**(M2A B1 根修:多行块管道,合法 YAML),LLM 不手改;需要调整清单时重跑 `--patch-frontmatter-only --sources "<新清单>"`。
 - **正文只改 H2 之间**:synthesis 不锁骨架(模板 v0.5.7 起权威),体系总览 / 关键议题 / 演进时间线 / 决策树等任何结构都允许。
 - 正文链接主推 `[[wikilink]]` 裸文件名(目标 .md 去 .md 的 basename),禁止 title 形式;需要别名用 `[[filename|显示别名]]`。综合页期望 ≥ 5 条 wikilink 跨链多个 wiki 页(软期望,lint 不 FAIL)。
 - update 路径:LLM **直改既有正文**(增量修订,不推倒重写);`updated` 已由步骤 3b 刷新。
@@ -135,7 +137,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --j
 | `type` | `synthesis`(固定,gen-page 写) |
 | `title` / `description` | LLM 拟;description ≤ 280 字 |
 | `tags` | 6 轴字典(`doc/template/tag-spec.md`),必含 `maturity/synthesis`,≥ 5 条 |
-| `sources` | YAML list,= 步骤 1 纳入页相对路径集合(步骤 4 LLM 写) |
+| `sources` | 对象数组(每条 `resource: "[[<页 stem>]]"`),= 步骤 1 纳入页集合(步骤 3/3b gen-page 脚本渲染,M2A B1 根修) |
 | `sources_count` | int,= `sources` 项数;`< 3` 仅在用户拍板通过后允许(C6 WARN 兜底) |
 | `summary` | REQUIRED(≤ 280 字) |
 | `generated` / `updated` / `status` | gen-page 自动;update 时 `updated` 刷新 |

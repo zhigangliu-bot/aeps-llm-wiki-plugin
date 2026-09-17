@@ -1,5 +1,9 @@
 # aeps-llm-wiki-plugin —— Frontmatter Template 总览
 
+## Change History
+
+- 2026-09-17(M2A / task 09-17-fix-m2a-template-sources):N4 sources 分治——§1.1 `sources` 行改分型注记(三综合类必填,其余 type 禁止);§lint 对照表 C5 行同步。同任务 B1:analysis / comparison / synthesis 模板行内占位符改多行块形式(详见各模板头部 change history)。
+
 本目录是 plugin 的 frontmatter **唯一权威模板来源**。init 时拷贝到用户项目的 `{project}/doc/templates/`(v0.5.8 起 doc/ 层级,与 plugin 仓对齐),SKILL.md 生成页时读对应 `page-{type}.md`。
 
 > **权威顺序**:OKF v0.2 > **`doc/schema/frontmatter-spec.md`(人读字段规范,唯一权威)** > `doc/schema/frontmatter.schema.json`(机器读,跟随 spec) > `README.md`(本目录人读入口,总览) > `doc/schema/schema.md`(工作流入口)
@@ -20,7 +24,7 @@
 | `description` | §4.1 | string | OKF 推荐 | ✅ 推荐 | 一句话总结;index.md 第二列 |
 | `tags` | §4.1 | string[](6 轴前缀) | 选 | ✅ 推荐(plugin 强化为 6 轴字典约束) | Obsidian tag 面板 + plugin 第 1 跳关键词过滤;**每条 tag 必须以 `domain/` / `layer/` / `phase/` / `docform/` / `maturity/` / `tec/` 之一为前缀**,详见 [`doc/template/tag-spec.md`](tag-spec.md) 6 轴字典 |
 | `resource` | §4.1 | URI | 单源必填,多源不填 | 单源必填,多源不填 | 物理资源 URI。plugin 收紧:单源模式(`type: source`)顶层必填;多源融合模式(analysis/synthesis/comparison)改用 `sources[]`,顶层 `resource` 不填。详见 `frontmatter-spec.md` §4.2.3 |
-| `sources` | §5.1 | list | 选 | source 必填 | `[{id, resource, title, author, last_modified, usage_count, ...}]` |
+| `sources` | §5.1 | list | 选 | analysis / synthesis / comparison 必填;其余 type 禁止(N4 分治,2026-09-17) | `[{resource, title?, ...}]` 对象数组(每条至少含 `resource`);物理定位由 source 页顶层 `resource` 承载 |
 | `generated` | §5.2 | object | OKF 内部必填 | ✅ 推荐 | `{ by: agent:{name}, at: ISO8601 }` |
 | `verified` | §5.2 | list | 选 | 选 | 人工确认;用户拍板可写入 |
 | `status` | §5.4 | enum | 选 | 选 | `draft` / `stable` / `deprecated`;默认 `stable` |
@@ -132,7 +136,7 @@
 | 3 节骨架硬约束 | `source` | 必含 `## 重点摘录` / `## 我的思考` / `## 总结:最有收获的一句话`;缺一 FAIL。`analysis` / `comparison` / `synthesis` / `entity.*` / `concept.*` v0.5.7 起**不锁 H2 骨架**,lint 仅校验 `> 引用:` 行(analysis 唯一保留硬约束) |
 | **自由追加节(占位骨架 ## 阅读路线,v0.5.9 起)** | `source` | `## 重点摘录` 之前**必须**至少有 1 个 H2 节(WARN,lint C21)。LLM 读完源文件后,先问『这篇有什么独特结构』再用 1-N 个 H2 节呈现;占位骨架节名 `## 阅读路线` 强烈建议改名(演讲/标准/白皮书/论文常见节名见模板);极短源文件可保留占位名 + 一句豁免说明。所有自由追加节**强制溯源** |
 | 禁用 `## 摘要` / `## Summary` | 所有 type | 长摘要走 frontmatter `summary` 字段;FAIL on 残留 |
-| `comparison` 必填 `sources` | `comparison` | FAIL on 缺失 |
+| sources 分治(lint C5,M2A N4) | 全部 type | `analysis` / `comparison` / `synthesis` 必填 `sources` 非空(FAIL on 缺失 / 空数组);其余 type 出现 `sources` → FAIL(`--fix` 删除字段) |
 | `synthesis` `sources_count` < 3 | `synthesis` | WARN(避免空综合) |
 | `analysis` 必填 `sources_used` | `analysis` | 每条路径必须解析到真实存在的 `knowledge/**/*.md`;否则 FAIL |
 | `analysis` `> 引用:` 行与 `sources_used` 一致 | `analysis` | lint Set 比对,不一致 WARN。v0.5.7 起不要求在 `## 关联溯源` 节下,正文任意位置出现 `> 引用:` 行即可 |

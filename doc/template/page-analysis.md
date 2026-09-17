@@ -1,3 +1,11 @@
+<!--
+change history:
+- 2026-09-17 (M2A / task 09-17-fix-m2a-template-sources):
+  - B1 根修:`sources: $SOURCES` 与 `sources_used: $SOURCES_USED` 行内占位符改为多行块形式
+    (gen-page 走 *_BODY 块替换管道渲染),修复渲染产物 frontmatter 非 YAML 的问题。
+  - N4 分治:sources 为 analysis 必填对象数组(每条含 resource),由 gen-page 从
+    --sources-used 自动推导(亦可用 --sources 显式覆盖)。
+-->
 <!-- 提示:模板示例 tags 故意 ≥ 6 条,避免 LLM 按 5 条填导致 WARN;真实生成时按需保留全部或精简到 ≥ 5 条 -->
 ---
 # OKF v0.2 §4.1 必填字段
@@ -13,8 +21,11 @@ tags:
   - phase/architecture
   - maturity/analysis
 
-# OKF §5.1 sources(原 query 引用的 wiki 页)
-sources: $SOURCES
+# OKF §5.1 sources(query 引用的 wiki 页;对象数组,每条含 resource。
+# gen-page 由 --sources-used 自动推导,亦可 --sources 显式覆盖;下方示例块渲染时整体重写)
+sources:
+  - resource: "[[<wiki-page-slug>]]"
+    title: "来源页标题"
 
 # OKF §5.2 generated
 generated:
@@ -26,7 +37,9 @@ status: stable
 
 # plugin 扩展字段(G11 M1 + M2,analysis 专属必填)
 answer_to: "$ANSWER_TO"
-sources_used: $SOURCES_USED
+# sources_used:本次 query 实际读过的 wiki 页相对路径(gen-page 按 --sources-used 渲染整块)
+sources_used:
+  - ./knowledge/concepts/theory/<slug>.md
 sources_count: $SOURCES_COUNT
 
 # plugin 推荐字段

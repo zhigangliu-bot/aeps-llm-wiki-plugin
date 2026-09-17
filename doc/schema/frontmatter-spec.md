@@ -11,6 +11,7 @@
 
 | 日期 | 变更人 | 变更内容 |
 |---|---|---|
+| 2026-09-17 | zhigangliu-bot | M2A / task 09-17-fix-m2a-template-sources:**N4 sources 分治(用户拍板)**——顶层 `sources` 改分型约束:analysis / synthesis / comparison 必填(对象数组,每条含 resource),其余 type(source / entity.* / concept.*)禁止(物理定位由 source 页顶层 `resource` 承载;source 页自指 sources[] 条目移除)。§2 速查表 + §4.4.1 同步;lint C5 升级为分治规则(三综合类必查,其余 type 出现即 FAIL,--fix 删除);`frontmatter.schema.json` entity.*/concept.* 必填组已移除 sources。同任务 **B1**:analysis / comparison / synthesis 模板 `sources: $SOURCES` / `sources_used: $SOURCES_USED` 行内占位符改多行块形式,gen-page 统一走 *_BODY 块替换管道渲染,产物恒为合法 YAML。 |
 | 2026-09-05 | zhigangliu-bot | 开头权威顺序声明重写:**人读规范 (`frontmatter-spec.md`) 提升为唯一权威**;`frontmatter.schema.json` (机器读) 必须向本文件对齐,字段定义/约束/描述不一致时以本文件为准。同步修改 `doc/schema/schema.md` 开头权威顺序声明,保持两处一致。 |
 | 2026-09-05 | zhigangliu-bot | §4.2 `tags:` 数量约束由"最少 3 条"调整为"最少 5 条",与 `frontmatter.schema.json` 的 `minItems: 5` 及 `tag-spec.md` §8 Lint 阈值对齐(原 3 条会导致 Lint < 5 的 WARN 区间与 Schema 合规区间错位) |
 | 2026-09-05 | zhigangliu-bot | 全文档清除 `<>` 占位符(详见 §0.1 编写铁律);frontmatter 字段值改双引号字符串、`tags` 改多行 YAML list、`generated` 改多行嵌套;正文占位符改 `【...】` 形式,模板变量改 `{name}` 大括号形式 |
@@ -80,7 +81,7 @@
 | ↳ `generated` | `by` | **REQUIRED** (在 `generated` 内) | actor 字符串(§7) |
 | ↳ `generated` | `at` | OPTIONAL | ISO 8601 UTC 时间戳 |
 | **Trust (§4.3)** | `verified` | OPTIONAL | 验证事件列表,详见 §4.3.2 |
-| **Provenance (§4.4)** | `sources` | OPTIONAL | 来源对象数组;多源融合时 RECOMMENDED |
+| **Provenance (§4.4)** | `sources` | **REQUIRED(analysis / synthesis / comparison 必填;其余 type 禁止)** | 来源对象数组(每条含 `resource`);分治规则见 §4.4.1(N4 拍板 2026-09-17) |
 | ↳ `sources[]` | `resource` | **REQUIRED** (在 sources 内) | URL / 路径 / scope 描述符 |
 | ↳ `sources[]` | `id` | OPTIONAL | 稳定键,供脚注归属使用 |
 | ↳ `sources[]` | `title` | OPTIONAL | 显示名;**真实范例几乎不用**,顶层 `title` 已足够 |
@@ -317,6 +318,8 @@ verified:
 ### 4.4 Provenance 家族:`sources` / `usage_window`
 
 #### 4.4.1 `sources[]`
+
+> **分治规则(N4,用户拍板 2026-09-17)**:顶层 `sources` 仅对三综合类(analysis / synthesis / comparison)**必填**(多源融合的对象数组,每条至少含 `resource`);**其余 type(source / entity.* / concept.*)禁止本字段**——物理定位由 source 页顶层 `resource` 承载,lineage 走正文链接,source 页自指 `sources[]` 条目已移除。lint C5 承接:三综合类缺失 / 空数组 FAIL;其余 type 出现 `sources` 即 FAIL(`--fix` 直接删除字段)。
 
 ```yaml
 sources:

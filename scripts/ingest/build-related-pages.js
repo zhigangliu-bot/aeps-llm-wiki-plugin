@@ -13,8 +13,11 @@
  *     - 按 source title 排序 wikilink
  *     - 无 source 引用 → 省整节
  *
- * 反链判定:扫 entity/concept 页 frontmatter `sources[].resource` 字段,匹配 source 页的 `resource`
- *   (或 absolute path),不解析正文 wikilink (避免循环)
+ * 反链判定(v0.6.9 / M2A N4 起):
+ *   - 权威通道:batch 声明 files[].entities/concepts[](source ↔ entity/concept 双向);
+ *   - legacy 兜底:扫 entity/concept 页 frontmatter `sources[].resource` 字段匹配 source 页的
+ *     `resource`(仅历史存量页仍带 sources;新页一律无,2026-09-17 拍板 N4 分治禁止)。
+ *   不解析正文 wikilink(避免循环)
  *
  * v0.5.6 起(批次 2 R3,修复 P1-5):语义从"完全重建"改为"追加 + 保留"。
  *   - 区块不存在 → 新建,只追加本次确认的反链(去重)
@@ -679,6 +682,28 @@ async function main() {
   }
 
   const ecToSources = new Map(); // ec.relPath → [{ slug, title }]
+  // v0.6.9 (M2A N4):entity/concept 页 frontmatter 不再有 sources[] 字段(禁止,2026-09-17 拍板),
+  // `## 来源资料` 区块的反链改由 **batch 声明**(files[].entities/concepts[])推导为权威通道;
+  // 下方 legacy fm.sources 反查仅对历史存量页(仍带 sources)保留兜底,不覆盖 batch 推导结果。
+  const ecRelBySlug = new Map(); // ec.slug → ec.relPath
+  for (const ec of ecPages) ecRelBySlug.set(ec.slug, ec.relPath);
+  const sourceTitleBySlug = new Map(); // source.slug → source.title
+  for (const s of sources) sourceTitleBySlug.set(s.slug, s.title);
+  for (const f of (batch.files || [])) {
+    const sourceSlug = inboxToSlug(f.path);
+    if (!sourceSlug || !batchSourceSlugs.has(sourceSlug)) continue;
+    const srcTitle = sourceTitleBySlug.get(sourceSlug) || sourceSlug;
+    for (const e of [...(Array.isArray(f.entities) ? f.entities : []), ...(Array.isArray(f.concepts) ? f.concepts : [])]) {
+      if (!e || !e.slug) continue;
+      const rel = ecRelBySlug.get(e.slug);
+      if (!rel) continue; // ghost 声明由 5b 后的 WARN 通道报告,这里不写反链
+      if (!ecToSources.has(rel)) ecToSources.set(rel, []);
+      const refs = ecToSources.get(rel);
+      if (!refs.some((r) => r.slug === sourceSlug)) refs.push({ slug: sourceSlug, title: srcTitle });
+    }
+  }
+  // legacy 兜底:历史存量 entity/concept 页仍带 fm.sources[](新页一律无)→ 反查补充,
+  // 不覆盖 batch 推导条目
   for (const ec of ecPages) {
     const refs = [];
     const seen = new Set();
@@ -689,7 +714,12 @@ async function main() {
         seen.add(matched.slug);
       }
     }
-    if (refs.length) ecToSources.set(ec.relPath, refs);
+    if (refs.length) {
+      const merged = ecToSources.get(ec.relPath) || [];
+      const seenM = new Set(merged.map((r) => r.slug));
+      for (const r of refs) if (!seenM.has(r.slug)) merged.push(r);
+      ecToSources.set(ec.relPath, merged);
+    }
   }
 
   // 5. 计算 source → entities / concepts 反向映射
