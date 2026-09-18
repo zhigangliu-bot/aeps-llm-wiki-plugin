@@ -1,11 +1,12 @@
 # aeps-llm-wiki-plugin — implement-lint (M2.4)
 
-> **状态**:frozen(v0.1.2,2026-09-16 用户确认 v0.1.1 后落地修正:issue #41 C18 claude-native 豁免 + issue #43 孤儿 analysis overview/index 反链豁免)
+> **状态**:frozen(v0.1.3,2026-09-18 M2 评审 S2:C17 对 analysis 豁免 `## 关联导引` 键)
 
 ## Change History
 
 | 版本 | 日期 | 变更 | 作者 |
 |---|---|---|---|
+| v0.1.3 | 2026-09-18 | M2 跨子整合评审 S2:C17 对 `analysis` 豁免 `## 关联导引(Related Links` 必有键 —— §2.2 表 analysis 行拆出,analysis 仅要求 `## 维护说明(`(与 query SKILL.md 步骤 10「analysis 不锁 H2 骨架」承诺一致,消除"query 承诺自由结构 / lint 强制关联导引"的矛盾);comparison / synthesis 不变 | zhigang.liu(Claude Code) |
 | v0.1.2 | 2026-09-16 | issue #41 / #43 落地修正:§2 C18 第 3 条收窄为「真转换器(pyoffice/anydoc/docling/libreoffice/paddleocr)但 native_text ≠ false」,claude-native 豁免(claude-native 表示原生直读无副本,与 native_text 正交,消除 path 1/2 默认组合误报)+ §2.3 孤儿页对 `analyses/` 页豁免:被顶层 `overview.md` / `index.md` 反链即不算孤儿(query 落档后「近期分析」节保证反链)+ §5 补 3 行测试矩阵 | zhigang.liu(Claude Code) |
 | v0.1.1 | 2026-09-13 | 质检落地修正:§2 收编 C15.5 行 + 新增 C21(source converted_path 副本图片链接 resolve,承接 PRD AC-16 docling 抽图回归)+ §0.1 规则数 13 → 14 + §1.1 契约注记(`fixed[]` 仅 `--fix` 时存在 / 补 `c20_free_sections[]` 加性字段)+ §4 C3 fix 措辞对齐实现(按 C17 规范顺序插入、复扫 C3/C17 双清)+ §2.3 矛盾候选对上限 20 注记 + §2 C15.4 措辞对齐 AC-12 + §5 补 U-C21 测试行 | zhigang.liu(Claude Code) |
 | v0.1.0 | 2026-09-13 | 冻结候选初版:单脚本 `scripts/lint/lint.js`(扫描 + `--fix` 一体)+ 规则定稿表 13 条(C1-C9 + C17-C20 + C15.4;C4 空缺不复用)+ C17 运行时读模板零漂移 + C9 半成品骨架页(§2.4 模板逐字行排除法)+ C19 以 log.md Ingest 行为判据 + 保留 4 文件豁免 + 测试矩阵 12 组 | zhigang.liu(Claude Code 起草) |
@@ -89,7 +90,7 @@ node scripts/lint/lint.js --project <用户工程根> [--fix] --json
 | C7 | FAIL | `sources_used` 每条解析到真实 `knowledge/**/*.md` | analysis | 提案(删哪条语义未知) |
 | C15.4 | FAIL | analysis 正文任意位置存在 `> 引用:` 行(习惯文末,AC-12) | analysis | 按 `sources_used` 生成追加 |
 | C15.5 | WARN | 标准 markdown 链接残留(仅 knowledge 内页目标;raw/http 不转) | 全部 | 转 [[wikilink]] |
-| C17 | FAIL | 模板一致性:模板必有 H2 存在且相对顺序一致(§2.2);运行时读 `<project>/doc/templates/` 提取,与 gen-page.js 同源零漂移 | 全部(按型) | 提案 |
+| C17 | FAIL | 模板一致性:模板必有 H2 存在且相对顺序一致(§2.2;analysis 豁免 `## 关联导引` 键);运行时读 `<project>/doc/templates/` 提取,与 gen-page.js 同源零漂移 | 全部(按型) | 提案 |
 | C18 | FAIL | source 三字段一致性矛盾:`converter: claude-native` 且 `converted_path` 非 null / `native_text: true` 且 `converted_path` 非 null / 真转换器(pyoffice/anydoc/docling/libreoffice/paddleocr)但 `native_text ≠ false`(claude-native 表示原生直读无副本,与 native_text 正交,豁免第 3 条,issue #41) | source | 提案 |
 | C9 | FAIL | 半成品骨架页:正文无实质内容(判定见 §2.4) | 全部 | 提案(填正文 / 删页由用户拍板) |
 | C6 | WARN | `sources_count < 3` | synthesis | 无 |
@@ -129,7 +130,8 @@ node scripts/lint/lint.js --project <用户工程根> [--fix] --json
 |---|---|
 | source | `## 重点摘录` → `## 我的思考` → `## 总结:最有收获的一句话` → `## 相关页面(Related Pages` → `## 维护说明(` |
 | entity / concept | `## 关联导引(Related Links` → `## 来源资料(由 ingest 自动生成)` → `## 维护说明(` |
-| analysis / comparison / synthesis | `## 关联导引(Related Links` → `## 维护说明(`(v0.5.6:analysis 不锁正文骨架) |
+| comparison / synthesis | `## 关联导引(Related Links` → `## 维护说明(` |
+| analysis | 仅 `## 维护说明(`;**豁免 `## 关联导引(Related Links` 键**(v0.1.3 / M2 评审 S2:analysis 不锁正文骨架,query 落档产物可无关联导引节,删除该节不 FAIL) |
 
 注:H2 前缀匹配(模板行含括号注释,页面行须以相同前缀开头);保留 4 文件不参与。
 
@@ -181,7 +183,7 @@ node scripts/lint/lint.js --project <用户工程根> [--fix] --json
 | U-C3 | source 缺 1 节 / 全缺 | FAIL 数正确;--fix 追加占位 |
 | U-C5/C6 | comparison 缺 sources;synthesis count=2 | FAIL / WARN |
 | U-C7/C8/C15.4 | sources_used 指向不存在页;引用行缺失;Set 不一致 | FAIL×2;WARN×1;--fix 重写行 |
-| U-C17 | 删维护说明节 / 自由追加节插入正确位置 | FAIL / 通过(子序列判定) |
+| U-C17 | 删维护说明节 / 自由追加节插入正确位置 / analysis 页删 `## 关联导引` 节 | FAIL / 通过(子序列判定)/ 通过(v0.1.3 analysis 豁免) |
 | U-C18 | claude-native + converted_path 非 null | FAIL |
 | U-C18 | claude-native + native_text: true + converted_path null | 无 C18(issue #41 误报回归) |
 | U-C18 | 真转换器(anydoc)+ native_text: true | FAIL(豁免不外溢) |

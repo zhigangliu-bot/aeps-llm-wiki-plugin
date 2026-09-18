@@ -1,11 +1,12 @@
 # aeps-llm-wiki-plugin — implement-synthesize (M2.5)
 
-> **状态**:frozen(v0.1.1,2026-09-16 质检落地修正)
+> **状态**:frozen(v0.1.2,2026-09-18 M2 评审 N1 + S3 落地修正)
 
 ## Change History
 
 | 版本 | 日期 | 变更 | 作者 |
 |---|---|---|---|
+| v0.1.2 | 2026-09-18 | M2 跨子整合评审 N1 + S3:**N1 log 前缀收敛**(用户拍板 2026-09-17):§1.2 append-log 删 `--skipped` 形态(连同 v0.1.0 三形态中的 `--update` 一并收敛),仅剩 `**Creation**`;步骤 2 拍板拒绝不写 log,update 路径(3b)不写 log;§2 步骤 2 / update 路径汇总 / §4 U4·E2·E3 同步裁剪。**S3 sources 写法对齐 M2A B1 根修**:§1.3 陷阱 1 重写 —— v0.1.1 的「不传 `--sources`、步骤 4 LLM 按锚点注释行机械重写 `sources:` 块」教法**作废**(gen-page v0.6.9 M2A 起 sources 统一走 `*_BODY` 块替换管道渲染,产物恒为合法 YAML);新建 / update 均必传 `--sources "<逗号分隔的纳入页相对路径>"`,脚本渲染为对象数组(每条 `resource: "[[<页 stem>]]"`),LLM 不手写不机械重写;§2 步骤 4 同步 | zhigang.liu(Claude Code) |
 | v0.1.1 | 2026-09-16 | 质检落地修正:§1.3 撤 `--sources` 传参(gen-page v0.6.9 对 synthesis 模板 `sources: $SOURCES` 行内占位符 + yamlListBody 渲染出非法 YAML,实测 js-yaml bad indentation;改由步骤 4 LLM 机械重写 `sources:` 块,3b 传 `--sources ""` 显式清空)+ 步骤 3a/3b 补必传 `--description`(lint C1 全 type 必查,缺则产物必 FAIL)+ §1.4 调用形态改为 `--knowledge`(位置参数无效,resolve 相对 cwd)+ §3 "update 时 generated 不动"撤注(gen-page patch 从模板重渲染,`generated.at` 随 `$NOW` 刷新,仅承诺 `updated` 刷新)+ §1.1 匹配域收紧注记(仅登记含 markdown 链接的条目行,避免 `## Syntheses` 标题噪声) | zhigang.liu(Claude Code 起草) |
 | v0.1.0 | 2026-09-16 | 冻结初版:2 新脚本(check-topic.js 候选扫描 + syntheses 清点 / append-log.js Creation·Skipped·Update 三形态)+ 复用 gen-page / aggregate-index;update 路径(--patch-frontmatter-only + LLM 直改正文,防 gen-page 全量静默覆盖);落地修正 2 处(§1.4 index 登记不过滤 sources_count=0;§1.3 陷阱 1 SKILL.md 显式传 --sources-count);测试矩阵 8 组 | zhigang.liu(Claude Code 起草) |
 
@@ -69,11 +70,11 @@ node scripts/synthesize/check-topic.js --project <用户工程根> --topic "<top
 
 ```bash
 node scripts/synthesize/append-log.js --project <用户工程根> \
-  --topic "<topic>" --synthesis-path "syntheses/<slug>.md" [--skipped] [--json]
+  --topic "<topic>" --synthesis-path "syntheses/<slug>.md" [--json]
 ```
 
-- 写入行(默认):`**Creation**: synthesis "{topic}" → syntheses/{slug}.md`
-- `--skipped`(拍板拒绝,对齐 comparison 拒绝路径留痕语义):`**Creation Skipped**: synthesis "{topic}"(sources_count 不足,用户拒绝)`
+- 唯一形态(N1 前缀收敛,2026-09-17 拍板):写入行 `**Creation**: synthesis "{topic}" → syntheses/{slug}.md`;仅新建落档后调用
+- 拒绝路径(步骤 2 拍板 `[n]`)**不写 log**;update 路径(步骤 3b)**不写 log**(常驻页 update 属常规维护,不产生新档案事件)
 - `--synthesis-path` 归一:剥前导 `knowledge/` 与 `./`,反斜杠归一正斜杠
 - 日期 H2 契约与 `scripts/query/append-log.js` 一致:当天 H2 下末尾追加;无当天 H2 → 新 H2 插最新在前;已有 frontmatter / 旧日期节 / `## 维护` 节原样保留(round-trip 安全)。独立实现,不 import query 脚本(对齐 implement-lint.md "不与 append-log.js 契约耦合"先例)
 - `knowledge/` 不存在 → ERROR exit 1;log.md 不存在 → 创建(仅当天节 + 行)
@@ -83,20 +84,22 @@ node scripts/synthesize/append-log.js --project <用户工程根> \
 ### 1.3 gen-page.js 复用契约(陷阱注记)
 
 ```bash
-# 新建路径(步骤 3;v0.1.1:不传 --sources,见陷阱 1)
+# 新建路径(步骤 3a;v0.1.2:--sources 必传,见陷阱 1)
 node scripts/gen-page.js --type synthesis --slug <topic-slug> \
   --project <用户工程根> \
   --title "<综合页标题>" --description "<≤280字一句话定位>" --summary "<≤280字>" \
+  --sources "<逗号分隔的纳入页相对路径,如 concepts/term/asil.md,entities/product/xxx.md>" \
   --sources-count <n> --json
 
-# update 路径(已存在页,仅刷 frontmatter)
+# update 路径(已存在页,仅刷 frontmatter;v0.1.2:--sources 传更新后完整清单)
 node scripts/gen-page.js --type synthesis --slug <topic-slug> \
   --project <用户工程根> \
-  --sources "" --sources-count <n> --description "<≤280字>" --summary "<≤280字>" \
+  --sources "<逗号分隔的更新后纳入页相对路径>" --sources-count <n> \
+  --description "<≤280字>" --summary "<≤280字>" \
   --patch-frontmatter-only --json
 ```
 
-- **陷阱 1(v0.1.1 修正)**:**不传 `--sources`**。gen-page v0.6.9 对 synthesis 模板 `sources: $SOURCES` 行内占位符 + `yamlListBody` 缩进列表会把首项拼进 `sources:` 同行,产出非法 YAML(js-yaml bad indentation,实测;lint C1 同报)。`sources:` YAML list 由步骤 4 LLM 按锚点注释行 `# OKF §5.1 sources` 机械重写,条数 == `sources_count`,路径相对 `knowledge/`;3b patch 传 `--sources ""` 显式清空旧块(空值触发整行删除,实测保持 frontmatter 合法)
+- **陷阱 1(v0.1.2 重写,对齐 M2A B1 根修)**:`--sources` **必传**(逗号分隔的所引 wiki 页相对 `knowledge/` 路径)。gen-page v0.6.9 M2A 起 sources 统一走 `*_BODY` 块替换管道(`replaceListBody`)渲染为**对象数组**(每条 `resource: "[[<页 stem>]]"`),产物恒为合法 YAML —— v0.1.1 的「不传 `--sources`、步骤 4 LLM 按锚点注释行机械重写 `sources:` 块」教法**作废**,LLM 不手写、不逐行补路径;需要调整清单时重跑 `--patch-frontmatter-only --sources "<新清单>"`(脚本整块重写 `sources:`)。
 - **陷阱 1.1(v0.1.1 新增)**:`--description` 必传。lint C1 对所有 type 必查 `description`,gen-page 对空占位符整行删行,缺省产物必 FAIL C1
 - **陷阱 2**:gen-page 全量模式**静默覆盖**已存在文件 → SKILL.md 必须先查 `syntheses[]` 既有清单(check-topic.js 产出),命中即走 update 路径,禁止全量重生成
 
@@ -117,14 +120,14 @@ node scripts/aggregate-index.js --knowledge knowledge/ --json   # cwd = 用户�
 |---|---|---|---|---|
 | 0 | topic 校验 | check-topic.js → LLM | 是 | `match_count == 0` → 提示"先 ingest 再 synthesize",**exit 0**,不建页不写 log。`syntheses[]` 命中语义相近页 → 标记 update 路径 |
 | 1 | LLM 决定范围 | LLM | 是 | 三信号:frontmatter `tags` 命中 / `title` 语义相关 / 正文 `[[wikilink]]` 关联。对候选页读 frontmatter(`description`/`summary` 优先)后定纳入集合;产出 `sources[]` 相对路径列表 |
-| 2 | sources_count 拍板门 | SKILL.md(算术)+ 用户 | 是 | `n < 3` → WARN + 拍板(`[y]` 继续 / `[n]` 跳过走 `--skipped`);`n ≥ 3` 直接进入。机械兜底:lint C6 事后扫(不新建脚本,避免与 lint 职责重复) |
+| 2 | sources_count 拍板门 | SKILL.md(算术)+ 用户 | 是 | `n < 3` → WARN + 拍板(`[y]` 继续 / `[n]` 拒绝 → **直接结束,不写 log**,N1);`n ≥ 3` 直接进入。机械兜底:lint C6 事后扫(不新建脚本,避免与 lint 职责重复) |
 | 3a | 新建 skeleton | gen-page.js | 是 | §1.3 新建命令;slug 由 LLM 定(ascii 小写连字符;纯中文 topic 可保留中文文件名,Obsidian 原生支持) |
 | 3b | update 既有页 | gen-page.js | 是 | §1.3 `--patch-frontmatter-only` 命令;正文由 LLM 直改(步骤 4) |
-| 4 | LLM 填正文 | LLM | 是 | 仅 H2 之间正文;不锁骨架;正文 wikilink 期望 ≥ 5 条跨链(软期望,lint 不 FAIL);frontmatter `sources:` 块由本步机械重写(§1.3 陷阱 1:锚点注释行 `# OKF §5.1 sources`,条数 == sources_count,路径相对 knowledge/);完成自检:`description` / `summary` 非空(lint C1 必填);update 时 `updated` 由 patch 刷新 |
+| 4 | LLM 填正文 | LLM | 是 | 仅 H2 之间正文;不锁骨架;正文 wikilink 期望 ≥ 5 条跨链(软期望,lint 不 FAIL);frontmatter `sources:` 块**已由步骤 3a/3b gen-page 脚本渲染**(对象数组,每条 `resource: "[[<页 stem>]]"`),LLM 不手写不机械重写(v0.1.2,对齐 M2A B1);完成自检:`description` / `summary` 非空(lint C1 必填);update 时 `updated` 由 patch 刷新 |
 | 5 | 追加 log | append-log.js | 否 | §1.2 契约 |
 | 6 | 重建 index | aggregate-index.js | 否 | §1.4 契约 |
 
-**update 路径汇总(步骤 0 检出既有页时)**:3b → 4 → 5 → 6;log 行仍为 `**Creation**`?否 —— update 语义写 `**Update**: synthesis "{topic}" → syntheses/{slug}.md(刷新纳入页与正文)`(append-log.js 加 `--update` 开关,三选一:默认 Creation / `--skipped` / `--update`)。
+**update 路径汇总(步骤 0 检出既有页时)**:3b → 4 → 6(**跳过步骤 5**,update 不写 log,N1 前缀收敛:append-log 仅剩 `**Creation**` 一形态,`--update` / `--skipped` 已删)。
 
 ---
 
@@ -150,11 +153,11 @@ node scripts/aggregate-index.js --knowledge knowledge/ --json   # cwd = 用户�
 | U1 | check-topic 命中 | index.md 含 topic 完整串 / 单 token / 大小写混合 → matched 正确 |
 | U2 | check-topic 零命中 + 环境错 | 无 knowledge/ → exit 1;空 index → match_count 0 exit 0 |
 | U3 | check-topic syntheses 清点 | 既有 synthesis 页 frontmatter 解析(含 sources_count / updated) |
-| U4 | append-log 三形态 | Creation / Skipped / Update 行内容逐字断言 |
+| U4 | append-log Creation 形态 | `**Creation**` 行内容逐字断言;`--skipped` / `--update` 入参不再存在(N1 裁剪) |
 | U5 | append-log 日期 H2 | 当天有节末尾追加 / 无节新插最新在前 / round-trip 保留旧节与 `## 维护` |
 | E1 | e2e 新建 | 临时 vault:init 骨架 + 假 index → 步骤 0-6 全跑 → 断言页 / log / index 三产物 |
-| E2 | e2e update | 既有 synthesis 页重跑 → 断言正文未被占位符覆盖 + `updated` 刷新 + log `**Update**` 行 |
-| E3 | e2e 拒绝 | n < 3 拍板拒绝 → 无页、log `**Creation Skipped**` 行 |
+| E2 | e2e update | 既有 synthesis 页重跑 → 断言正文未被占位符覆盖 + `updated` 刷新 + **log 无新行**(update 不写 log,N1) |
+| E3 | e2e 拒绝 | n < 3 拍板拒绝 → 无页、**log 无新行**(拒绝不写 log,N1) |
 
 ---
 

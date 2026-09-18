@@ -18,8 +18,10 @@
  *   C8    WARN  `> 引用:` 行 wikilink Set ≠ sources_used Set
  *   C9    FAIL  半成品骨架页(§2.4 模板逐字行排除法)
  *   C15.4 FAIL  analysis 正文存在 `> 引用:` 行(AC-12:任意位置,习惯文末)
- *   C15.5 WARN  标准 markdown 链接残留(--fix 转 wikilink;page-source.md「C15.5 反转」命名)
- *   C17   FAIL  模板一致性(运行时读 <project>/doc/templates/page-*.md,§2.2 子序列)
+ *   C15.5 WARN  标准 markdown 链接残留(--fix 转 wikilink;page-source.md「C15.5 反转」命名;
+ *               S1:指向 raw/ 等非 wiki 目标的链接豁免 —— 不 WARN 不转)
+ *   C17   FAIL  模板一致性(运行时读 <project>/doc/templates/page-*.md,§2.2 子序列;
+ *               S2/M2B:analysis 豁免 `关联导引` 必有键,analysis 仅要求 `维护说明`)
  *   C18   FAIL  source 三字段一致性矛盾(claude-native + converted_path 非 null / native_text true +
  *               converted_path 非 null / 真转换器但 native_text ≠ false;claude-native 豁免第 3 条,issue #41)
  *   C19   WARN  路径 3/4 converter 但 log.md 无含原文件名的 **Ingest** 行
@@ -637,8 +639,14 @@ function evalPage(rec, tools, ctx, fails, warns, c20) {
       warns.push(entry('C9', rec, `降级:模板缺失(${rec.templateName}),无法做逐字行排除判定`));
     } else {
       // C17:模板必有 H2 须为页面 H2 序列的子序列(自由追加节不破坏)
-      if (tpl.h2Keys.length > 0 && !isSubsequence(tpl.h2Keys, h2KeysOf(rec.body))) {
-        fails.push(entry('C17', rec, `模板必有 H2 缺失或顺序错乱,须为子序列: ${tpl.h2Keys.join(' → ')}(--fix 不代排骨架)`));
+      let reqH2Keys = tpl.h2Keys;
+      if (rec.type === 'analysis') {
+        // S2(M2B,2026-09-18):C17 对 analysis 豁免 `关联导引` 键 —— analysis 不锁正文骨架
+        // (与 query SKILL.md「analysis 不锁 H2 骨架」承诺一致,删该节不 FAIL;模板仍可含该节)
+        reqH2Keys = reqH2Keys.filter((k) => k !== '关联导引');
+      }
+      if (reqH2Keys.length > 0 && !isSubsequence(reqH2Keys, h2KeysOf(rec.body))) {
+        fails.push(entry('C17', rec, `模板必有 H2 缺失或顺序错乱,须为子序列: ${reqH2Keys.join(' → ')}(--fix 不代排骨架)`));
       }
       // C9:实质内容行数(§2.4 排除法)== 0 → FAIL
       let substantive = 0;
@@ -784,14 +792,28 @@ function findMdLinks(rec, ctx) {
   return { count, samples };
 }
 
-/** md 链接目标 → knowledge 页 stem;非 .md / http / 解析不到 → null(不转) */
+/**
+ * md 链接目标 → knowledge 页 stem;非 .md / http / 解析不到 → null(不转)。
+ * S1(M2B,2026-09-17):排除 raw/ 等非 wiki 目标 —— `> 原始来源:` 行指向
+ * `./raw/{subdir}/{file}` 或 `.converted.md` 副本的链接不属于 C15.5 转换范围:
+ *   - 路径含 `raw` 段(工程根平行目录,不可变层)→ null
+ *   - resolve 出 knowledge/ 之外(如 `../raw/...`)→ null,不做 stem 兜底
+ *     (否则同 stem 的知识页会被误 WARN / --fix 误转成自引用 wikilink)
+ */
+const NON_WIKI_TOP_DIRS = new Set(['raw', 'inbox', 'doc', 'scripts']);
+
 function resolveMdTarget(target, rec, ctx) {
   let t = String(target).split('#')[0].trim();
   if (!t || /^(https?:|mailto:)/i.test(t) || !/\.md$/i.test(t)) return null;
   const relNorm = normalizeRel(t);
+  // raw/ 等工程根平行目录(任意段位)→ 非 wiki 目标,不转
+  if (relNorm.split('/').some((seg) => NON_WIKI_TOP_DIRS.has(seg))) return null;
   const abs = path.resolve(ctx.knowledgeDir, rec.dir ? path.join(rec.dir, relNorm) : relNorm);
   const relFromKnowledge = normalizeRel(path.relative(ctx.knowledgeDir, abs));
-  if (relFromKnowledge && !relFromKnowledge.startsWith('../') && relFromKnowledge !== '..' && ctx.relSet.has(relFromKnowledge)) {
+  if (relFromKnowledge === '' || relFromKnowledge === '..' || relFromKnowledge.startsWith('../')) {
+    return null; // knowledge/ 之外 → 非 wiki 目标,不做 stem 兜底(S1)
+  }
+  if (relFromKnowledge && ctx.relSet.has(relFromKnowledge)) {
     return stemOf(relFromKnowledge);
   }
   const stem = stemOf(relNorm);

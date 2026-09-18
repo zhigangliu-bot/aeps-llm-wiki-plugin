@@ -112,7 +112,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/query/gating-check.js \
 node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js read --project <用户工程根> --json
 ```
 
-`should_propose == true`(累计 ≥ 3 次 comparison 落档)且本次将落档 → 落档询问时**加问**是否建常驻 comparison 页(PRD §4.6 路径 B;`themes[]` 列出历史主题供用户参考)。
+`should_propose == true`(累计 ≥ 3 次 comparison 落档)且本次将落档 → 落档询问时**加问**是否建常驻 comparison 页(PRD §4.6 路径 B;`themes[]` 列出历史主题供用户参考)。**建页流程不在本 skill**:用户同意后按 [ingest SKILL.md「comparison 建页」节](../aeps-llm-wiki-ingest/SKILL.md) 执行(路径 A/B 统一归 ingest;query 只负责计数 + 提议 + 拍板后 `reset`)。
 
 ### 步骤 9:建 analysis 页 skeleton(用户同意后,阻塞)
 
@@ -152,9 +152,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/query/append-log.js --project <用户工程�
 ### 步骤 11.5:刷 index + comparison 计数(非阻塞)
 
 ```bash
-# aggregate-index.js 的 --knowledge 相对 cwd 解析(与 ingest SKILL.md 步骤 14 同款);
-# 在用户工程根下执行,不传 --project
-node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --json
+# --knowledge 纯按 cwd 解析(相对路径,无 --project 入参);cwd = 用户工程根
+node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
 ```
 
 (本步为 query / synthesize 与 ingest 共享;落档后必跑一次,确保 index.md 反映新 analysis 页)
@@ -166,7 +165,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js increment \
 ```
 
 ```bash
-# 仅当用户拍板"建常驻 comparison 页"后执行(建页走 gen-page --type comparison,归 ingest/PRD §4.6 流程)
+# 仅当用户拍板"建常驻 comparison 页"后执行(建页流程归 ingest SKILL.md「comparison 建页」节,PRD §4.6 路径 A/B)
 node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js reset --project <用户工程根> --json
 ```
 
@@ -186,7 +185,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js reset --project <
 |---|---|---|
 | 步骤 0 | prefer-qmd 未装 → 装 qmd / 降级 index | 等用户明确(降级需确认) |
 | 步骤 8 | 是否落档 analysis(gating `should_ask == true` 时) | 等用户明确;拒绝 → 跳过 9-11(默认不写 log) |
-| 步骤 8 | 计数 ≥ 3 → 是否建常驻 comparison 页 | 等用户明确;同意 → 建页 + counter reset |
+| 步骤 8 | 计数 ≥ 3 → 是否建常驻 comparison 页 | 等用户明确;同意 → 按 ingest SKILL.md「comparison 建页」节建页(交叉引用,本 skill 不含建页步骤)+ counter reset |
 
 ## 失败语义(权威源 = implement-query.md §4)
 
