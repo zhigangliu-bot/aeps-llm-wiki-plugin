@@ -153,13 +153,15 @@ function loadAll(rootDir) {
     for (const f of walk(rootDir, dir)) {
       const md = readFileSync(f.file, "utf8");
       const fm = parseFrontmatter(md);
+      // N3(M2B,2026-09-17):坏 YAML fallback label 路径分隔符归一正斜杠(Windows path.relative 产反斜杠)
+      const relNorm = f.rel.replace(/\\/g, "/");
       out.push({
         type: fm.type || type,
-        title: fm.title || f.rel.replace(/\.md$/, ""),
+        title: fm.title || relNorm.replace(/\.md$/, ""),
         description: fm.description || "",
         tags: fm.tags || [],
         aliases: fm.aliases || [],
-        id: fm.id || f.rel.replace(/\.md$/, ""),
+        id: fm.id || relNorm.replace(/\.md$/, ""),
         resource: fm.resource || "",
         status: fm.status || "stable",
         rel: f.rel,

@@ -254,7 +254,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
   --json
 ```
 
-- `--description` / `--tags` / `--aliases` / `--summary` / `--stale-after` 均可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;**v0.6.8 起 description/summary 不再静默 fallback 到 title,留空字符串 + stderr WARN**(issue #20);stale_after 自动 `generated.at + 1y`)。
+- **`--description` 必传**(N2,用户拍板 2026-09-17):LLM 调 gen-page 前必须为每个 entity / concept 页拟一句话 30-80 字 `--description`(步骤 3 单次阅读时已产出草稿,此处复用),**不依赖任何 fallback** —— v0.6.8 起 description 不再 fallback 到 title(留空 + stderr WARN,issue #20),不传 → 产物缺 `description` → lint C1 FAIL。
+- `--tags` / `--aliases` / `--summary` / `--stale-after` 可省略:**CLI 传入 > 脚本自动推导 > 模板默认**。缺省时 gen-page 自动注入最小合规 skeleton(tags 按 type 子类从 6 轴字典注入 5 条;aliases fallback `[title]`;stale_after 自动 `generated.at + 1y`)。
 - **`--source-resource` / `--source-title` 已废除**(M2A N4 分治):entity/concept 页不再有 `sources` 字段,传入会被忽略(stderr WARN);source ↔ entity/concept 反链由步骤 3 batch 声明 + build-related-pages 的 `## 来源资料` / `## 相关页面` 区块承载。
 
 **v0.6.5 起 `--project <用户工程根>` 必传**:`gen-page.js` 从 `<project>/doc/templates/` 找模板(issue #4-Bug3);
@@ -321,6 +322,7 @@ LLM 决定:命名飘合并 / 改链等。
 ### 步骤 14:更新 glossary.md(aggregate-index,sentinel 区间重写)
 
 ```bash
+# --knowledge 纯按 cwd 解析(相对路径,无 --project 入参);cwd = 用户工程根
 node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
 # PR-B (issue #29):glossary 按术语首字母 A-Z 分组输出 ## A / ## B / ... 节;
 # 中文术语归 ## 中文 节;数字术语归 ## 0-9 节;空字母节省略(只输出实际有内容的字母节)。
@@ -499,6 +501,38 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 - **R7.3(WARN)**:reserved file 误含 `^--- ... ---` frontmatter 块 → 报告到 `warnings_by_file`,**不改文件**(用户 / `aggregate-index.js` 自决)
 - C21(只对 `type: source` 触发)对 reserved file 天然不触发(其 `fm.type` 不为 `'source'`),无需额外豁免
 
+## comparison 建页(PRD §4.6 路径 A/B,常驻 `knowledge/comparisons/{a}-vs-{b}.md`)
+
+> M2 评审 S4(2026-09-18)起,comparison 建页流程统一归本 skill;query SKILL.md 只保留计数 + 提议 + 拍板后 `reset`,不含建页步骤。
+
+**触发(路径判定)**:
+
+- **路径 A(同类 entity 触发)**:本 skill 步骤 19 完成、source 页落档询问时,`entities/{子类}/` 下同类 entity ≥ 2 且都来自本次 ingest → LLM 提议建常驻 comparison 页。
+- **路径 B(累积检索触发)**:query 侧 comparison 计数器累计 ≥ 3,用户在 query 拍板同意建页 → 由本 skill 承接建页(query 只做 `counter reset`)。
+- 路径 C(单次 `vs`/`对比` 词命中)→ **不建 comparison 页**,走 query 的 analysis 落档,与本节无关。
+
+**建页步骤**(两路径相同):
+
+1. **防全量覆盖守卫(阻塞)**:任何 gen-page 调用前,先读 `knowledge/comparisons/` 既有页清单,语义比对 `{a} vs {b}` 主题;命中语义相近页 → 走 `--patch-frontmatter-only` update 路径(**禁止全量重生成**,正文会被占位符覆盖);多篇相近 → 用户拍板选目标。gen-page 全量模式静默覆盖已存在文件。
+2. **用户拍板(阻塞)**:提议 `{a}-vs-{b}` 主题 + 对比维度清单;`[y]` 建 / `[n]` 拒绝(拒绝 → 不建页不写 log;路径 B 拒绝仍不 reset 计数器)。
+3. **建 skeleton(阻塞)**:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --project <用户工程根> \
+  --type comparison --slug {a}-vs-{b} \
+  --title "<A vs B 对比标题>" --description "<一句话 30-80 字定位>" --summary "<≤ 280 字精要>" \
+  --sources "<逗号分隔的对比对象 wiki 页相对路径,≥ 2 条 entity/concept 页>" \
+  --sources-count {n} --json
+```
+
+   - **对象格式 sources 由脚本渲染**(M2A B1 根修):gen-page 按 `--sources`(逗号分隔路径)渲染为对象数组(每条 `resource: "[[<页 stem>]]"`),产物恒为合法 YAML;LLM **不手写 frontmatter `sources:` 块**,不传行内 YAML 字符串,不传已废除的 `--source-resource` / `--source-title` 入参。comparison 的 `sources` 必填且 ≥ 2 条 entity/concept 页(lint C5)。
+   - `--description` 必传(同 N2 口径,不依赖 fallback);`--sources-count` 显式传,= `--sources` 条数。
+   - 落 `knowledge/comparisons/{a}-vs-{b}.md`,**不带时间戳,常驻**;后续重跑同主题走 update(`--patch-frontmatter-only --sources "<新清单>"`)。
+4. **LLM 填正文(阻塞)**:正文完全自由(维度对比表 / 适用场景 / 风险点 / 决策树,不锁骨架);正文链接主推 `[[wikilink]]` 裸文件名(同步骤 16.1 硬约束)。
+5. **追加 log(非阻塞)**:LLM 在 `knowledge/log.md` 当日 `## [YYYY-MM-DD]` 节末尾追加一行 `**Creation**: comparison "{a} vs {b}" → comparisons/{a}-vs-{b}.md`(契约同 `doc/template/page-log.md`;ingest 的 `append-log.js` batch 契约不覆盖 comparison 建页,本行为 LLM 直写)。
+6. **重建 index(非阻塞)**:按步骤 14 同款调用重跑 aggregate-index(comparisons 区登记)。
+7. **路径 B 计数器(仅路径 B,非阻塞)**:建页成功后由 query 侧执行 `comparison-counter.js reset`(本 skill 不触碰计数器)。
+
 ## 拍板门总结
 
 | 时机 | 拍板内容 | 默认 |
@@ -508,6 +542,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 | 步骤 3 | raw 子目录 + 命名飘 + entity/concept 抽取 | 等用户明确 |
 | 步骤 4 | dry-run diff 确认 + 冲突决策 [y/n/d] | 等用户明确 |
 | 步骤 5 | 提取要点对话 | 可跳过 |
+| comparison 建页 | 路径 A/B 是否建常驻 comparison 页 | 等用户明确;拒绝 → 不建页不写 log |
 | 步骤 18 | 是否删 batch.json | 等用户明确 |
 
 ## 失败语义(权威源 = implement-ingest.md §6.1)

@@ -10,7 +10,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/synthesize/check-topic.js
 - 本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin 根;该变量由调用方注入(plugin 自动注入或用户 shell 导出)。
 - 脚本均在 plugin 仓根的 `scripts/` 下,**不**在 `skills/<skill>/scripts/` 下。
 - `check-topic.js` / `append-log.js` / `gen-page.js` 用 `--project <用户工程根绝对路径>` 显式指定工程根,**必须显式传**(脚本不依赖 cwd;用户工程根绝无默认值)。
-- `aggregate-index.js` 的 `--knowledge` 相对 cwd 解析(与 query 步骤 11.5 同款),在用户工程根下执行。
+- `aggregate-index.js` 的 `--knowledge` 纯按 cwd 解析(相对路径,无 `--project` 入参);调用时 cwd = 用户工程根(与 ingest 步骤 14 / query 步骤 11.5 逐字同款)。
 - 所有脚本 `--json` 时输出结构化 JSON 到 stdout,诊断/进度到 stderr。exit code:0 成功 / 1 用法或环境错误 / 2 写盘失败(仅 append-log)。
 
 # /aeps-llm-wiki-synthesize
@@ -25,7 +25,7 @@ allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/synthesize/check-topic.js
 
 - **synthesis 是常驻页,不是一次性快照**:不带时间戳、落 `knowledge/syntheses/{topic-slug}.md`、可 update;一次性的"当时综合"是 query 落档 `analysis` 页的职责,两者不混。
 - **既有页守卫(陷阱 2)**:`gen-page.js` 全量模式会**静默覆盖**已存在文件。任何 gen-page 调用前必须先看步骤 0 `syntheses[]` 清单:有语义相近页 → 走 `--patch-frontmatter-only` update 路径,**禁止全量重生成**。
-- **`--sources-count` 必须显式传(陷阱 1)**:gen-page 仅从 `--sources-used` 推导 count,synthesis 分支不消费 `--sources` 推导,缺省落 `0`(触发 lint C6 WARN)。
+- **`--sources-count` 必须显式传(陷阱 1)**:count 必须与步骤 1 纳入集合条数严格一致,不依赖 gen-page 的推导兜底;缺省落 `0`(触发 lint C6 WARN)。
 - **LLM 语义判定范围,脚本零产出**:纳入哪些页由 LLM 按 tags / title / wikilink 三信号判定;`check-topic.js` 只做机械候选预过滤(ponytail),不判定"可否综合"。
 - **拍板门强制**:`sources_count < 3`(空综合风险)必须用户明确同意才建页;脚本与 LLM 均不静默决定。机械兜底:lint C6 事后扫。
 - **frontmatter 不发明字段**:`resource` 留空(综合页多源融合走 `sources[]`,frontmatter-spec §12.1);补字段用 gen-page 重跑,不手写字段。
@@ -60,7 +60,7 @@ LLM 按三信号决定纳入页集合:
 
 `n = sources[]` 条数:
 
-- `n < 3` → **WARN**(空综合风险)+ 用户拍板:`[y]` 继续建页 / `[n]` 跳过 → 走步骤 5 `--skipped` 留痕后结束(不建页、不跑步骤 6)。
+- `n < 3` → **WARN**(空综合风险)+ 用户拍板:`[y]` 继续建页 / `[n]` 拒绝 → **直接结束**(不建页、不写 log、不跑步骤 6;拒绝不留痕)。
 - `n ≥ 3` → 直接进入步骤 3。
 
 机械兜底:lint C6 对产物持续扫(`sources_count < 3` WARN),本 skill 不新建脚本。
@@ -97,38 +97,31 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --type synthesis --slug {同一 s
 
 ### 步骤 4:LLM 填正文(阻塞)
 
-- frontmatter `sources:` 块**已由步骤 3/3b 的 gen-page 脚本渲染**(M2A B1 根修:多行块管道,合法 YAML),LLM 不手改;需要调整清单时重跑 `--patch-frontmatter-only --sources "<新清单>"`。
+- frontmatter `sources:` 块**已由步骤 3/3b 的 gen-page 脚本渲染**(M2A B1 根修:多行块管道,合法 YAML):gen-page 按 `--sources "<逗号分隔的纳入页相对路径>"` 渲染为**对象数组**(每条 `resource: "[[<页 stem>]]"`)。LLM **不手写、不机械重写** frontmatter `sources:` 块(不做"每条一行补路径"的字符串列表编辑);需要调整清单时重跑 `--patch-frontmatter-only --sources "<新清单>"`。
 - **正文只改 H2 之间**:synthesis 不锁骨架(模板 v0.5.7 起权威),体系总览 / 关键议题 / 演进时间线 / 决策树等任何结构都允许。
 - 正文链接主推 `[[wikilink]]` 裸文件名(目标 .md 去 .md 的 basename),禁止 title 形式;需要别名用 `[[filename|显示别名]]`。综合页期望 ≥ 5 条 wikilink 跨链多个 wiki 页(软期望,lint 不 FAIL)。
 - update 路径:LLM **直改既有正文**(增量修订,不推倒重写);`updated` 已由步骤 3b 刷新。
 - **完成自检**:frontmatter 能被 YAML 解析;`sources:` 条数 == `sources_count`;`description` / `summary` 非空(lint C1 必填);正文无 `$TITLE` / `$SOURCES` 等占位符残留。
 
-### 步骤 5:追加 log 留痕(非阻塞)
+### 步骤 5:追加 log 留痕(非阻塞,仅建页成功后)
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/synthesize/append-log.js --project <用户工程根> \
-  --topic "{topic}" --synthesis-path "syntheses/{slug}.md" [--skipped | --update] --json
+  --topic "{topic}" --synthesis-path "syntheses/{slug}.md" --json
 ```
 
-三选一(互斥):
-
-| 形态 | 时机 | 写入行 |
-|---|---|---|
-| 默认 Creation | 步骤 3a 新建落档后 | `**Creation**: synthesis "{topic}" → syntheses/{slug}.md` |
-| `--skipped` | 步骤 2 拍板拒绝(无需 `--synthesis-path`) | `**Creation Skipped**: synthesis "{topic}"(sources_count 不足,用户拒绝)` |
-| `--update` | 步骤 3b 更新既有页后 | `**Update**: synthesis "{topic}" → syntheses/{slug}.md(刷新纳入页与正文)` |
-
-日期 H2 契约与 query 同款:已有当天 `## [YYYY-MM-DD]` H2 → 行追加到该节末尾;无 → 新 H2 插最新在前;frontmatter / 旧日期节 / `## 维护` 节原样保留。
+- 唯一形态 `**Creation**`(N1 前缀收敛,2026-09-17 拍板:删 `--update` / `--skipped` 两形态):新建落档(步骤 3a/4 完成)后写 `**Creation**: synthesis "{topic}" → syntheses/{slug}.md`;update 路径(步骤 3b)**不写 log**;步骤 2 拍板拒绝**不写 log**。
+- 日期 H2 契约与 query 同款:已有当天 `## [YYYY-MM-DD]` H2 → 行追加到该节末尾;无 → 新 H2 插最新在前;frontmatter / 旧日期节 / `## 维护` 节原样保留。
 
 ### 步骤 6:重建 index(非阻塞)
 
 ```bash
-# --knowledge 相对 cwd 解析(query 步骤 11.5 同款);在用户工程根下执行
-node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --json
+# --knowledge 纯按 cwd 解析(相对路径,无 --project 入参);cwd = 用户工程根
+node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT} --knowledge knowledge/ --json
 ```
 
 - `index.md` syntheses 区按 title 字典序登记;不过滤 `sources_count = 0`(空综合已被步骤 2 拍板门 + lint C6 双重拦截)。
-- `--skipped` 拒绝路径不跑本步(无新页,index 不变)。
+- 拍板拒绝路径不跑本步(无新页,index 不变)。
 
 ## frontmatter 产物契约(对齐 frontmatter-spec §12.1 + page-synthesis.md)
 
@@ -148,7 +141,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --j
 | 时机 | 拍板内容 | 默认 |
 |---|---|---|
 | 步骤 0 | `syntheses[]` 多篇语义相近 → 选 update 目标还是新建 | 等用户明确 |
-| 步骤 2 | `n < 3` → 是否继续建页 | 等用户明确;拒绝 → `--skipped` 留痕后结束 |
+| 步骤 2 | `n < 3` → 是否继续建页 | 等用户明确;拒绝 → 直接结束(不写 log) |
 
 ## 失败语义(权威源 = implement-synthesize.md)
 
@@ -182,5 +175,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --knowledge knowledge/ --j
 - 上游契约:`doc/design/prd.md` v0.5.6 §4.5 + G8;`doc/design/design.md` v0.1.1 §3.1 / §7
 - 工作流入口:`doc/schema/schema.md` §1.2
 - 字段权威:`doc/schema/frontmatter-spec.md` §12.1(`sources_count` / `summary` 对 synthesis REQUIRED)
-- 模板:`doc/template/page-synthesis.md`(不锁骨架权威)+ `doc/template/page-log.md`(Creation / Update 行格式)
+- 模板:`doc/template/page-synthesis.md`(不锁骨架权威)+ `doc/template/page-log.md`(`**Creation**` 行格式)
 - 可复用:`scripts/gen-page.js` + `scripts/aggregate-index.js`(均复用不改)

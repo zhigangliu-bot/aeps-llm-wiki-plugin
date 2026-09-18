@@ -5,17 +5,13 @@
  *
  * Usage:
  *   node scripts/synthesize/append-log.js --project <用户工程根> \
- *     --topic "<topic>" --synthesis-path "syntheses/<slug>.md" [--skipped | --update] --json
+ *     --topic "<topic>" --synthesis-path "syntheses/<slug>.md" --json
  *
- * 行为(三选一,默认 Creation):
- *   - 默认(新建常驻综合页落档):
+ * 行为(N1 收敛,用户拍板 2026-09-17:仅剩一种留痕形态):
+ *   - 新建常驻综合页落档:
  *       **Creation**: synthesis "<topic>" → syntheses/<slug>.md
- *   - --skipped(步骤 2 拍板拒绝;对齐 comparison 拒绝路径留痕语义;
- *     无需 --synthesis-path —— 拒绝时尚未建页):
- *       **Creation Skipped**: synthesis "<topic>"(sources_count 不足,用户拒绝)
- *   - --update(update 路径刷新既有常驻页;步骤 0 检出语义相近既有页时):
- *       **Update**: synthesis "<topic>" → syntheses/<slug>.md(刷新纳入页与正文)
- *   - --skipped 与 --update 互斥,同传 exit 1
+ *   - update 路径(步骤 3b)**不调用本脚本**(update 属常规维护,不写 log);
+ *     步骤 2 拍板拒绝同样不写 log(拒绝路径零留痕)
  *
  * 日期 H2 契约与 scripts/query/append-log.js 一致(独立实现,不 import query 脚本,
  * 对齐 implement-lint.md「不与 append-log.js 契约耦合」先例):
@@ -44,14 +40,12 @@ function nowIso() {
 }
 
 function parseArgs(argv) {
-  const args = { project: null, topic: null, synthesisPath: null, skipped: false, update: false, json: false };
+  const args = { project: null, topic: null, synthesisPath: null, json: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--project') args.project = argv[++i];
     else if (a === '--topic') args.topic = argv[++i];
     else if (a === '--synthesis-path') args.synthesisPath = argv[++i];
-    else if (a === '--skipped') args.skipped = true;
-    else if (a === '--update') args.update = true;
     else if (a === '--json') args.json = true;
   }
   return args;
@@ -142,12 +136,8 @@ async function main() {
     console.error('ERROR: --topic "<topic>" 必填');
     process.exit(1);
   }
-  if (args.skipped && args.update) {
-    console.error('ERROR: --skipped 与 --update 互斥(三选一:默认 Creation / --skipped / --update)');
-    process.exit(1);
-  }
-  if (!args.skipped && !args.synthesisPath) {
-    console.error('ERROR: --synthesis-path 必填(除非显式传 --skipped 记拍板拒绝留痕行)');
+  if (!args.synthesisPath) {
+    console.error('ERROR: --synthesis-path 必填');
     process.exit(1);
   }
 
@@ -163,14 +153,7 @@ async function main() {
 
   const today = nowIso().slice(0, 10); // UTC 日期,对齐 ingest / query append-log 口径
   const topic = String(args.topic).trim();
-  let line;
-  if (args.skipped) {
-    line = `**Creation Skipped**: synthesis "${topic}"(sources_count 不足,用户拒绝)`;
-  } else if (args.update) {
-    line = `**Update**: synthesis "${topic}" → ${normalizeSynthesisPath(args.synthesisPath)}(刷新纳入页与正文)`;
-  } else {
-    line = `**Creation**: synthesis "${topic}" → ${normalizeSynthesisPath(args.synthesisPath)}`;
-  }
+  const line = `**Creation**: synthesis "${topic}" → ${normalizeSynthesisPath(args.synthesisPath)}`;
 
   const logExists = await fs.access(logPath).then(() => true).catch(() => false);
   const existedBefore = logExists;
