@@ -228,7 +228,8 @@ function checkAliases(fm) {
 function checkWikilinkBasenames(body, basenameSet, relPath) {
   const warns = [];
   const seen = new Set();
-  const re = /\[\[([^\]#|]+)(?:#[^\]#|]*)?(?:\|[^\]]*)?\]\]/g;
+  // (?<!!) 排除 ![[...]] 图片/附件 embed(#49):embed 左段是附件文件名,不在 .md basename 集合
+  const re = /(?<!!)\[\[([^\]#|]+)(?:#[^\]#|]*)?(?:\|[^\]]*)?\]\]/g;
   let m;
   while ((m = re.exec(body || '')) !== null) {
     const linkpath = m[1].trim().split('/').pop().replace(/\.md$/, '');

@@ -122,22 +122,15 @@ async function moveOne(project, file, decision, dryRun, result) {
   const rawDir = path.join(project, 'raw', subdir);
   const destPath = path.join(rawDir, fileName);
 
-  // 转换副本(若有)
-  const convRel = file.converted_path;
-  let convDestPath = null;
-  let convInboxPath = null;
-  if (convRel) {
-    // converted_path 是 ./raw/{subdir}/{basename}.{ext}.converted.md
-    // 副本原文件路径 = inbox/{basename}.{ext}.converted.md (SKILL.md 步骤 2 转换后写入 inbox)
-    // 若已按 slug 重命名 → 副本 base 也用 slug
-    const convBase = file.slug
-      ? file.slug
-      : path.basename(file.path, path.extname(file.path));
-    const convExt = path.extname(file.path).toLowerCase().replace(/^\./, '');
-    const convFileName = `${convBase}.${convExt}.converted.md`;
-    convInboxPath = path.join(project, 'inbox', convFileName);
-    convDestPath = path.join(rawDir, convFileName);
-  }
+  // 转换副本(若有)—— #45:自动探测 inbox/<base>.<ext>.converted.md,
+  // converted_path 字段变可选 hint(存在与否不影响探测);迁移以 inbox 实际文件为准。
+  const convBase = file.slug
+    ? file.slug
+    : path.basename(file.path, path.extname(file.path));
+  const convExt = path.extname(file.path).toLowerCase().replace(/^\./, '');
+  const convFileName = `${convBase}.${convExt}.converted.md`;
+  const convInboxPath = path.join(project, 'inbox', convFileName);
+  const convDestPath = path.join(rawDir, convFileName);
 
   const conflict = await exists(destPath);
   let actionTaken = 'moved';

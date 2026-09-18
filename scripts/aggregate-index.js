@@ -63,8 +63,9 @@ import { fileURLToPath } from "node:url";
 import { requireDeps } from "./lib/preflight.js";
 // 批次 3 P1-6: inline preflight 先跑;缺包 → throw 含精确 npm install 命令
 await requireDeps({ "js-yaml": "js-yaml" });
-// 动态 import:必须在 requireDeps 之后
-const yaml = (await import("js-yaml")).default;
+// 动态 import:必须在 requireDeps 之后;js-yaml ESM 无 default 导出,取命名导出 load(#46)
+const { load: yamlLoad } = await import("js-yaml");
+const yaml = { load: yamlLoad };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

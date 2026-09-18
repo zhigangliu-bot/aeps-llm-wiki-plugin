@@ -28,6 +28,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { spawnSync } from 'node:child_process';
 
 // 必装依赖(对齐 scripts/package.json 的 dependencies)
 const REQUIRED = ['js-yaml', 'ajv', '@firecrawl/anydoc'];
@@ -73,21 +74,44 @@ async function checkModules(scriptsDir) {
   return { modulesDir, missing };
 }
 
+// #50:poppler 是 Claude Code Read 工具读 PDF 的系统依赖,缺失时 classify.js 会把 PDF
+// 自动降级 route 3;这里只 WARN 不 FAIL(降级路径可用,流程不断)
+function checkSystemBinaries() {
+  const warnings = [];
+  const r = spawnSync('pdftotext', ['-v'], { encoding: 'utf8', windowsHide: true });
+  if (r.error && r.error.code === 'ENOENT') {
+    warnings.push({
+      binary: 'pdftotext (poppler)',
+      impact: 'PDF 不走 route 2 原生读取,自动降级 route 3 (anydoc)',
+      hint: process.platform === 'win32'
+        ? 'winget install poppler 或 choco install poppler(装后重开终端让 PATH 生效)'
+        : 'macOS: brew install poppler / Debian: apt install poppler-utils',
+    });
+  }
+  return warnings;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const scriptsDir = await resolveScriptsDir(args.scripts_dir);
   const { modulesDir, missing } = await checkModules(scriptsDir);
+
+  const sysWarnings = checkSystemBinaries();
 
   const result = {
     ok: missing.length === 0,
     scripts_dir: scriptsDir.replace(/\\/g, '/'),
     modules_dir: modulesDir.replace(/\\/g, '/'),
     modules: REQUIRED,
+    system_warnings: sysWarnings,
   };
 
   if (missing.length === 0) {
     result.missing = [];
     console.log(JSON.stringify(result, null, 2));
+    for (const w of sysWarnings) {
+      console.error(`WARN: ${w.binary} 不可用 — ${w.impact};${w.hint}`);
+    }
     process.exit(0);
   } else {
     result.missing = missing;

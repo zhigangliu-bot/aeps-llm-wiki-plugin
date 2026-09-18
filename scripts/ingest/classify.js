@@ -101,6 +101,24 @@ function checkPyoffice() {
 }
 
 /**
+ * 探查 poppler(pdftotext)是否可用 — Claude Code Read 工具读 PDF 的系统依赖(#50)
+ * 结果按进程缓存(探测一次即够);缺失 → PDF 不走 route 2,直接降级 route 3
+ */
+let _popplerOk = null;
+function checkPoppler() {
+  if (_popplerOk !== null) return _popplerOk;
+  // 不用 shell:shell 模式下找不到命令 exit 1 而非 ENOENT,无法与真失败区分;
+  // pdftotext.exe 是普通可执行文件,无 shell 也能被 PATH 解析
+  const r = spawnSync('pdftotext', ['-v'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  // pdftotext -v 正常时往 stderr 打版本、exit 0 或 99;spawn 不到 → error ENOENT
+  _popplerOk = !r.error;
+  return _popplerOk;
+}
+
+/**
  * 探查 anydoc 是否可用
  */
 function checkAnydoc() {
@@ -142,15 +160,21 @@ function classifyOne(file, opts = {}) {
 
   // 路径 3 PDF:SKILL.md 默认建议 path 2 (claude-native),SKILL.md 步骤 0 探测后用 --route 3 覆盖
   // 这里默认就是 route 2,SKILL.md 步骤 0 失败时显式 --route 3 重新跑
-  if (ext === 'pdf' && opts.routeOverride) {
-    const target = opts.routeOverride;
-    if (target === 3) {
-      result.route = 3;
-      result.converter = 'anydoc';
-      result.native_text = false;
-      result.converted_path = buildConvertedPath(file, opts.subdir);
-      result.note = 'route 2 探测失败 → 降级 route 3 (anydoc)';
-    }
+  if (ext === 'pdf' && opts.routeOverride === 3) {
+    result.route = 3;
+    result.converter = 'anydoc';
+    result.native_text = false;
+    result.converted_path = buildConvertedPath(file, opts.subdir);
+    result.note = 'route 2 探测失败 → 降级 route 3 (anydoc)';
+  }
+
+  // #50:poppler 缺失时 Read 读不了 PDF,route 2 自动降级 route 3(不再赌扩展名)
+  if (ext === 'pdf' && result.route === 2 && !opts.skipDepCheck && !checkPoppler()) {
+    result.route = 3;
+    result.converter = 'anydoc';
+    result.native_text = false;
+    result.converted_path = buildConvertedPath(file, opts.subdir);
+    result.note = 'poppler (pdftotext) 不可用 → route 2 (claude-native) 自动降级 route 3 (anydoc);装 poppler 可恢复原生读取(Windows: winget install poppler)';
   }
 
   // 路径 4:paddleocr 强依赖,缺则 FAIL(对齐 G6 + implement-ingest.md §1.1)

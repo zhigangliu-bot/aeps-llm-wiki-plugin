@@ -21,30 +21,23 @@ const SCRIPTS_ROOT = resolve(__dirname, "..");
 
 const SUPPORTED = new Set([".pdf"]);
 
-function findAnydocBin() {
-  // 优先用本地 node_modules/.bin(anydoc.cmd on Windows),
-  // 拷给用户免装全局 npm。
-  const local = join(SCRIPTS_ROOT, "node_modules", ".bin",
-    process.platform === "win32" ? "anydoc.cmd" : "anydoc");
+function findAnydocCli() {
+  // 直接用 anydoc 包的 cli.js + process.execPath 调用(#44):
+  // 走 node_modules/.bin/anydoc.cmd 需 shell:true,Windows 下 node 路径含空格
+  // (C:\Program Files\nodejs)会被 cmd 拆词;node + js 文件任何平台都无需 shell。
+  const local = join(SCRIPTS_ROOT, "node_modules", "@firecrawl", "anydoc", "cli.js");
   if (existsSync(local)) return local;
-  return "anydoc"; // fallback: PATH
+  return null;
 }
 
 function runAnydoc(input) {
-  const bin = findAnydocBin();
-  // ponytail: windows 下必须走 shell 执行 .cmd(Node 禁止无 shell spawn .cmd),
-  // 而 shell 模式 args 数组不自动加引号,路径含空格会被 cmd 截断(#40),手工拼引号串。
-  const useShell = process.platform === "win32";
-  const r = spawnSync(
-    useShell ? `"${bin}" "${input}"` : bin,
-    useShell ? undefined : [input],
-    {
-      encoding: "utf8",
-      maxBuffer: 200 * 1024 * 1024,
-      windowsHide: true,
-      shell: useShell,
-    }
-  );
+  const cli = findAnydocCli();
+  if (!cli) throw new Error("anydoc 未安装: 缺 node_modules/@firecrawl/anydoc/cli.js(cd scripts && npm install)");
+  const r = spawnSync(process.execPath, [cli, input], {
+    encoding: "utf8",
+    maxBuffer: 200 * 1024 * 1024,
+    windowsHide: true,
+  });
   if (r.status === 0) return r.stdout;
   if (r.status === 3) {
     throw new Error(
@@ -54,7 +47,7 @@ function runAnydoc(input) {
     );
   }
   throw new Error(
-    `anydoc exit=${r.status}, cmd: ${bin} ${input}\n${r.stderr || r.error?.message || ""}`
+    `anydoc exit=${r.status}, cmd: node ${cli} ${input}\n${r.stderr || r.error?.message || ""}`
   );
 }
 
