@@ -79,7 +79,7 @@ cp my-research.pdf your-project/inbox/
 > /aeps-llm-wiki-ingest
 ```
 
-plugin 走 5 路径分流(原生优先 → anydoc → paddleocr),自动建 OKF 源页 + entity / concept 子页。
+plugin 走 5 路径分流(原生优先 → markitdown → paddleocr),自动建 OKF 源页 + entity / concept 子页。
 
 ### 5. 在 Obsidian 打开 `knowledge/`
 
@@ -127,7 +127,7 @@ plugin 走 5 路径分流(原生优先 → anydoc → paddleocr),自动建 OKF �
 
 - **零常驻运行时** —— 纯规范 + skill + 单次运行的 scripts + 事件回调 hooks(G6)
 - **Node.js 单栈** —— scripts 单栈 Node.js LTS(`>=20`),OCR 路径仅在必要时降级 Python
-- **原生多模态优先** —— 先让 Claude Code 原生读,失败才走 anydoc / paddleocr(G10)
+- **原生多模态优先** —— 先让 Claude Code 原生读,失败才走 markitdown / paddleocr(G10)
 - **OKF 严格兼容** —— `type` 唯一硬必填,plugin 收敛到 18 项硬枚举与 knowledge/ 目录 1:1 绑死
 - **`[[wikilink]]` 裸文件名主推** —— 依赖 Obsidian 唯一名 + aliases 别名解析
 - **不发明 `links:` frontmatter 字段** —— 对齐 OKF §5「Lineage is expressed through links」

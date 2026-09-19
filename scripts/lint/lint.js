@@ -81,7 +81,8 @@ const TAGS_MAX = 10;
 // 真转换器集合:路径 3/4 converter(C19;对齐 frontmatter.schema.json converter enum,排除 null 与 claude-native)。
 // C18 第 3 条同用此集合:仅真转换器要求 native_text === false;claude-native 表示「Claude 原生直读无副本」,
 // 与 native_text 正交而非互斥,豁免第 3 条(issue #41:否则 path 1/2 默认合法组合全部误报)
-const C19_CONVERTERS = new Set(['pyoffice', 'anydoc', 'docling', 'libreoffice', 'paddleocr']);
+// 旧 converter 名(pyoffice/anydoc/docling)保留兼容存量页;新页统一 markitdown(2026-09-18 依赖收敛)
+const C19_CONVERTERS = new Set(['pyoffice', 'anydoc', 'docling', 'markitdown', 'libreoffice', 'paddleocr']);
 
 // C21:detail 图片名列表上限(超过截断为「前 5 个, 等 N 个」,防大副本刷屏)
 const C21_DETAIL_MAX = 5;

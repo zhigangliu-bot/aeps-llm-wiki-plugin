@@ -5,7 +5,6 @@ doc/input/
 # dependencies
 node_modules/
 scripts/node_modules/
-scripts/anydoc/node_modules/
 scripts/ocr/node_modules/
 scripts/**/node_modules/
 
@@ -26,4 +25,4 @@ Thumbs.db
 temp/
 
 # plugin packaging note: plugin 本体本身有 node_modules 也不在仓里(node-only scripts
-# 不用 npm 依赖), 但 scripts/node_modules/ 可能存在 anydoc/ocr 测试残留
+# 只用 js-yaml/ajv), 但 scripts/node_modules/ 可能存在 ocr 测试残留

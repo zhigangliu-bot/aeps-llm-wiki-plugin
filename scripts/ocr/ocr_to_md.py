@@ -8,8 +8,8 @@ Usage:
     python ocr_to_md.py <image.png> [-o out.md] [--lang ch] [--json]
 
 `--json` makes the script print `{text, avg_confidence}` JSON to stdout
-instead of writing the `.md` file. This is the entry point used by
-docling_to_md.py to OCR images extracted from docx/pptx/xlsx.
+instead of writing the `.md` file. Also used by pdf_to_ocr_to_md.py
+to OCR scanned pages.
 
 See README.md in this directory for setup.
 """

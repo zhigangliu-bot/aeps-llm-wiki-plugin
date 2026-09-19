@@ -12,7 +12,7 @@
  *     converter=null, native_text=true, converted_path=null, 不调 convert-to-md
  *   路径 2 (.pdf Claude Code 原生可读): converter=claude-native, native_text=true, converted_path=null
  *   路径 3 (.pptx/.docx/.xlsx/.pdf 失败时/.html):
- *     pdf→anydoc, pptx/docx/xlsx→pyoffice(失败降级 anydoc→docling,见 convert-to-md.js), html→anydoc, native_text=false, converted_path 模板
+ *     全部 → markitdown(2026-09-18 依赖收敛,替换 anydoc/pyoffice/docling 链), native_text=false, converted_path 模板
  *   路径 4 (.png/.jpg/.jpeg/.bmp/.tiff): paddleocr 强依赖, 缺则 FAIL 不降级
  *
  * Exit codes:
@@ -47,12 +47,12 @@ const PATH_MAP = {
   xml:      { route: 1, converter: null,             native_text: true,  converted: false },
   // 路径 2 (PDF 原生可读 — 由 SKILL.md 探测后覆盖为 path 3 若失败)
   pdf:      { route: 2, converter: 'claude-native',  native_text: true,  converted: false },
-  // 路径 3 (docx/pptx/xlsx → pyoffice 优先,失败 convert-to-md.js 降级 anydoc → docling; pdf 失败 / html → anydoc)
-  pptx:     { route: 3, converter: 'pyoffice',       native_text: false, converted: true },
-  docx:     { route: 3, converter: 'pyoffice',       native_text: false, converted: true },
-  xlsx:     { route: 3, converter: 'pyoffice',       native_text: false, converted: true },
-  html:     { route: 3, converter: 'anydoc',         native_text: false, converted: true },
-  htm:      { route: 3, converter: 'anydoc',         native_text: false, converted: true },
+  // 路径 3 (2026-09-18 依赖收敛:全格式统一 markitdown,替换 anydoc/pyoffice/docling 链)
+  pptx:     { route: 3, converter: 'markitdown',     native_text: false, converted: true },
+  docx:     { route: 3, converter: 'markitdown',     native_text: false, converted: true },
+  xlsx:     { route: 3, converter: 'markitdown',     native_text: false, converted: true },
+  html:     { route: 3, converter: 'markitdown',     native_text: false, converted: true },
+  htm:      { route: 3, converter: 'markitdown',     native_text: false, converted: true },
   // 路径 4 (OCR 强依赖 paddleocr)
   png:      { route: 4, converter: 'paddleocr',      native_text: false, converted: true },
   jpg:      { route: 4, converter: 'paddleocr',      native_text: false, converted: true },
@@ -86,13 +86,11 @@ function checkPaddleocr() {
 }
 
 /**
- * 探查 pyoffice 依赖(python-docx / python-pptx / openpyxl)是否可用
- * 缺失时 convert-to-md.js 会降级 anydoc → docling,这里只提示不 FAIL
+ * 探查 markitdown(pip 包)是否可用 — route 3 唯一转换器
  */
-function checkPyoffice() {
+function checkMarkitdown() {
   const py = process.platform === 'win32' ? 'python' : 'python3';
-  // 注意:Windows shell:true 下 -c 参数必须自带双引号,否则整段被拆散
-  const r = spawnSync(py, ['-c', '"import docx,pptx,openpyxl"'], {
+  const r = spawnSync(py, ['-c', '"import markitdown"'], {
     encoding: 'utf8',
     windowsHide: true,
     shell: process.platform === 'win32',
@@ -116,17 +114,6 @@ function checkPoppler() {
   // pdftotext -v 正常时往 stderr 打版本、exit 0 或 99;spawn 不到 → error ENOENT
   _popplerOk = !r.error;
   return _popplerOk;
-}
-
-/**
- * 探查 anydoc 是否可用
- */
-function checkAnydoc() {
-  const r = spawnSync(process.execPath, ['-e', "import('anydoc').then(()=>process.exit(0)).catch(()=>process.exit(1))"], {
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-  return r.status === 0;
 }
 
 function classifyOne(file, opts = {}) {
@@ -162,19 +149,19 @@ function classifyOne(file, opts = {}) {
   // 这里默认就是 route 2,SKILL.md 步骤 0 失败时显式 --route 3 重新跑
   if (ext === 'pdf' && opts.routeOverride === 3) {
     result.route = 3;
-    result.converter = 'anydoc';
+    result.converter = 'markitdown';
     result.native_text = false;
     result.converted_path = buildConvertedPath(file, opts.subdir);
-    result.note = 'route 2 探测失败 → 降级 route 3 (anydoc)';
+    result.note = 'route 2 探测失败 → 降级 route 3 (markitdown)';
   }
 
   // #50:poppler 缺失时 Read 读不了 PDF,route 2 自动降级 route 3(不再赌扩展名)
   if (ext === 'pdf' && result.route === 2 && !opts.skipDepCheck && !checkPoppler()) {
     result.route = 3;
-    result.converter = 'anydoc';
+    result.converter = 'markitdown';
     result.native_text = false;
     result.converted_path = buildConvertedPath(file, opts.subdir);
-    result.note = 'poppler (pdftotext) 不可用 → route 2 (claude-native) 自动降级 route 3 (anydoc);装 poppler 可恢复原生读取(Windows: winget install poppler)';
+    result.note = 'poppler (pdftotext) 不可用 → route 2 (claude-native) 自动降级 route 3 (markitdown);装 poppler 可恢复原生读取(Windows: winget install poppler)';
   }
 
   // 路径 4:paddleocr 强依赖,缺则 FAIL(对齐 G6 + implement-ingest.md §1.1)
@@ -184,14 +171,9 @@ function classifyOne(file, opts = {}) {
     return result;
   }
 
-  // 路径 3 pyoffice 依赖:缺失不 FAIL(convert-to-md.js 会降级 anydoc → docling)
-  if ((ext === 'pptx' || ext === 'docx' || ext === 'xlsx') && opts.checkDeps && !checkPyoffice()) {
-    result.note = 'pyoffice 依赖(python-docx/python-pptx/openpyxl)未装全;convert-to-md.js 将降级 anydoc → docling';
-  }
-
-  // 路径 3 anydoc 依赖:若需要
-  if ((ext === 'html' || ext === 'htm' || (ext === 'pdf' && result.route === 3)) && opts.checkDeps && !checkAnydoc()) {
-    result.error = 'anydoc 未安装;路径 3 (pdf/html) 必须装 @firecrawl/anydoc';
+  // 路径 3 markitdown 依赖:route 3 唯一转换器,缺失 FAIL
+  if (result.route === 3 && opts.checkDeps && !checkMarkitdown()) {
+    result.error = 'markitdown 未安装;路径 3 必须装(pip install markitdown)';
     result.fail = true;
     return result;
   }

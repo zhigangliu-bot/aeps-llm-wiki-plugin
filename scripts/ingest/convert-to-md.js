@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 /**
- * convert-to-md.js — 路径 3/4 派发到 anydoc_pdf_to_md.js / docling_to_md.py / ocr_to_md.py
+ * convert-to-md.js — 路径 3/4 派发到 markitdown_to_md.py / ocr_to_md.py
  *
  * Usage:
  *   node scripts/ingest/convert-to-md.js --file <path> --emit-to <dir> [--json]
  *
- * 路径分流(由 classify.js 决策后传入):
- *   .pdf → anydoc/anydoc_pdf_to_md.js
- *   .pptx/.docx/.xlsx → pyoffice/pyoffice_to_md.py → anydoc/anydoc_office_to_md.js → anydoc/docling_to_md.py(逐级降级)
- *   .html/.htm → anydoc/docling_to_md.py
+ * 路径分流(由 classify.js 决策后传入;2026-09-18 依赖收敛):
+ *   .pdf/.pptx/.docx/.xlsx/.html/.htm → markitdown/markitdown_to_md.py(统一转换,无降级链)
  *   .png/.jpg/.jpeg/.bmp/.tiff → ocr/ocr_to_md.py (paddleocr)
  *
  * 纯文本 (.md/.txt/...) 不调本脚本 (SKILL.md 直接读)
@@ -32,33 +30,12 @@ await requireDeps({});
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS_ROOT = path.resolve(__dirname, '..');
 
-const PDF_EXTS = new Set(['pdf']);
-// office 转换链(RULES.md §1):pyoffice → anydoc → docling(兜底)
-const PYOFFICE_EXTS = new Set(['pptx', 'docx', 'xlsx']);
-const DOCLING_EXTS = new Set(['html', 'htm']);
+// 2026-09-18 依赖收敛:route 3 全格式统一走 MarkItDown(替换 anydoc/pyoffice/docling 链)
+const MARKITDOWN_EXTS = new Set(['pdf', 'pptx', 'docx', 'xlsx', 'html', 'htm']);
 const OCR_EXTS = new Set(['png', 'jpg', 'jpeg', 'bmp', 'tiff']);
 
-function findBin(name) {
-  // Windows: .cmd / .bat;Unix: 直接
-  if (process.platform === 'win32') {
-    const cmd = name + '.cmd';
-    const local = path.join(SCRIPTS_ROOT, 'node_modules', '.bin', cmd);
-    return local;
-  }
-  return path.join(SCRIPTS_ROOT, 'node_modules', '.bin', name);
-}
-
-function runNode(bin, args) {
-  return spawnSync(process.execPath, [bin, ...args], {
-    encoding: 'utf8',
-    windowsHide: true,
-    shell: process.platform === 'win32',
-  });
-}
-
-function runPython(scriptRel, args) {
+function runPython(scriptAbs, args) {
   const py = process.platform === 'win32' ? 'python' : 'python3';
-  const scriptAbs = path.join(SCRIPTS_ROOT, scriptRel);
   return spawnSync(py, [scriptAbs, ...args], {
     encoding: 'utf8',
     windowsHide: true,
@@ -92,7 +69,7 @@ async function main() {
   }
 
   const ext = path.extname(file).toLowerCase().replace(/^\./, '');
-  if (!PDF_EXTS.has(ext) && !PYOFFICE_EXTS.has(ext) && !DOCLING_EXTS.has(ext) && !OCR_EXTS.has(ext)) {
+  if (!MARKITDOWN_EXTS.has(ext) && !OCR_EXTS.has(ext)) {
     console.error(`ERROR: 不支持的扩展名: .${ext}(路径 1/2 纯文本不调本脚本)`);
     process.exit(4);
   }
@@ -101,31 +78,13 @@ async function main() {
 
   const outFile = path.join(emitTo, `${path.basename(file, path.extname(file))}.md`);
 
-  // 按优先级排列的尝试链;前者失败(non-zero exit / spawn error)降级后者
-  const attempts = [];
-  if (PDF_EXTS.has(ext)) {
-    attempts.push({ script: 'anydoc_pdf_to_md.js', run: () => runNode(path.join(SCRIPTS_ROOT, 'anydoc', 'anydoc_pdf_to_md.js'), [file, '-o', outFile]) });
-  } else if (PYOFFICE_EXTS.has(ext)) {
-    attempts.push(
-      { script: 'pyoffice_to_md.py', run: () => runPython(path.join('pyoffice', 'pyoffice_to_md.py'), [file, '-o', outFile]) },
-      { script: 'anydoc_office_to_md.js', run: () => runNode(path.join(SCRIPTS_ROOT, 'anydoc', 'anydoc_office_to_md.js'), [file, '-o', outFile]) },
-      { script: 'docling_to_md.py', run: () => runPython(path.join('anydoc', 'docling_to_md.py'), [file, '-o', outFile]) },
-    );
-  } else if (DOCLING_EXTS.has(ext)) {
-    attempts.push({ script: 'docling_to_md.py', run: () => runPython(path.join('anydoc', 'docling_to_md.py'), [file, '-o', outFile]) });
-  } else {
-    // OCR
-    attempts.push({ script: 'ocr_to_md.py', run: () => runPython(path.join('ocr', 'ocr_to_md.py'), [file, '-o', outFile]) });
-  }
+  // 2026-09-18 依赖收敛:route 3 全格式统一 MarkItDown,无降级链;图片走 OCR
+  const attempt = MARKITDOWN_EXTS.has(ext)
+    ? { script: 'markitdown_to_md.py', run: () => runPython(path.join(SCRIPTS_ROOT, 'markitdown', 'markitdown_to_md.py'), [file, '-o', outFile]) }
+    : { script: 'ocr_to_md.py', run: () => runPython(path.join(SCRIPTS_ROOT, 'ocr', 'ocr_to_md.py'), [file, '-o', outFile]) };
 
-  let r = null;
-  let scriptUsed = null;
-  for (const attempt of attempts) {
-    r = attempt.run();
-    scriptUsed = attempt.script;
-    if (r.status === 0) break;
-    console.error(`WARN: ${attempt.script} 失败(exit=${r.status}),${attempts.indexOf(attempt) < attempts.length - 1 ? '降级下一优先级' : '无更多降级'}`);
-  }
+  const r = attempt.run();
+  const scriptUsed = attempt.script;
 
   if (!r || r.status !== 0) {
     const errMsg = (r?.stderr || r?.stdout || `exit ${r?.status}`).toString().trim();

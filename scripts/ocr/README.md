@@ -28,10 +28,10 @@
 
 > **在 `scripts/` 里的位置**:`scripts/` 下有两个转换目录 ——
 >
-> - **`anydoc/`** —— 处理 `.pdf`(anydoc 路径,快)和 `.docx` / `.pptx` / `.xlsx`(docling 路径,精 + 抽图),**优先用**。
-> - **`ocr/`**(本目录)—— 处理**纯图片** + **扫描件 PDF/PPTX** —— anydoc / docling 跑不动时的 **fallback**。
+> - **`markitdown/`** —— 处理 `.pdf` / `.docx` / `.pptx` / `.xlsx` / `.html`(MarkItDown 统一转换),**优先用**。
+> - **`ocr/`**(本目录)—— 处理**纯图片** + **扫描件 PDF/PPTX** —— markitdown 抽不出文本层时的 **fallback**。
 >
-> 例:`任何资料.pdf` → `python ../anydoc/anydoc_pdf_to_md.js file.pdf`;`扫描件合同.pdf` → `python pdf_to_ocr_to_md.py scanned.pdf`。
+> 例:`任何资料.pdf` → `python ../markitdown/markitdown_to_md.py file.pdf`;`扫描件合同.pdf` → `python pdf_to_ocr_to_md.py scanned.pdf`。
 
 ---
 

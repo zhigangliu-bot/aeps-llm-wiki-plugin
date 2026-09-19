@@ -91,7 +91,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLU
 读 stdout JSON:
 - `route == 1` → 纯文本,**不调** `convert-to-md.js`
 - `route == 2` → PDF 原生可读,**不调** `convert-to-md.js`(poppler/pdftotext 不可用时 classify.js 自动降级 `route == 3`,无需手工重跑)
-- `route == 3` → 调 `convert-to-md.js`(PDF/HTML 走 anydoc;docx/pptx/xlsx 走 pyoffice → anydoc → docling 逐级降级,见 scripts/RULES.md §1)
+- `route == 3` → 调 `convert-to-md.js`(全格式统一走 markitdown,见 scripts/RULES.md §1)
 - `route == 4` → 调 `convert-to-md.js`(paddleocr);若 classify.js 返回 `fail: true` → 路径 4 不可用,询问用户装 paddleocr,**FAIL 不降级**(G6 + implement-ingest.md §1.1)
 - PDF 原生失败 → 用 `--route 3` 覆盖默认(SKILL.md 显式重跑)
 
@@ -560,7 +560,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 - 不发明 frontmatter 字段
 - 不调 LLM API(脚本部分纯机械)
 - 不写 `safe-mv.py` / `convert-to-md.py` / `dedupe.js` / `auto-tag.js` / `auto-extract.js`(LLM 决策归 SKILL.md 管)
-- 不引入 npm 依赖(0 个新增,只用现有 `@firecrawl/anydoc` + `js-yaml` + `ajv`)
+- 不引入 npm 依赖(0 个新增,只用现有 `js-yaml` + `ajv`;转换侧依赖收敛为 pip 的 markitdown + paddleocr,2026-09-18 拍板)
 - 不自动 commit
 - 不调 git / SVN / Mercurial
 - 不写 Node.js daemon / RAG / embedding / watcher(NFR-1)
@@ -580,4 +580,4 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROO
 - 上游契约:`doc/design/prd.md` §4.2 + `doc/design/design.md` §3.2 / §4.2 / §6
 - 字段权威:`doc/schema/frontmatter-spec.md` §4.1.1 + §11.7
 - 工作流入口:`doc/schema/schema.md` §1.1
-- 已有可复用:`scripts/gen-page.js` + `scripts/aggregate-index.js` + `scripts/anydoc/*` + `scripts/ocr/ocr_to_md.py`
+- 已有可复用:`scripts/gen-page.js` + `scripts/aggregate-index.js` + `scripts/markitdown/*` + `scripts/ocr/ocr_to_md.py`

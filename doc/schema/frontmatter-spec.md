@@ -21,6 +21,7 @@
 | 2026-09-10 | zhigangliu-bot | v0.6.9:3 处 `generated.by` 示例的 producer 版本号字串同步升级为 0.6.9(修复 issue #18 伴随的版本基线刷新);无字段语义变化。 |
 | 2026-09-10 | zhigangliu-bot | v0.6.9 (PR-A):§4.5.2 `stale_after` 明确**基准时间**为 `generated.at`(权威);`updated` 仅展示维护时间,不参与过期判断;TTL 默认值表格化(`concept.standard` +5y,其他 +1y);新增 `--stale-after-base <generated|updated>` 开关文档化(修复 issue #24)。 |
 | 2026-09-11 | zhigangliu-bot | 路径 3 docx/pptx/xlsx 转换优先级调整:pyoffice(python-docx/python-pptx/openpyxl,第一)→ anydoc(第二)→ docling(兜底),派发见 `scripts/ingest/convert-to-md.js`。`converter` 枚举扩充:`pyoffice`(office 第一优先级)/ `docling`(兜底)/ `libreoffice`(路径 0 预归一化,classify.js 既有输出,补入枚举消除不一致)。原文件与 `.converted.md` 均落 raw/(落盘策略不变)。`frontmatter.schema.json` enum 已同步。 |
+| 2026-09-19 | zhigangliu-bot | 依赖收敛:路径 3 全格式(pdf/docx/pptx/xlsx/html)统一走 Microsoft MarkItDown,删除 anydoc/pyoffice/docling 三条转换链。`converter` 枚举新增 `markitdown`(路径 3 唯一新值);`pyoffice` / `anydoc` / `docling` 降级为存量页兼容旧值。落盘策略不变。`frontmatter.schema.json` enum 已同步。 |
 
 ### 0.1 编写铁律(YAML / Obsidian Properties 兼容性)
 
@@ -97,7 +98,7 @@
 | **Attested Computation (§4.6)** | `executor` | OPTIONAL | `{ resource, receipt }` |
 | **Attested Computation (§4.6)** | `attester` | OPTIONAL | `{ resource }` |
 | **plugin 扩展 (§11.7)** | `format` | OPTIONAL(source 必填) | 原文件扩展名(小写):pdf / pptx / docx / xlsx / png ... 见 §13 |
-| **plugin 扩展 (§11.7)** | `converter` | OPTIONAL(source 必填) | 枚举 `pyoffice` \| `anydoc` \| `docling` \| `libreoffice` \| `paddleocr` \| `claude-native` \| **null**(YAML 空值,纯文本路径);`pyoffice` = 路径 3 docx/pptx/xlsx 走 python-docx/python-pptx/openpyxl(第一优先级);`null` 是 JSON Schema 空值类型,非字符串 `'null'`,见 §13 |
+| **plugin 扩展 (§11.7)** | `converter` | OPTIONAL(source 必填) | 枚举 `markitdown` \| `libreoffice` \| `paddleocr` \| `claude-native` \| **null**(YAML 空值,纯文本路径);`markitdown` = 路径 3 全格式统一转换器(2026-09-18 依赖收敛);`pyoffice` / `anydoc` / `docling` 为存量页兼容旧值;`null` 是 JSON Schema 空值类型,非字符串 `'null'`,见 §13 |
 | **plugin 扩展 (§11.7)** | `native_text` | OPTIONAL(source 必填) | 是否原生纯文本;决定是否生成 `.converted.md` 副本,见 §13 |
 | **plugin 扩展 (§11.7)** | `sources_used` | OPTIONAL(analysis 必填) | 本次 query 参考的 wiki 页相对路径列表;lint C15.2 校每条存在,见 §13 |
 | **plugin 扩展 (§11.7)** | `sources_count` | REQUIRED(analysis / synthesis / comparison 必填,其他 type 推荐) | 整数;当前 wiki 页引用的 wiki 页/资料数(入度);synthesis `< 3` WARN,详见 §12.1 |
@@ -958,9 +959,9 @@ plugin 的 `converter` / `converted_path`(以及未来可能扩展的同构字�
 
 **为什么禁止字符串 `'null'`**:
 - `page-source.md` 模板路径 1 行 `converter: null` 是 YAML 空值,不是字符串
-- `frontmatter.schema.json` `enum: ["pyoffice", "anydoc", "docling", "libreoffice", "paddleocr", "claude-native", null]` 末项是 JSON null 字面量
+- `frontmatter.schema.json` `enum: ["markitdown", "libreoffice", "paddleocr", "claude-native", "pyoffice", "anydoc", "docling", null]` 末项是 JSON null 字面量
 - 程序读 YAML 时,`null` 是 `None`,字符串 `'null'` 是 `"null"`,后续 if/else 分支逻辑完全不同
-- 误填字符串 `'null'` 会让 SKILL.md 误判"走 anydoc 转换过",触发 `converted_path` 一致性 lint FAIL
+- 误填字符串 `'null'` 会让 SKILL.md 误判"走转换器转换过",触发 `converted_path` 一致性 lint FAIL
 
 **lint 规则**(待实现):
 - converter / converted_path 若值类型是 string 且内容等于 `"null"` / `"None"` / `"~"`,FAIL on 类型误用

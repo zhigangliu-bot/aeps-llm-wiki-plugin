@@ -2,7 +2,7 @@
 
 Pipeline: pptx → pdf (via LibreOffice) → pdftoppm → PaddleOCR per page.
 
-Use when a PPTX has embedded images / scanned slides that anydoc cannot
+Use when a PPTX has embedded images / scanned slides that markitdown cannot
 extract as text.
 
 Usage:

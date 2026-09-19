@@ -1,6 +1,6 @@
 """Scan PDF → OCR per page → single markdown with frontmatter.
 
-Use when anydoc exits 3 on a PDF (image-only / scanned pages).
+Use when markitdown_to_md.py exits 3 on a PDF (image-only / scanned pages).
 Pipeline: pdftoppm → per-page PaddleOCR → concatenated markdown.
 
 Usage:

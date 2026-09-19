@@ -30,8 +30,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 
-// 必装依赖(对齐 scripts/package.json 的 dependencies)
-const REQUIRED = ['js-yaml', 'ajv', '@firecrawl/anydoc'];
+// 必装 npm 依赖(对齐 scripts/package.json 的 dependencies;2026-09-18 依赖收敛去掉 @firecrawl/anydoc)
+const REQUIRED = ['js-yaml', 'ajv'];
 
 function parseArgs(argv) {
   const args = { scripts_dir: null, json: true };
@@ -82,10 +82,22 @@ function checkSystemBinaries() {
   if (r.error && r.error.code === 'ENOENT') {
     warnings.push({
       binary: 'pdftotext (poppler)',
-      impact: 'PDF 不走 route 2 原生读取,自动降级 route 3 (anydoc)',
+      impact: 'PDF 不走 route 2 原生读取,自动降级 route 3 (markitdown)',
       hint: process.platform === 'win32'
         ? 'winget install poppler 或 choco install poppler(装后重开终端让 PATH 生效)'
         : 'macOS: brew install poppler / Debian: apt install poppler-utils',
+    });
+  }
+  // route 3 唯一转换器(pip 包;缺失时 classify --check-deps 会 FAIL,这里提前 WARN)
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  const mi = spawnSync(py, ['-c', '"import markitdown"'], {
+    encoding: 'utf8', windowsHide: true, shell: process.platform === 'win32',
+  });
+  if (mi.status !== 0) {
+    warnings.push({
+      binary: 'markitdown (pip)',
+      impact: '路径 3 (pdf/docx/pptx/xlsx/html) 转换不可用',
+      hint: 'pip install markitdown',
     });
   }
   return warnings;

@@ -164,7 +164,7 @@ aliases:
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ----------------- | --------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------- |
 | **路径 1 —— 纯文本直接读**         | `.md` `.markdown` `.rst` `.txt` `.csv` `.json` `.yaml` `.yml` `.xml` `.html` `.htm` | `null`          | `true`        | `null`                                         | `[notes](./raw/{subdir}/notes.md)`(指原文件)                                     |
 | **路径 2 —— Claude Code 原生识别**(对齐 PRD §4.2 路径 2 收紧) | `.pdf` 等 Claude Code 当前能直接读取的格式 | `claude-native` | `true`        | `null`                                         | `[iso26262.pdf](./raw/{subdir}/iso26262.pdf)`(指原文件)                          |
-| **路径 3 —— 外部工具转换**          | 同路径 2,但 Claude Code 不能识别;`.docx`/`.pptx`/`.xlsx` 优先级 **pyoffice → anydoc → docling**(scripts/RULES.md §1,`converter` 填实际走通的第一个) | `pyoffice` / `anydoc` / `docling` | `false`       | `./raw/{subdir}/{basename}.{ext}.converted.md` | `[iso26262.pdf.converted](./raw/{subdir}/iso26262.pdf.converted.md)`(指 md 副本) |
+| **路径 3 —— 外部工具转换**          | 同路径 2,但 Claude Code 不能识别;`.pdf`/`.docx`/`.pptx`/`.xlsx`/`.html` 统一走 **MarkItDown**(scripts/RULES.md §1) | `markitdown` | `false`       | `./raw/{subdir}/{basename}.{ext}.converted.md` | `[iso26262.pdf.converted](./raw/{subdir}/iso26262.pdf.converted.md)`(指 md 副本) |
 | **路径 4 —— OCR**                  | `.png` `.jpg` `.jpeg` `.bmp` `.tiff`                                                            | `paddleocr`     | `false`       | `./raw/{subdir}/{basename}.{ext}.converted.md` | `[chip.png.converted](./raw/{subdir}/chip.png.converted.md)`(指 md 副本)         |
 
 ### 完整 frontmatter 例子(每路径一个)
@@ -193,12 +193,12 @@ converted_path: null
 
 正文:`> 原始来源:[iso26262.pdf](./raw/06_功能安全/iso26262.pdf)`
 
-#### 路径 3(anydoc 降级 `.pdf`)
+#### 路径 3(markitdown 转换 `.pdf`)
 
 ```yaml
 source_file: "[[06-功能安全/iso26262.pdf|ISO 26262:2018 原文]]"
 format: pdf
-converter: anydoc
+converter: markitdown
 native_text: false
 converted_path: ./raw/06_功能安全/iso26262.pdf.converted.md
 ```
@@ -237,6 +237,6 @@ Claude Code 原生识别哪些格式**不写死清单**,由 SKILL.md 运行时�
 | -------------------------- | ------------------- | --------------------------------------------------------------- | ---------- |
 | `null`                   | `true`            | `null`                                                        | FAIL       |
 | `claude-native`          | `true`            | `null`                                                        | FAIL       |
-| `anydoc` / `paddleocr` / `pyoffice` / `docling` | `false`           | 非 null(必须指向`raw/{subdir}/{basename}.{ext}.converted.md`) | FAIL       |
+| `markitdown` / `paddleocr` | `false`           | 非 null(必须指向`raw/{subdir}/{basename}.{ext}.converted.md`) | FAIL       |
 
 正文 `> 原始来源:` 链接目标存在性 + 链接目标与 `source_file` / `converted_path` 一致性也 FAIL on 不一致(详见 PRD §4.4 lint C16.x,待写)。

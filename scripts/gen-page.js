@@ -129,12 +129,12 @@ const PATH_MAP = {
   xml:   { converter: "null",          native_text: true,  converted: null,                                linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}` },
   // 路径 2:Claude 原生
   pdf:   { converter: "claude-native", native_text: true,  converted: null,                                linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}` },
-  // 路径 3:第三方 / docling
-  pptx:  { converter: "docling",       native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
-  docx:  { converter: "docling",       native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
-  xlsx:  { converter: "docling",       native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
-  html:  { converter: "anydoc",        native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
-  htm:   { converter: "anydoc",        native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
+  // 路径 3:统一 markitdown(2026-09-18 依赖收敛,替换 anydoc/docling/pyoffice 链)
+  pptx:  { converter: "markitdown",    native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
+  docx:  { converter: "markitdown",    native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
+  xlsx:  { converter: "markitdown",    native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
+  html:  { converter: "markitdown",    native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
+  htm:   { converter: "markitdown",    native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
   // 路径 4:OCR
   png:   { converter: "paddleocr",     native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },
   jpg:   { converter: "paddleocr",     native_text: false, converted: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md`, linkTarget: (b, s, e) => `./raw/${s}/${b}.${e}.converted.md` },

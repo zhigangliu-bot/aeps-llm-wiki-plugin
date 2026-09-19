@@ -1,14 +1,13 @@
-"""OCR image → OKF-flavored markdown via docling bundled RapidOCR.
+"""OCR image → OKF-flavored markdown via RapidOCR.
 
 Mirrors scripts/ocr/ocr_to_md.py byte-for-byte on CLI / output contract,
-but uses docling's bundled RapidOCR (rapidocr >=3.x, PP-OCRv6 small)
-instead of PaddleOCR.
+but uses RapidOCR (rapidocr >=3.x, PP-OCRv6 small) instead of PaddleOCR.
 
 Usage:
     python rapidocr_to_md.py <image.png> [-o out.md] [--json]
 
 `--json` prints the same `{text, avg_confidence}` JSON shape as
-ocr_to_md.py, so docling_to_md.py can swap between the two engines by
+ocr_to_md.py, so callers can swap between the two engines by
 changing one path. (Not wired in by default — see README for the env
 constraint: RapidOCR requires onnxruntime + protobuf>=4.25, which
 conflicts with paddlepaddle 2.6.2's protobuf<=3.20 pin. Run this in a
