@@ -113,6 +113,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
 2. `mcp__bocha-mcp__bocha_web_search` / `bocha_ai_search`
 3. `mcp__playwright__browser_navigate` + `browser_snapshot` + `browser_evaluate`(及 `mcp__plugin_playwright_playwright__*` 对应工具)— **条件触发**:仅 LLM 判定此站搜索结果必须 JS 渲染 / 交互后才出时才降级到此档,默认走 bocha + 原生 WebSearch
 4. 原生 `WebSearch`(全 MCP 不可用时最终兜底)
+5. **Baidu / Google 搜索页直抓**(终极兜底,前 4 档全部未拿到候选或全部拿到的候选均精读失败时):LLM 用 `mcp__jina-mcp-server__read_url` 或 `mcp__fetch__fetch` 直接抓 `https://www.baidu.com/s?wd={query}` / `https://www.google.com/search?q={query}`(Google 失败时改 `https://www.google.com/search?udn=us&q={query}` 或镜像 `https://www.google.com/search?q={query}&hl=zh-CN`),从结果页 DOM 里抽 `<a href>` 候选 URL;**不算精读**(结果是搜索页而非内容页,只能做候选索引),抽出的 URL 走 2.3 精读档处理;`00-research-note.md` 源清单标「工具 = baidu/google 搜索页直抓」+ 「未精读(snippet 索引)」。**Baidu/Google 搜索页直抓不引入新 npm 依赖 / 新脚本**(沿用既有 fetch / jina),也不调 Baidu/Google 搜索 API(避免配额/凭据要求)。
 
 #### 2.3 精读工具优先链(R9)
 
@@ -126,6 +127,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
    3. fetch 返回内容明显残缺(空 / 403 / SPA 占位符)
    - 不默认降级:fetch 已能拿到的内容不主动调 playwright
 4. 原生 `WebFetch`(全 MCP 不可用时最终兜底)
+5. **Baidu / Google 搜索结果页直抓**(终极兜底,前 4 档均无法解析页面正文时):LLM 用 `mcp__jina-mcp-server__read_url` 或 `mcp__fetch__fetch` 直接抓 `https://www.baidu.com/s?wd={query}` / `https://www.google.com/search?q={query}` 等 URL,**从结果页抽摘要片段(snippet)** 作为研究问题的最后兜底;摘要片段**不构成完整精读**,`00-research-note.md` 源清单标「工具 = baidu/google 搜索结果页直抓(snippet 兜底)」+ 「未精读(snippet 索引)」;同一问题的源计数仍可计(用于「每问题 ≥2 独立源交叉验证」门槛)。**仅在 LLM 判定上游精读档完全失效时启用**,默认走 jina read_url。
 
 #### 2.4 抓取与事实记录
 
