@@ -2,6 +2,27 @@
 
 All notable changes to `aeps-llm-wiki-plugin` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.10] - 2026-09-19
+
+### Fixed
+
+- **#52 / P0 data-loss** `scripts/gen-page.js`:写入模式默认幂等(已存在同名 → `action: "skipped-existing"`);`--force` 才覆盖且旧文件先备份到 `<wiki-plugin>/temp/raw_backup_{YYYY-MM-DD}_{sha8}/<relpath>`(stderr `INFO: backup written to ...`);不影响 patch-frontmatter-only 模式。
+- **#55 / P1 wikilink** `scripts/ingest/build-related-pages.js`:`renderSourcesBlock` / `renderRelatedBlock` / `appendSourcesEntries` / `appendRelatedEntries` 四处反链渲染统一改为 `[[{slug}|{title}]]`(左段恒为 slug,右段 = title 作 alias;Obsidian 1.12.7 resolver 只认左段)。同步更新 6 处 build-related-pages 测试断言从 `\[\[slug\]\]` → `\[\[slug\|`。
+- **#53 / P1 lint-不一致** `scripts/gen-page.js`:CLI `--tags < 5 条` 自动合并 `DEFAULT_TAGS_BY_TYPE[type]` 兜底补足到 ≥5 条(LLM tags 优先级高,缺省只是兜底);stdout `hints[]` 输出 `CLI --tags 仅 N 条 <5,已合并 DEFAULT_TAGS_BY_TYPE 兜底到 M 条 (lint-stub R7.4)`。
+- **#54 / P2 三括号嵌套** `scripts/gen-page.js`:`--source-file` 缺省拼接从 `[[${subdir}/${slug}.${ext}|${title}]]` 改 `[[${slug}|${subdir}/${slug}.${ext}]]`(左段 = slug,符合 #55 精神;若 LLM 显式传 `--source-file` 含 `[[` `]]` 直接使用,不二次包裹)。
+
+### Tests
+
+- 新增 `scripts/ingest/test/gen-page-write-idempotent.test.js`(3 用例:skip / --force+backup / create)。
+- 新增 `scripts/ingest/test/gen-page-tags-floor.test.js`(3 用例:缺省 / <5 合并 / ≥5 尊重)。
+- 现有 build-related-pages 测试断言更新为新 wikilink 形态。
+
+### Documentation
+
+- `doc/schema/frontmatter-spec.md` §5 / §6 / §7 示例块 `generated.by` 版本号 `producer/aeps-llm-wiki-plugin/0.6.9` → `0.6.10`(与 `check-version-consistency.js` 同步);规格语义未变。
+- 6 个 `skills/aeps-llm-wiki-*/SKILL.md` + `README.md` + `doc/template/page-{glossary,index,overview}.md` + `doc/schema/schema.md` 顶部 plugin 版本号 0.6.9 → 0.6.10。
+- `scripts/ingest/init-batch.js` 默认 `plugin_version` + `scripts/lint/test/_fixture.js` fixture 版本号同步。
+
 ## [0.6.8] - 2026-09-12
 
 ### Added

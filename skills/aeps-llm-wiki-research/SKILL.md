@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-research
 description: 知识库覆盖不足时 LLM 自动联网调研;一源一文件+调研纪要落 inbox/research/;不直写 knowledge/;三触发(用户显式 / query 步骤 7 衔接 / 对话自主)
-plugin-version: 0.6.9
+plugin-version: 0.6.10
 allowed-tools: mcp__jina-mcp-server__search_web,mcp__jina-mcp-server__search_arxiv,mcp__jina-mcp-server__search_ssrn,mcp__jina-mcp-server__search_jina_blog,mcp__jina-mcp-server__read_url,mcp__bocha-mcp__bocha_web_search,mcp__bocha-mcp__bocha_ai_search,mcp__fetch__fetch,WebSearch(*),WebFetch(*),mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_take_screenshot,mcp__playwright__browser_evaluate,mcp__plugin_playwright_playwright__browser_navigate,mcp__plugin_playwright_playwright__browser_snapshot,mcp__plugin_playwright_playwright__browser_take_screenshot,mcp__plugin_playwright_playwright__browser_evaluate
 ---
 

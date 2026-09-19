@@ -62,10 +62,11 @@
 //        修复 CRLF 模板下块替换静默失效(--tags 被模板默认覆盖的 #16 真实根因)。
 //     ④ --patch-frontmatter-only 复用同一管道 → 全 frontmatter 字段可 patch。
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { dirname, resolve, join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from "node:fs";
+import { dirname, resolve, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireDeps } from "./lib/preflight.js";
+import { createHash } from "node:crypto";
 // gen-page.js v0.6.0 (issue #2 fix): --patch-frontmatter-only 需要 js-yaml 读写已有 frontmatter
 await requireDeps({ "js-yaml": "js-yaml" });
 const yaml = (await import("js-yaml")).default;
@@ -189,6 +190,8 @@ const DEFAULT_TAGS_BY_TYPE = {
   "concept.term":        ["docform/study-notes", "domain/cross-domain", "layer/system", "phase/requirements", "maturity/concept"],
   "concept.other":       ["docform/study-notes", "domain/cross-domain", "layer/system", "phase/architecture", "maturity/concept"],
 };
+// ponytail: v0.6.10 hotfix (#53) — 与 scripts/ingest/lint-stub.js MAX_TAGS_LENGTH 对齐
+const MAX_TAGS_LENGTH = 10;
 
 // ---- frontmatter 注入管道 helper(v0.6.5 WP-2)-----------------------------------------
 // 统一优先级:CLI 传入 > 脚本自动推导 > 模板默认。
@@ -455,9 +458,17 @@ function derivePlaceholders(type, args) {
   }
 
   // ---- tags:CLI --tags > DEFAULT_TAGS_BY_TYPE(entity/concept)> 模板默认(undefined → 不动模板)
+  // v0.6.10 hotfix (#53):LLM 显式传 --tags 但 <5 条时,自动用缺省补足到 ≥5 条,
+  // 否则 lint-stub R7.4 ERROR。优先级:LLM tags 全部保留 + 缺省兜底补差;完全没传走全缺省。
   const cliTags = parseListArg(args.tags);
-  if (cliTags) {
+  if (cliTags && cliTags.length >= 5) {
     ph.TAGS_BODY = yamlListBody(cliTags);
+  } else if (cliTags && cliTags.length < 5 && isEntityConcept) {
+    // LLM 传了但不够 5 条 → 合并缺省并去重,LLM 优先级高于缺省
+    const base = DEFAULT_TAGS_BY_TYPE[type] || DEFAULT_TAGS_BY_TYPE["entity.other"];
+    const merged = [...new Set([...cliTags, ...base])].slice(0, MAX_TAGS_LENGTH);
+    ph.TAGS_BODY = yamlListBody(merged);
+    hints.push(`CLI --tags 仅 ${cliTags.length} 条 <5,已合并 DEFAULT_TAGS_BY_TYPE 兜底到 ${merged.length} 条 (lint-stub R7.4)`);
   } else if (isEntityConcept) {
     ph.TAGS_BODY = yamlListBody(DEFAULT_TAGS_BY_TYPE[type] || []);
   }
@@ -470,9 +481,11 @@ function derivePlaceholders(type, args) {
     ph.SUBDIR = subdir;
     ph.RESOURCE = args.resource
       || (ext ? `./raw/${subdir}/${args.slug}.${ext}` : "");
-    // source_file:wikilink 形式 `[[{subdir}/{slug}.{ext}|{title}]]`,空 title 时省略 `|alias`
+    // source_file:wikilink 形式 `[[{slug}|{subdir}/{slug}.{ext}]]`(左段=slug,符合 R2 wikilink 契约 + #54 三括号修复)。
+    // 若 LLM 显式 --source-file 已含 `[[` `]]`,直接使用(不脱外层,避免二次包裹);
+    // 缺省拼接改用 slug 作左段(右段作 alias 是文件路径,Obsidian resolver 只看左段)。
     const sFile = args.source_file
-      || (ext ? `[[${subdir}/${args.slug}.${ext}${args.title ? `|${args.title}` : ""}]]` : "");
+      || (ext ? `[[${args.slug}|${subdir}/${args.slug}.${ext}]]` : "");
     ph.SOURCE_FILE = sFile;
     const converter = args.converter || (map ? map.converter : "null");
     const native = args.native_text !== undefined
@@ -855,6 +868,39 @@ function main() {
     }
   }
 
+  // ponytail: v0.6.10 hotfix (#52) — 写入幂等:已存在 → 默认 skip,仅 --force 覆盖且先备份
+  let action = "created";
+  if (existsSync(outPath)) {
+    if (!args.force) {
+      action = "skipped-existing";
+      if (args.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          mode: "generate",
+          type,
+          path: outPath,
+          bytes: out.length,
+          action,
+          hints,
+        }, null, 2));
+      } else {
+        console.log(`OK: ${type} → ${outPath} (${action})`);
+        for (const h of hints) console.log(`HINT: ${h}`);
+      }
+      return;
+    }
+    // --force:备份旧文件到 temp/raw_backup_{date}_{sha8}/<relpath>,再覆盖
+    const date = new Date().toISOString().slice(0, 10);
+    const hash = createHash("sha256").update(readFileSync(outPath)).digest("hex").slice(0, 8);
+    const backupRoot = resolve(__dirname, "..", "..", "temp", `raw_backup_${date}_${hash}`);
+    const rel = relative(resolve(__dirname, "..", ".."), outPath).split(sep).join("/");
+    const backupPath = join(backupRoot, rel);
+    mkdirSync(dirname(backupPath), { recursive: true });
+    copyFileSync(outPath, backupPath);
+    console.error(`[gen-page] INFO: backup written to ${backupPath}`);
+    action = "regenerated-with-backup";
+  }
+
   try {
     writeFileSync(outPath, out, "utf8");
   } catch (e) {
@@ -870,10 +916,11 @@ function main() {
       type,
       path: outPath,
       bytes: out.length,
+      action,
       hints,
     }, null, 2));
   } else {
-    console.log(`OK: ${type} → ${outPath} (${out.length} bytes)`);
+    console.log(`OK: ${type} → ${outPath} (${action}, ${out.length} bytes)`);
     for (const h of hints) console.log(`HINT: ${h}`);
   }
 }

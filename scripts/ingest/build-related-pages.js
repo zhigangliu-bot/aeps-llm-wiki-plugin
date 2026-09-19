@@ -379,14 +379,16 @@ function renderRelatedBlock(entities, concepts) {
   if (entities.length) {
     lines.push(RELATED_ENTITIES_H3, '');
     for (const e of entities.sort((a, b) => a.title.localeCompare(b.title))) {
-      lines.push(`- [[${e.slug}]]`);
+      // ponytail: v0.6.10 hotfix (#55) — 左段恒为 slug,右段=title 作 alias
+      lines.push(`- [[${e.slug}|${e.title}]]`);
     }
     lines.push('');
   }
   if (concepts.length) {
     lines.push(RELATED_CONCEPTS_H3, '');
     for (const c of concepts.sort((a, b) => a.title.localeCompare(b.title))) {
-      lines.push(`- [[${c.slug}]]`);
+      // ponytail: v0.6.10 hotfix (#55) — 左段恒为 slug,右段=title 作 alias
+      lines.push(`- [[${c.slug}|${c.title}]]`);
     }
     lines.push('');
   }
@@ -397,7 +399,8 @@ function renderSourcesBlock(sourceRefs) {
   if (!sourceRefs.length) return null;
   const lines = [SOURCES_H2, ''];
   for (const s of sourceRefs.sort((a, b) => a.title.localeCompare(b.title))) {
-    lines.push(`- [[${s.slug}]]`);
+    // ponytail: v0.6.10 hotfix (#55) — 左段恒为 slug,右段=title 作 alias;Obsidian resolver 只看左段
+    lines.push(`- [[${s.slug}|${s.title}]]`);
   }
   lines.push('');
   return lines.join('\n');
@@ -544,14 +547,16 @@ function appendRelatedEntries(existingBlockText, entities, concepts) {
     if (!hasEntitiesH3) {
       lines.push('', RELATED_ENTITIES_H3);
     }
-    for (const e of newEntities) lines.push(`- [[${e.slug}]]`);
+    // ponytail: v0.6.10 hotfix (#55) — 左段恒为 slug,右段=title 作 alias
+    for (const e of newEntities) lines.push(`- [[${e.slug}|${e.title}]]`);
   }
   if (newConcepts.length) {
     const hasConceptsH3 = lines.some((l) => l.trim() === RELATED_CONCEPTS_H3);
     if (!hasConceptsH3) {
       lines.push('', RELATED_CONCEPTS_H3);
     }
-    for (const c of newConcepts) lines.push(`- [[${c.slug}]]`);
+    // ponytail: v0.6.10 hotfix (#55) — 左段恒为 slug,右段=title 作 alias
+    for (const c of newConcepts) lines.push(`- [[${c.slug}|${c.title}]]`);
   }
   return { newBlock: lines.join('\n') + '\n', duplicates };
 }
@@ -564,7 +569,7 @@ function appendSourcesEntries(existingBlockText, sourceRefs) {
   const duplicates = sourceRefs.filter((s) => before.has(s.slug)).map((s) => s.slug);
 
   const lines = existingBlockText.replace(/\s+$/, '').split('\n');
-  for (const s of newRefs) lines.push(`- [[${s.slug}]]`);
+  for (const s of newRefs) lines.push(`- [[${s.slug}|${s.title}]]`);
   return { newBlock: lines.join('\n') + '\n', duplicates };
 }
 
