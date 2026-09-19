@@ -5,6 +5,10 @@ plugin-version: 0.6.9
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/count-pages.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/gating-check.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/comparison-counter.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/query/append-log.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/check-qmd.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js *)
 ---
 
+## Change History
+
+- 2026-09-19: M2.6 research skill 实现 — 步骤 7 加未覆盖 → research 衔接行;plugin-version 维持 0.6.9(commit 前复核)
+
 ## 脚本路径约定
 
 - 本 skill 所有 `node scripts/xxx.js` 命令以 `${CLAUDE_PLUGIN_ROOT}` 为 plugin 根;该变量由调用方注入(plugin 自动注入或用户 shell 导出)。
@@ -89,6 +93,7 @@ LLM 对 `{question}` 推断 intent 三档:
 
 - 只基于阶段 2-5 实际读过的页回答,不编造 wiki 里没有的内容。
 - 未覆盖 → 明确回答"我读到的 wiki 里没有覆盖这点"(该字样触发步骤 8 的 `--not-covered`)。
+- 未覆盖 → 答 "我读到的 wiki 里没有覆盖这点";同时建议拉起 `/aeps-llm-wiki-research {question}` 补窟窿,**走 Task 工具启 subagent 隔离跑**(避免主上下文被多源精读内容灌爆,详见 research SKILL.md 步骤 0 与 R13)。
 
 ### 步骤 8:G11 gating 判定 + comparison 计数器提议(阻塞)
 
