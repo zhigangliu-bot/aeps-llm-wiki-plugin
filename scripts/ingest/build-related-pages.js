@@ -37,7 +37,21 @@
  * Exit codes:
  *   0 - 成功
  *   1 - 参数错
- *   2 - 写盘失败,或 entity/concept 页 sources 字段类型不符(v0.6.5 起 ERROR)
+ *   2 - 写盘失败,或 entity/concept 页 sources 字段类型不符(v0.6.5 起 ERROR),
+ *       或 batch 空声明未标 no-entities(v0.6.10 起 ERROR,issue #56a)
+ *
+ * v0.6.10 (issue #56a): batch.files[] 某 source 的 entities[] 与 concepts[] 同时为空
+ *   且未显式标 "no-entities": true → ERROR(fail++,exit 2),不再静默跳过
+ *   (此前空声明被吞掉,source 页 ## 相关页面 区块下空无一物;lint 侧由 lint-stub R7.11 兜底)。
+ *   同时:
+ *   - source slug 解析改为优先 batch 声明的 files[].slug 字段(无则回退 inbox 文件名),
+ *     不重新解析 source 页 frontmatter(#55:反链左段恒为 slug);
+ *   - 已存在但剥完占位后只剩裸 H2 的 ## 相关页面 / ## 来源资料 区块整块删除
+ *     (action=*-pruned-empty),避免合法 no-entities 页残留空 H2 触发 lint R7.11。
+ *   - #52 覆盖保护审计结论:本脚本只做 H2 区块级替换 / 插入(replaceH2Block /
+ *     removeH2Block / insertBeforeMaintain),frontmatter 与其余正文原样保留,
+ *     不存在 gen-page 那类整文件静默覆盖风险;写盘失败进 result.errors 并 exit 2,
+ *     无数据丢失路径。
  *
  * v0.6.5 (issue #12 / #17 校验侧): sources 字段类型不符从 WARN 升级为 ERROR exit 2。
  *   - 类型不符 = `sources` 存在但不是数组,或数组元素不是 {resource, ...} 对象
@@ -257,6 +271,14 @@ function inboxToSlug(filePath) {
   return base.replace(/\.[^.]+$/, '');
 }
 
+// v0.6.10 (#55/#56a): source slug 优先用 batch 声明的 files[].slug 字段
+// (init-batch normalizeFileEntry 已归一 slug/source_slug → slug,缺省为 null),
+// 无 slug 字段时回退 inbox 文件名 basename。不重新解析 source 页 frontmatter。
+function fileSlug(f) {
+  if (f && typeof f.slug === 'string' && f.slug) return f.slug;
+  return f && typeof f.path === 'string' ? inboxToSlug(f.path) : null;
+}
+
 async function readJson(p) {
   const txt = await fs.readFile(p, 'utf8');
   return JSON.parse(txt);
@@ -449,11 +471,13 @@ function extractWikilinkSlugs(blockText) {
 }
 
 // ponytail: v0.6.2 起,gen-page.js 步骤 7 / page-source.md L129-137 会在 ## 相关页面 区块
-// 留占位行(【本节由 ... 自动生成 ...】 + 空 ### Entities/Concepts H3 + 【自动填充 ...】)。
+// 留占位行(【本节由 ... 生成 ...】 + 空 ### Entities/Concepts H3 + 【自动填充 ...】)。
 // LLM 完稿后这些占位若不清掉,会留在正文中影响阅读。appendRelatedEntries 入口先剥掉,
-// 然后再追加本次确认的 wikilink(去重)。占位识别严格:行首【行尾】 + 内容含"自动生成/自动填充"。
+// 然后再追加本次确认的 wikilink(去重)。占位识别严格:行首【行尾】 + 内容含
+// "自动生成 / 自动填充 / 本节由"(v0.6.10 #56a 补"本节由":page-source.md L133 的区块
+// 说明占位行不含"自动生成"字样,漏匹配会让 no-entities 页残留占位、无法 prune 空区块)。
 // 不误伤 LLM 自写的 [来源不足,需人工复核] 等。
-const PLACEHOLDER_LINE_RE = /^【[^】]*(自动生成|自动填充)[^】]*】\s*$/;
+const PLACEHOLDER_LINE_RE = /^【[^】]*(自动生成|自动填充|本节由)[^】]*】\s*$/;
 const H3_LINE_RE = /^###\s+/;
 const WIKILINK_LINE_RE = /^-\s+\[\[/;
 
@@ -540,6 +564,15 @@ function appendRelatedEntries(existingBlockText, entities, concepts) {
   for (const e of entities) if (before.has(e.slug)) duplicates.push(e.slug);
   for (const c of concepts) if (before.has(c.slug)) duplicates.push(c.slug);
 
+  // v0.6.10 (issue #56a):本次无新条目可追加,且剥完占位后区块只剩裸 H2(无任何
+  // 内容行)→ 信号删除整块(newBlock: null)。合法 "no-entities": true 的 source 页
+  // 不应残留空 H2 区块(否则 lint R7.11 报「区块存在但无反链」)。有手工条目 / 批注
+  // 的区块不受影响(非空内容行 → 正常走替换路径)。
+  if (!newEntities.length && !newConcepts.length) {
+    const contentLines = cleaned.split('\n').slice(1).filter((l) => l.trim() !== '');
+    if (!contentLines.length) return { newBlock: null, duplicates };
+  }
+
   const lines = cleaned.replace(/\s+$/, '').split('\n');
   // 末尾追加(只在有空组时考虑 ### 子标题的重复)
   if (newEntities.length) {
@@ -562,13 +595,24 @@ function appendRelatedEntries(existingBlockText, entities, concepts) {
 }
 
 function appendSourcesEntries(existingBlockText, sourceRefs) {
-  const before = extractWikilinkSlugs(existingBlockText);
+  // v0.6.10 (#56a 自检修复):与 appendRelatedEntries 对称 —— 先剥占位行 / 空 H3,
+  // 否则 gen-page 模板产物(`## 来源资料(由 ingest 自动生成)` + 【LLM 自动填充…】占位行)
+  // 永远剥不成裸 H2:无 refs 时不 prune → lint-stub R7.11 对合法无来源页误报 ERROR;
+  // 有 refs 时占位行残留在反链上方。
+  const cleaned = stripPlaceholderLines(existingBlockText);
+  const before = extractWikilinkSlugs(cleaned);
   const newRefs = sourceRefs
     .filter((s) => !before.has(s.slug))
     .sort((a, b) => a.title.localeCompare(b.title));
   const duplicates = sourceRefs.filter((s) => before.has(s.slug)).map((s) => s.slug);
 
-  const lines = existingBlockText.replace(/\s+$/, '').split('\n');
+  // v0.6.10 (issue #56a):同 appendRelatedEntries —— 无新条目且区块只剩裸 H2 → 删整块
+  if (!newRefs.length) {
+    const contentLines = cleaned.split('\n').slice(1).filter((l) => l.trim() !== '');
+    if (!contentLines.length) return { newBlock: null, duplicates };
+  }
+
+  const lines = cleaned.replace(/\s+$/, '').split('\n');
   for (const s of newRefs) lines.push(`- [[${s.slug}|${s.title}]]`);
   return { newBlock: lines.join('\n') + '\n', duplicates };
 }
@@ -583,6 +627,12 @@ function replaceH2Block(body, start, end, newBlock) {
   const after = lines.slice(end);
   // 确保 before 末尾空行、after 开头空行
   return [...before, newBlock, ...after].join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+// v0.6.10 (issue #56a):整块删除 [start, end) 行区间(裸 H2 空区块 prune 用)
+function removeH2Block(body, start, end) {
+  const lines = body.split('\n');
+  return [...lines.slice(0, start), ...lines.slice(end)].join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 /**
@@ -637,8 +687,14 @@ async function main() {
 
   const batch = await readJson(args.batch);
 
-  // 1. 收集本 batch 的 source slug(由 init-batch 写入的 files[].path → inboxToSlug)
-  const batchSourceSlugs = new Set(batch.files.map(f => inboxToSlug(f.path)).filter(Boolean));
+  // 1. 收集本 batch 的 source slug(v0.6.10 起:files[].slug 优先,回退 files[].path → inboxToSlug)
+  //    两种形态都入集:声明字段与路径推导在下游统一用 fileSlug() 取权威值
+  const batchSourceSlugs = new Set();
+  for (const f of (batch.files || [])) {
+    const fromPath = f && typeof f.path === 'string' ? inboxToSlug(f.path) : null;
+    if (fromPath) batchSourceSlugs.add(fromPath);
+    if (f && typeof f.slug === 'string' && f.slug) batchSourceSlugs.add(f.slug);
+  }
 
   // 2. 扫所有 source / entity / concept 页
   const sources = await scanSources(knowledgeDir);
@@ -695,7 +751,7 @@ async function main() {
   const sourceTitleBySlug = new Map(); // source.slug → source.title
   for (const s of sources) sourceTitleBySlug.set(s.slug, s.title);
   for (const f of (batch.files || [])) {
-    const sourceSlug = inboxToSlug(f.path);
+    const sourceSlug = fileSlug(f);
     if (!sourceSlug || !batchSourceSlugs.has(sourceSlug)) continue;
     const srcTitle = sourceTitleBySlug.get(sourceSlug) || sourceSlug;
     for (const e of [...(Array.isArray(f.entities) ? f.entities : []), ...(Array.isArray(f.concepts) ? f.concepts : [])]) {
@@ -758,7 +814,7 @@ async function main() {
   // batch 文件级声明 → 按 source slug 分桶
   const batchDeclaredBySource = new Map(); // sourceSlug → { entities:[], concepts:[] }
   for (const f of (batch.files || [])) {
-    const sourceSlug = inboxToSlug(f.path);
+    const sourceSlug = fileSlug(f);
     if (!sourceSlug) continue;
     if (!batchSourceSlugs.has(sourceSlug)) continue; // 不在本 batch 的 source 不接收声明
     const bucket = { entities: [], concepts: [] };
@@ -866,6 +922,25 @@ async function main() {
     for (const msg of ec.srcTypeErrs || []) pushError(ec.relPath, msg);
   }
 
+  // v0.6.10 (issue #56a): batch 空声明 ERROR —— files[].entities[] 与 concepts[] 同时为空
+  //   且未显式标 "no-entities": true → ERROR(fail++,exit 2),不再静默跳过。
+  //   空声明会导致 source 页 ## 相关页面 区块无反链可写(lint 侧 R7.11 兜底报空区块)。
+  //   有效声明 = 数组元素含非空 slug 字符串(仅 {type} 无 slug 的伪声明按空计)。
+  for (const f of (batch.files || [])) {
+    if (!f || typeof f.path !== 'string' || !f.path) continue;
+    const ents = Array.isArray(f.entities) ? f.entities : [];
+    const cons = Array.isArray(f.concepts) ? f.concepts : [];
+    const entCount = ents.filter((e) => e && typeof e.slug === 'string' && e.slug).length;
+    const conCount = cons.filter((c) => c && typeof c.slug === 'string' && c.slug).length;
+    if (entCount > 0 || conCount > 0) continue;
+    if (f['no-entities'] === true) continue; // 显式确认无抽取 → 放行不算错
+    const sourceSlug = fileSlug(f);
+    const sourceObj = sources.find((s) => s.slug === sourceSlug);
+    const sourceFile = sourceObj ? sourceObj.relPath : `sources/${sourceSlug}.md`;
+    pushError(sourceFile,
+      `batch 声明为空:files["${f.path}"] 的 entities[] 与 concepts[] 同时为空,source 页 ## 相关页面 区块将无反链可写;在 SKILL.md 步骤 3 拍板阶段填 entities/concepts(每项 {type, slug, title?}),或显式标 "no-entities": true 确认无抽取`);
+  }
+
   // 6. 追加 + 保留:source 页 ## 相关页面 区块
   //   - 不存在 → 新建标准 block(只在 ## 维护说明 前插入)
   //   - 已存在 → 解析现有 wikilink,在末尾追加本次确认的新反链(去重),保留人工条目
@@ -879,12 +954,18 @@ async function main() {
       const lines = s.body.split('\n');
       const blockText = lines.slice(existing.start, existing.end).join('\n');
       const { newBlock, duplicates } = appendRelatedEntries(blockText, entities, concepts);
-      newBody = replaceH2Block(s.body, existing.start, existing.end, newBlock);
+      if (newBlock === null) {
+        // v0.6.10 (#56a):剥完占位只剩裸 H2 且无新条目 → 整块删除,不残留空区块
+        newBody = removeH2Block(s.body, existing.start, existing.end);
+        action = 'related-pruned-empty';
+      } else {
+        newBody = replaceH2Block(s.body, existing.start, existing.end, newBlock);
+        action = 'related-appended';
+      }
       for (const d of duplicates) {
         pushWarning(s.relPath, `duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
         console.error(`WARN: ${s.relPath}: duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
       }
-      action = 'related-appended';
     } else if (entities.length || concepts.length) {
       const block = renderRelatedBlock(entities, concepts);
       newBody = insertBeforeMaintain(s.body, block);
@@ -909,12 +990,18 @@ async function main() {
       const lines = ec.body.split('\n');
       const blockText = lines.slice(existing.start, existing.end).join('\n');
       const { newBlock, duplicates } = appendSourcesEntries(blockText, refs);
-      newBody = replaceH2Block(ec.body, existing.start, existing.end, newBlock);
+      if (newBlock === null) {
+        // v0.6.10 (#56a):只剩裸 H2 且无新条目 → 整块删除,不残留空区块
+        newBody = removeH2Block(ec.body, existing.start, existing.end);
+        action = 'sources-pruned-empty';
+      } else {
+        newBody = replaceH2Block(ec.body, existing.start, existing.end, newBlock);
+        action = 'sources-appended';
+      }
       for (const d of duplicates) {
         pushWarning(ec.relPath, `duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
         console.error(`WARN: ${ec.relPath}: duplicate wikilink [[${d}]] 已在人工条目中存在,保留人工条目`);
       }
-      action = 'sources-appended';
     } else if (refs.length) {
       const block = renderSourcesBlock(refs);
       newBody = insertBeforeMaintain(ec.body, block);

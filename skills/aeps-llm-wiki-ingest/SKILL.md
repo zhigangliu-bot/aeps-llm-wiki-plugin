@@ -107,6 +107,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUD
 LLM 读取每个文件(原文件或 `.converted.md`),提议:
 - `target_subdir` ∈ 15 raw 子目录字典(`doc/template/rawdir-spec.md`);**`subdir` 与 `target_subdir` 等价,均可接受**(init-batch.js 会归一为 `target_subdir`,两者同时存在时显式 `target_subdir` 优先)
 - 每抽 entity / concept 提议 slug(对齐 `concept-entities-spec.md` 14 子类判定),并**在 batch.files[] 提供 `entities[]` / `concepts[]` 数组,每项 `{type, slug, title?}`**(对齐 build-related-pages.js:697-700 schema;append-log 据此在 **Ingest** 行尾追加 entity/concept 抽取列)
+- **`entities[]` / `concepts[]` 声明必填,空声明须显式确认**:batch.files[] 每项必须在拍板阶段同步填好 `entities[]` / `concepts[]`(每项 `{type, slug, title?}`),`build-related-pages.js`(步骤 12)据此推导 source 页 `## 相关页面` 与 entity/concept 页 `## 来源资料` 双向反链;**`entities[]` 与 `concepts[]` 同时为空且未显式标 `"no-entities": true` → 步骤 12 直接 ERROR exit 2**(该 source 页反链区块将为空,lint R7.11 对空区块同样报 ERROR)。确实无 entity/concept 抽取时,必须在该 file 显式标 `"no-entities": true` 确认
 
 命名飘检查:已有 wiki 页与新抽 entity slug Levenshtein ≤ 2 → WARN 提示强制改用。
 
@@ -482,7 +483,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 读 stdout JSON:
 
 - `linted` 字段:扫到的 knowledge/ 页数
-- `fail`:规则命中数(含 C9 / R7.2);**>0 → 必须修复后重跑,本次 ingest 未完成**
+- `fail`:规则命中数(含 C9 / R7.2 / **R7.11(反链区块内部完整性,v0.6.10:source 页 `## 相关页面` 区块内须有 `### Entities` / `### Concepts` H3 且至少一个 H3 下有 wikilink;entity/concept 页 `## 来源资料` 区块内须有 ≥1 条 wikilink;区块整体缺失不触发)**);**>0 → 必须修复后重跑,本次 ingest 未完成**
 - `warn`:规则 R7.1(frontmatter `tags` < 5 条)+ **R7.3(reserved filename 误含 frontmatter)** + C21 命中数;`>0` → WARN(建议修复)
 - `warnings_by_file` / `errors_by_file`:聚合到文件级别,SKILL.md 可按路径展示
 - M2.4 真实实现替换 stub 内容,字段含义不变。

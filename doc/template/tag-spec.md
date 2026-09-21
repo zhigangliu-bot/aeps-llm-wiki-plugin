@@ -19,6 +19,7 @@
 
 | 日期 | 变更人 | 变更内容 |
 |---|---|---|
+| 2026-09-20 | zhigangliu-bot | §1.5 新增 §1.5.2「gen-page 缺省注入规范」:固化 `gen-page.js` 对 entity/concept 页的缺省 tags 注入规则(5 条最小合规集 + 显式 `--tags` 原样写入),对齐 issue #53 / v0.6.10 |
 | 2026-09-05 | zhigangliu-bot | §1.1 打标数量硬约束由"最多不超过 10 个"扩展为"最少 5 条 / 最多 10 条",与 `frontmatter.schema.json` 的 `minItems: 5` 对齐(原 §1.1 仅约束上限,§8 Lint `< 5` 触发 WARN 与 Schema 合规区间错位) |
 
 ---
@@ -81,6 +82,17 @@ LLM 在 ingest 自动打标时,经常在两个边界 axis 之间产生模糊决�
 - **`layer/middleware-soa` vs `layer/bsw-os`**:AUTOSAR RTE / DDS / 服务总线 → `middleware-soa`(SDK 视角的中间件);MCAL / OS Kernel / Driver → `bsw-os`。**犹豫时优先归 `middleware-soa`**,因其收敛面更广(详见 §3)
 - **`phase/architecture` vs `phase/detail-design`**:概念选型 / 逻辑架构 → `architecture`;接口表 / 类图 / 代码级设计 → `detail-design`(详见 §4)
 - **`docform/technical-doc` vs `docform/interface-spec`**:整体方案 → `technical-doc`;**独立成册的接口规范** → `interface-spec`(高频检索对象,详见 §6)
+
+#### 1.5.2 gen-page 缺省注入规范(v0.6.10 / issue #53)
+
+`gen-page.js` 生成 `entity.*` / `concept.*` 页骨架时,`tags:` 字段按以下规则注入:
+
+- **未显式传 `--tags`**:按脚本内 `DEFAULT_TAGS_BY_TYPE`(14 个 entity/concept 子类映射)注入 **5 条**最小合规集,全部取自本字典 6 轴既有取值:
+  - 3 条必填 / 推荐轴各 1 条:`docform/<对应子类>` + `domain/<语义相关>` + `maturity/<单值>`;
+  - 再按 type 子类启发式补 2 条语义轴(`layer/` / `tec/` / `phase/`,如 `concept.standard` 强绑定 `tec/iso26262` + `maturity/standard`,对齐 §8.1 范式 1 / 范式 3)。
+  - 产出直接满足 §1.1 数量区间(≥5 ≤10)与 §8 的 R7.4 校验(数量 + 字典前缀 + 必填轴 + 单值轴),一次生成即过 lint。
+- **显式传 `--tags`**:以传入为准**原样写入**,脚本不合并、不补齐、不改写;数量不足(如 <5 条)由 lint R7.4 ERROR 报错,补齐责任在调用方 / LLM。
+- 缺省集只是 skeleton:LLM 在 ingest 后续步骤仍应按实际内容精修 tags —— 本节保证的是"一次生成即合规"的底线,不代替语义打标。
 
 ### 1.6 命名约定(plugin 维护 + LLM 写入都遵守)
 

@@ -50,6 +50,17 @@
 //     - N4 分治(用户拍板 2026-09-17):entity.* / concept.* 页禁止 sources 字段 ——
 //       不再注入 SOURCES_BODY(--source-resource/--source-title/--sources 入参忽略并 WARN),
 //       渲染时显式删除模板 / 旧自定义模板遗留 sources 块;物理定位由 source 页顶层 resource 承载。
+//   - 0.6.10 (issues #52/#53/#54, task 09-20-fix-v0610-issue-batch):
+//     - #52 覆盖保护:目标已存在且未传 --force → 不改文件,JSON action "skipped-existing"(exit 0);
+//       传 --force → 旧文件先备份到 <vault>/temp/raw_backup_{YYYY-MM-DD}_{sha8}/{相对 vault 的原路径}
+//       (vault 根 = --project / WIKI_PROJECT;--out 直写时向上探测含 knowledge/ 的祖先;兜底 plugin 仓外层),
+//       stderr 打 "INFO: backup written to ...",再覆盖,action "regenerated-with-backup";新建 action "created" 不变。
+//     - #53 缺省 tags:显式 --tags 一律原样写入(数量 / 内容不改写,<5 条由 lint-stub R7.4 兜底报错);
+//       不传 --tags 的 entity.*/concept.* 页按 DEFAULT_TAGS_BY_TYPE 注入 5 条(≥5 ≤10,含 docform/ +
+//       domain/ + maturity/ 三条必填轴 + 2 条语义轴),产出直接过 lint-stub R7.4。
+//     - #54 三括号 wikilink:正文 `> 原始来源:` 统一 `[[slug|raw/<subdir>/<slug>.<ext>]]`(左段裸 slug;
+//       路径 3/4 指向 .converted.md 副本);--source-file 传入已含 [[...]] / [..](..) 包裹时防御性归一化
+//       (剥掉外层括号取路径,重组为 [[stem|path]]);全量生成产物自检,出现 [[[ / ]]] 时 stderr WARN。
 //   - 0.6.5: WP-2 (issues #16/#17/#14) — frontmatter 注入管道统一重构:
 //     ① 统一优先级「CLI 传入 > 脚本自动推导 > 模板默认」;--tags / --aliases /
 //        --source-resource / --source-title 与 --description / --summary / --stale-after 同管道。
@@ -112,6 +123,22 @@ function readPluginVersion() {
     console.error(`WARN: plugin.json 读取失败(${root}/.claude-plugin/plugin.json),fallback "unknown": ${e.message}`);
     return "unknown";
   }
+}
+
+/** #52:解析备份锚定根(vault / 用户工程根),backup 落到 <vault>/temp/raw_backup_{date}_{hash}/ 下。
+ *  优先级:--project / WIKI_PROJECT(显式 vault 根)> 从 outPath 向上探测直接包含 knowledge/
+ *  的祖先目录(--out 直写但未传 --project 的场景)> plugin 仓外层目录(兜底,向后兼容)。
+ *  全程相对拼接,不引入硬编码绝对路径。 */
+function resolveVaultRoot(outPath, projectRoot) {
+  if (projectRoot) return projectRoot;
+  let dir = dirname(resolve(outPath));
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, "knowledge"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(__dirname, "..", "..");
 }
 
 // ---- 5 路径分流 -----------------------------------------------------------
@@ -190,8 +217,6 @@ const DEFAULT_TAGS_BY_TYPE = {
   "concept.term":        ["docform/study-notes", "domain/cross-domain", "layer/system", "phase/requirements", "maturity/concept"],
   "concept.other":       ["docform/study-notes", "domain/cross-domain", "layer/system", "phase/architecture", "maturity/concept"],
 };
-// ponytail: v0.6.10 hotfix (#53) — 与 scripts/ingest/lint-stub.js MAX_TAGS_LENGTH 对齐
-const MAX_TAGS_LENGTH = 10;
 
 // ---- frontmatter 注入管道 helper(v0.6.5 WP-2)-----------------------------------------
 // 统一优先级:CLI 传入 > 脚本自动推导 > 模板默认。
@@ -267,6 +292,50 @@ function toSourceObj(item) {
   const stem = String(item).trim().replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim()
     .replace(/\.md$/, "").split("/").pop();
   return { resource: `[[${stem}]]` };
+}
+
+// ---- #54:source_file / 原始来源 wikilink 归一化 --------------------------------
+// 事故形态(issue #54):`> 原始来源:[[[aios]]-2024-mei-rutgers-kernel](raw/...)` ——
+// --source-file 已带 [[...]] wikilink,又被当作纯文本包了一层 [](.)。
+// 归一化把任意包裹形态剥到**裸路径**,再按 `[[stem|path]]` 重组(stem = 去 ext 的 basename):
+//   1) markdown 链接 `[text](url)` → 取 url(text 段可能已被污染,整段丢弃)
+//   2) wikilink 包裹 `[[a|b]]` / `[[a]]` / 多重包裹 `[[[a]]]` → 取「更像路径」的一侧
+//      (frontmatter-spec §12.5 传 [[path|alias]] 与 gen-page 缺省 [[slug|path]] 两种方向
+//       都兼容 → patch round-trip 幂等,已归一化值不被二次改写)
+//   3) 残余零散 [ ] 一律剥掉 → 重组结果内部恒无括号,永不出现 [[[ / ]]]
+//   4) 路径前缀 `./` 与 `raw/` 剥掉(source_file 语义 = raw/ 下相对路径,frontmatter-spec §12.5)
+// 返回 null 表示输入为空 / 剥完为空(调用方走缺省拼接)。
+function normalizeSourceFileRef(v) {
+  if (v === undefined || v === null) return null;
+  let s = String(v).trim();
+  if (!s) return null;
+  let m;
+  // 1) markdown 链接[text](url):text 自身含 [[..]] 也无所谓,只取 url
+  while ((m = s.match(/^\[(.+)\]\(([^()\s]+)\)$/))) s = m[2].trim();
+  // 2) wikilink 包裹(含多重):[[a|b]] / [[a]] / [[[a]]] → 取更像路径的一侧(平手取左段)
+  while ((m = s.match(/^\[+\[([^\]]+)\]\]+$/))) {
+    const inner = m[1];
+    const pipe = inner.indexOf("|");
+    s = (pipe === -1 ? inner : pickPathierSide(inner.slice(0, pipe), inner.slice(pipe + 1))).trim();
+  }
+  // 3) 残余零散括号剥掉(#54:任何输出不得出现连续 3 个 [ 或 ])
+  s = s.replace(/[\[\]]/g, "").trim();
+  // 4) 路径归一:反斜杠 → /,剥 ./ 与 raw/ 前缀
+  s = s.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^raw\//, "").replace(/^\//, "");
+  const segs = s.split("/").filter(Boolean);
+  if (!segs.length) return null;
+  const file = segs[segs.length - 1];
+  const dot = file.lastIndexOf(".");
+  const stem = dot > 0 ? file.slice(0, dot) : file;
+  if (!stem) return null;
+  return { stem, path: segs.join("/") };
+}
+
+/** wikilink 两段里选「更像文件路径」的一段:含 / 记 2 分,末段带扩展名记 1 分,高分胜出。
+ *  兼容两种输入方向:[[path|alias]](spec §12.5)与 [[slug|path]](gen-page 缺省 / 归一化产物)。 */
+function pickPathierSide(a, b) {
+  const score = (x) => (x.includes("/") ? 2 : 0) + (/\.[^./\\]+$/.test(x.split("/").pop() || "") ? 1 : 0);
+  return score(b.trim()) > score(a.trim()) ? b : a;
 }
 
 // ponytail: PR-A (#22/#26) — 脚本生成 H2 特征串正则
@@ -458,17 +527,13 @@ function derivePlaceholders(type, args) {
   }
 
   // ---- tags:CLI --tags > DEFAULT_TAGS_BY_TYPE(entity/concept)> 模板默认(undefined → 不动模板)
-  // v0.6.10 hotfix (#53):LLM 显式传 --tags 但 <5 条时,自动用缺省补足到 ≥5 条,
-  // 否则 lint-stub R7.4 ERROR。优先级:LLM tags 全部保留 + 缺省兜底补差;完全没传走全缺省。
+  // v0.6.10 #53:显式 --tags 一律**原样写入**——数量 / 内容不改写(即使 <5 条也不代填,
+  // 数量不足由 lint-stub R7.4 ERROR 向 LLM 报错,补齐责任在人 / LLM,不在脚本静默改写)。
+  // 不传 --tags 且为 entity.*/concept.* → DEFAULT_TAGS_BY_TYPE 注入 5 条最小合规集
+  // (≥5 ≤10,必含 docform/ + domain/ + maturity/ 三条必填轴 + 2 条语义轴,产出直接过 R7.4)。
   const cliTags = parseListArg(args.tags);
-  if (cliTags && cliTags.length >= 5) {
+  if (cliTags) {
     ph.TAGS_BODY = yamlListBody(cliTags);
-  } else if (cliTags && cliTags.length < 5 && isEntityConcept) {
-    // LLM 传了但不够 5 条 → 合并缺省并去重,LLM 优先级高于缺省
-    const base = DEFAULT_TAGS_BY_TYPE[type] || DEFAULT_TAGS_BY_TYPE["entity.other"];
-    const merged = [...new Set([...cliTags, ...base])].slice(0, MAX_TAGS_LENGTH);
-    ph.TAGS_BODY = yamlListBody(merged);
-    hints.push(`CLI --tags 仅 ${cliTags.length} 条 <5,已合并 DEFAULT_TAGS_BY_TYPE 兜底到 ${merged.length} 条 (lint-stub R7.4)`);
   } else if (isEntityConcept) {
     ph.TAGS_BODY = yamlListBody(DEFAULT_TAGS_BY_TYPE[type] || []);
   }
@@ -481,11 +546,13 @@ function derivePlaceholders(type, args) {
     ph.SUBDIR = subdir;
     ph.RESOURCE = args.resource
       || (ext ? `./raw/${subdir}/${args.slug}.${ext}` : "");
-    // source_file:wikilink 形式 `[[{slug}|{subdir}/{slug}.{ext}]]`(左段=slug,符合 R2 wikilink 契约 + #54 三括号修复)。
-    // 若 LLM 显式 --source-file 已含 `[[` `]]`,直接使用(不脱外层,避免二次包裹);
-    // 缺省拼接改用 slug 作左段(右段作 alias 是文件路径,Obsidian resolver 只看左段)。
-    const sFile = args.source_file
-      || (ext ? `[[${args.slug}|${subdir}/${args.slug}.${ext}]]` : "");
+    // source_file(#54 防御性归一化):显式传入含 [[...]] / [..](..) 包裹时,剥掉外层括号取裸路径,
+    // 统一重组为 `[[stem|path]]`(stem = 裸 basename;source_file 语义 = raw/ 下相对路径);
+    // 未传 → 缺省拼接 `[[slug|{subdir/}{slug}.{ext}]]`。任何分支都保证不出现 [[[ / ]]]。
+    const sfRef = normalizeSourceFileRef(args.source_file);
+    const sFile = sfRef
+      ? `[[${sfRef.stem}|${sfRef.path}]]`
+      : (ext ? `[[${args.slug}|${subdir ? `${subdir}/` : ""}${args.slug}.${ext}]]` : "");
     ph.SOURCE_FILE = sFile;
     const converter = args.converter || (map ? map.converter : "null");
     const native = args.native_text !== undefined
@@ -601,8 +668,11 @@ function renderBody(type, tpl, args) {
       continue;
     }
     if (type === "source" && h2 === "重点摘录" && map) {
-      const target = map.linkTarget(args.slug, args.subdir || "", ext);
-      lines.push(`> 原始来源:[${args.slug}](${target})`);
+      // #54:正文 `> 原始来源:` 统一 wikilink 形态 `[[slug|raw/<subdir>/<slug>.<ext>]]`
+      // (路径 3/4 → .converted.md 副本);左段 = 裸 slug(剥零散括号,杜绝 [[[ 形态)。
+      const target = map.linkTarget(args.slug, args.subdir || "", ext).replace(/^\.\//, "");
+      const bareSlug = String(args.slug).replace(/[\[\]]/g, "");
+      lines.push(`> 原始来源:[[${bareSlug}|${target}]]`);
       lines.push("");
       lines.push("【LLM 自动填充:从原文摘录 3-5 条要点】");
     } else if (h2 === "我的思考") {
@@ -750,6 +820,14 @@ function main() {
   const body = renderBody(type, tpl, args);
   const out = fm + "\n" + body;
 
+  // #54 自检:全量生成产物不得出现连续 3 个 [ 或 ](wikilink 双重包裹事故形态)。
+  // 正常路径恒不触发;触发即说明有入参把括号带进了输出,stderr WARN 提示排查。
+  if (/\[{3}|\]{3}/.test(out)) {
+    process.stderr.write(
+      "[gen-page] WARN: 生成产物含连续 3 个 [ 或 ](#54 wikilink 双重包裹?),请检查 --source-file / --slug 入参\n"
+    );
+  }
+
   // 输出路径:knowledge/{TYPE_TO_DIR}/{slug}.md 或 --out 指定
   // 用户工程根用上面解析的 projectRoot,与 templates 路径同源
   const outPath = args.out
@@ -889,11 +967,13 @@ function main() {
       }
       return;
     }
-    // --force:备份旧文件到 temp/raw_backup_{date}_{sha8}/<relpath>,再覆盖
+    // --force:备份旧文件到 <vault>/temp/raw_backup_{YYYY-MM-DD}_{sha8}/<相对 vault 的原路径>,再覆盖。
+    // vault 根解析见 resolveVaultRoot(#52:temp 目录必须在 vault / 工程根下,relpath 相对 vault 根)。
+    const vaultRoot = resolveVaultRoot(outPath, projectRoot);
     const date = new Date().toISOString().slice(0, 10);
     const hash = createHash("sha256").update(readFileSync(outPath)).digest("hex").slice(0, 8);
-    const backupRoot = resolve(__dirname, "..", "..", "temp", `raw_backup_${date}_${hash}`);
-    const rel = relative(resolve(__dirname, "..", ".."), outPath).split(sep).join("/");
+    const backupRoot = join(vaultRoot, "temp", `raw_backup_${date}_${hash}`);
+    const rel = relative(vaultRoot, outPath).split(sep).join("/");
     const backupPath = join(backupRoot, rel);
     mkdirSync(dirname(backupPath), { recursive: true });
     copyFileSync(outPath, backupPath);

@@ -28,7 +28,9 @@
  *   C20   软约束 source 自由追加节清单(不 FAIL,进 JSON `c20_free_sections` + 文本报告)
  *   C21   WARN  source converted_path 副本图片链接 resolve(AC-16;悬空单列,http(s) 跳过)
  *   §2.3  proposal 孤儿 / 陈旧 / 漏链 / 命名飘 / 矛盾 hint(矛盾判定归 LLM,脚本零产出;
- *         孤儿对 analysis 豁免 overview.md / index.md 反链,issue #43)
+ *         孤儿对 analysis 豁免 overview.md / index.md 反链,issue #43;
+ *         漏链只按 basename 完整 token(词边界)计数 —— aliases / frontmatter / 代码 /
+ *         md 链接 URL 段 / 资源路径 / tags 轴值一律不算提及,issue #51)
  *   C4 编号保留空缺不复用(v0.5.6 起 analyses 不校验 H2 骨架,被 C15.4 取代)
  *
  * exit code: 0 成功(含 wiki 为空)/ 1 用法或环境错误 / 2 存在 FAIL(--fix 后仍剩也为 2)
@@ -227,20 +229,50 @@ function wikilinkTargets(text) {
   return out;
 }
 
-/** 剥掉全部 wikilink 后的正文(漏链扫描:wikilink 内的提及不算提及) */
-function stripWikilinks(text) {
-  return text.replace(WIKILINK_RE, ' ');
+/**
+ * 漏链扫描用正文纯文本(issue #51):只保留可算「裸提及」的部分。
+ *   - fenced code(``` / ~~~ 围栏整行剔除,与 C15.5 同款围栏判定)
+ *   - inline code(`...`)
+ *   - 已有 wikilink [[...]] 内文本(链内提及不算裸提及)
+ *   - markdown 链接 [text](url) 的 url 段(保留 text;图片 ![alt](url) 整体剔除)
+ * frontmatter 由 splitFrontmatter 切掉,rec.body 本就不含 `---` 块;
+ * 资源路径片段(`./raw/...`、带扩展名文件名)与 tags 轴值(tec/nev)由
+ * tokenCountRe 的词边界字符集拦截(见其注释),不在此重复处理。
+ */
+function plainScanText(body) {
+  let out = '';
+  let inFence = false;
+  for (const line of body.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    out += `${line}\n`;
+  }
+  return out
+    .replace(/`[^`\n]*`/g, ' ')
+    .replace(WIKILINK_RE, ' ')
+    .replace(MD_LINK_RE, (whole, bang, text) => (bang === '!' ? ' ' : ` ${text} `));
 }
 
-function countOccurrences(hay, needle) {
-  if (!needle) return 0;
-  let n = 0;
-  let i = 0;
-  while ((i = hay.indexOf(needle, i)) !== -1) {
-    n++;
-    i += needle.length;
-  }
-  return n;
+/**
+ * basename 完整 token 计数正则(issue #51):命中要求两侧邻接字符均不是 token 内部字符
+ * (字母 / 数字 / 下划线 / 斜杠 / 反斜杠 / 连字符;左侧另拦 `.`),且右侧不是
+ * `.`+单词字符(扩展名形态)。子串命中全部拦截:
+ *   - `pv-report.md`、`concept-term-nev.md`(带扩展名文件名:右侧 `.`+单词字符)
+ *   - `./raw/cpca/xxx.pdf`(资源路径片段:`/` 在边界上)
+ *   - `tec/nev`(tags 轴值受控词:`/` 在边界上)
+ *   - `concept-term-nev-v2`、`my-concept-term-nev-notes`(更长 slug 的子串:`-` 在边界上)
+ * CJK 字符不属于 `[\w]`,视为边界 —— 中文行文中紧邻 slug 的裸提及仍算完整 token;
+ * 句末 `stem.`(点后非单词字符,如换行 / 空格)也算,`stem.md`(点后单词字符)不算。
+ */
+function tokenCountRe(token) {
+  return new RegExp(`(?<![\\w./\\\\-])${escapeRegExp(token)}(?![\\w/\\\\-]|\\.\\w)`, 'g');
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Levenshtein 距离(命名飘扫描;文件名短串,DP 开销可忽略) */
@@ -857,16 +889,21 @@ function mechanicalScan(records, proposals, ctx) {
     }
   }
 
-  // 漏链:他页 basename / aliases 在本页正文(剥 wikilink 后)出现 ≥ 2 次但无对应 wikilink
+  // 漏链(issue #51 修正口径):他页 basename 在本页正文纯文本中以完整 token(两侧词边界,
+  // 非子串)出现 ≥2 次且无对应 wikilink 才提案。aliases 不再参与计数(短 alias 的子串命中
+  // 是 #51 误报主因);frontmatter / fenced+inline code / wikilink 内文本 / md 链接 URL 段的
+  // 剥离见 plainScanText,资源路径 / 带扩展名文件名 / tags 轴值 / 更长 slug 子串的拦截见 tokenCountRe。
+  // 提及计数正则按 stem 预编译复用(N² 双循环下避免每对重新构造 RegExp)。
+  const tokenRes = new Map();
+  for (const r of records) {
+    if (!tokenRes.has(r.stem)) tokenRes.set(r.stem, tokenCountRe(r.stem));
+  }
   for (const rec of records) {
-    const text = stripWikilinks(rec.body);
+    const text = plainScanText(rec.body);
     for (const other of records) {
       if (other.rel === rec.rel) continue;
       if (linkSets.get(rec.rel).has(other.stem)) continue; // 已有 wikilink
-      let mentions = countOccurrences(text, other.stem);
-      for (const alias of aliasesOf(other)) {
-        mentions += countOccurrences(text, alias);
-      }
+      const mentions = (text.match(tokenRes.get(other.stem)) || []).length;
       if (mentions >= 2) {
         proposals.push({ kind: 'missing-link', file: rec.rel, detail: `提及 ${other.stem} ×${mentions} 但无 [[wikilink]]`, fixable: false });
       }
@@ -912,12 +949,6 @@ function mechanicalScan(records, proposals, ctx) {
       }
     }
   }
-}
-
-function aliasesOf(rec) {
-  const a = rec.fm ? rec.fm.aliases : null;
-  if (!Array.isArray(a)) return [];
-  return a.filter((x) => typeof x === 'string' && x.trim() !== '').map((x) => x.trim());
 }
 
 function sharedDomainTags(a, b) {

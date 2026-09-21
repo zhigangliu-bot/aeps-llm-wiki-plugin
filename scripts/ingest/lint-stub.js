@@ -17,6 +17,14 @@
  *   - R7.6 (ERROR): sources[] 元素非对象(如字符串 "[[slug]]" 必报错,
  *                   错误信息附对象写法示例;对齐 schema sources.items.type: object)
  *
+ * v0.6.10 起(修复 issue #56):新增 1 条 ERROR 规则,兜底「batch 空声明被静默吞掉」:
+ *   - R7.11 (ERROR): H2 反链区块内部完整性 —— type: source 页 `## 相关页面` 区块
+ *                   (存在时)须含 ≥1 个 ### Entities / ### Concepts H3 且 H3 下 ≥1 条
+ *                   `- [[...]]`;type: entity.* / concept.* 页 `## 来源资料` 区块(存在时)
+ *                   须含 ≥1 条 `- [[...]]`。区块缺失不触发(本规则只管「区块内部完整性」,
+ *                   缺区块的存量页 / 合法 no-entities 页不误伤;gen-page 产物必含占位区块,
+ *                   空/半空区块即命中)。
+ *
  * SKILL.md 步骤 19 调 `node scripts/ingest/lint-stub.js --project <dir>` 解析输出。
  *
  * 接口契约(锁定):
@@ -49,6 +57,11 @@
  *   - **不引入新依赖**:仅用 node:fs / node:path / node:process / scripts/lib/*(iso8601 复用)。
  *
  * change history:
+ *   - 0.6.10 (issue #56 fix):新增 R7.11(ERROR)H2 反链区块内部完整性 ——
+ *     source 页 `## 相关页面` 区块须含 ≥1 个 ### Entities / ### Concepts H3 且其下
+ *     ≥1 条 `- [[...]]`;entity / concept 页 `## 来源资料` 区块须含 ≥1 条 `- [[...]]`;
+ *     断言失败 → fail++ / exit 2。区块缺失不触发(只查已存在区块的内部完整性)。
+ *     STUB_VERSION M2.6-stub → M2.7-stub。
  *   - 0.6.6 (issue #21 fix, PR-C):新增 R7.4 字典前缀校验 —— 每条 tag 必须匹配
  *     ^(domain|layer|phase|docform|maturity|tec)/[a-z0-9][a-z0-9-]*$ (对齐
  *     frontmatter-spec.md §4.2.4 + tag-spec.md §1.4);违规 → ERROR(fail++);
@@ -80,7 +93,7 @@ await requireDeps({ 'js-yaml': 'js-yaml' });
 // 动态 import:必须在 requireDeps 之后
 const yaml = (await import('js-yaml')).default;
 
-const STUB_VERSION = 'M2.6-stub';
+const STUB_VERSION = 'M2.7-stub';
 const MIN_TAGS_LENGTH = 5; // 对齐 doc/schema/frontmatter.schema.json tags minItems
 // v0.6.5 (issue #12): R7.4 上限,对齐 frontmatter.schema.json tags maxItems
 const MAX_TAGS_LENGTH = 10;
@@ -240,6 +253,88 @@ function checkWikilinkBasenames(body, basenameSet, relPath) {
     }
   }
   return warns;
+}
+
+// ---- v0.6.10 (issue #56) R7.11:H2 反链区块内部完整性 ----
+const R711_RELATED_H2_PREFIX = '## 相关页面';
+const R711_SOURCES_H2_PREFIX = '## 来源资料';
+const R711_H3_RE = /^###\s+(?:Entities|Concepts)\b/;
+const R711_WIKILINK_ITEM_RE = /^\s*-\s+\[\[/;
+
+/**
+ * 取 body 中首个前缀匹配的 H2 区块行数组(从 H2 行到下一 H2 行 / 文件尾,不含下一 H2)。
+ * 不存在返回 null。R7.11 用 —— 与 build-related-pages.js 的 RELATED_H2_PREFIX /
+ * SOURCES_H2_PREFIX 前缀语义一致(兼容手工自定义后缀标题)。
+ */
+function r711H2BlockLines(body, h2Prefix) {
+  const lines = (body || '').split(/\r?\n/);
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^##\s/.test(t) && t.startsWith(h2Prefix)) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let j = start + 1; j < lines.length; j++) {
+    if (/^##\s/.test(lines[j].trim())) {
+      end = j;
+      break;
+    }
+  }
+  return lines.slice(start, end);
+}
+
+/**
+ * R7.11 (v0.6.10, issue #56):H2 反链区块内部完整性(ERROR)。
+ *   - type: source 页:`## 相关页面` 区块(存在时)到下一 H2 之间须 ≥1 个
+ *     `### Entities` / `### Concepts` H3,且至少一个该 H3 之下 ≥1 条 `- [[...]]`;
+ *   - type: entity.* / concept.* 页:`## 来源资料` 区块(存在时)须 ≥1 条 `- [[...]]`。
+ * 区块缺失不触发:本规则只校验「已存在区块的内部完整性」,配合 build-related-pages
+ * 的空区块 prune(裸 H2 删除)—— 合法 "no-entities": true 的 source 页不会有空区块,
+ * gen-page 占位区块未填反链 / 空声明被吞的页必命中。
+ * 返回错误消息数组(可能多条),合规 / 不适用 / 区块缺失返回 []。
+ */
+function checkR711BacklinkBlocks(fm, body) {
+  const errs = [];
+  const type = fm.type;
+  if (type === 'source') {
+    const block = r711H2BlockLines(body, R711_RELATED_H2_PREFIX);
+    if (!block) return errs;
+    const h2Title = block[0].trim();
+    // H3 子标题定位(跳过 H2 行本身)
+    const h3Idx = [];
+    for (let i = 1; i < block.length; i++) {
+      if (R711_H3_RE.test(block[i].trim())) h3Idx.push(i);
+    }
+    if (h3Idx.length === 0) {
+      errs.push(`R7.11 source 页 ${h2Title} 区块内无 ### Entities / ### Concepts 子标题(区块存在时 H2 到下一 H2 间须 ≥1 个 H3 且其下 ≥1 条 - [[...]] 反链;确认无抽取时删除空区块并在 batch 标 "no-entities": true,或回 SKILL.md 步骤 3 补 entities/concepts 声明)`);
+      return errs;
+    }
+    let hasWikilink = false;
+    for (const idx of h3Idx) {
+      for (let j = idx + 1; j < block.length; j++) {
+        const t = block[j].trim();
+        if (/^##\s/.test(t) || /^###\s/.test(t)) break; // 下一 H2/H3 边界
+        if (R711_WIKILINK_ITEM_RE.test(t)) { hasWikilink = true; break; }
+      }
+      if (hasWikilink) break;
+    }
+    if (!hasWikilink) {
+      errs.push(`R7.11 source 页 ${h2Title} 的 ### Entities / ### Concepts 子标题下无 - [[...]] 反链条目(占位未填充 / 空声明被吞;回 SKILL.md 步骤 3 补 entities/concepts 声明后重跑 build-related-pages)`);
+    }
+  } else if (typeof type === 'string' && (type.startsWith('entity.') || type.startsWith('concept.'))) {
+    const block = r711H2BlockLines(body, R711_SOURCES_H2_PREFIX);
+    if (!block) return errs;
+    const h2Title = block[0].trim();
+    const hasWikilink = block.slice(1).some((l) => R711_WIKILINK_ITEM_RE.test(l));
+    if (!hasWikilink) {
+      errs.push(`R7.11 ${type} 页 ${h2Title} 区块内无 - [[...]] 反链条目(区块存在时须 ≥1 条指向 source 页的反链;占位未填充说明该页无来源溯源,补 batch 声明后重跑 build-related-pages,或删除空区块)`);
+    }
+  }
+  return errs;
 }
 
 /**
@@ -427,6 +522,13 @@ async function main() {
       if (!warningsByFile[p.relPath]) warningsByFile[p.relPath] = [];
       warningsByFile[p.relPath].push(msg);
       flatWarnings.push(msg);
+    }
+
+    // v0.6.10 (issue #56): R7.11 H2 反链区块内部完整性 → ERROR(fail++,exit 2)
+    for (const msg of checkR711BacklinkBlocks(p.fm, p.body)) {
+      if (!errorsByFile[p.relPath]) errorsByFile[p.relPath] = [];
+      errorsByFile[p.relPath].push(msg);
+      flatErrors.push(`${p.relPath}: ${msg}`);
     }
 
     // C21 (v0.5.9): source 页 ## 重点摘录 之前缺自由追加节 → WARN

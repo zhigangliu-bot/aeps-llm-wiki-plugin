@@ -1,11 +1,12 @@
 # aeps-llm-wiki-plugin — implement-lint (M2.4)
 
-> **状态**:frozen(v0.1.3,2026-09-18 M2 评审 S2:C17 对 analysis 豁免 `## 关联导引` 键)
+> **状态**:frozen(v0.1.4,2026-09-21 issue #51 漏链判定修订,见 Change History)
 
 ## Change History
 
 | 版本 | 日期 | 变更 | 作者 |
 |---|---|---|---|
+| v0.1.4 | 2026-09-21 | issue #51 落地修正:§2.3 漏链判定由「basename / aliases 子串 ≥2 次」改为「basename 正文纯文本完整 token ≥2 次」——扫描前剥 frontmatter / 代码块 / md 链接 URL / wikilink 内文本 / 资源路径,词边界拦截 tags 轴值与扩展名形态,aliases 退出计数(消除 ~80% 子串误报);同步实现 `scripts/lint/lint.js`(`plainScanText` + `tokenCountRe`) | zhigang.liu(Claude Code) |
 | v0.1.3 | 2026-09-18 | M2 跨子整合评审 S2:C17 对 `analysis` 豁免 `## 关联导引(Related Links` 必有键 —— §2.2 表 analysis 行拆出,analysis 仅要求 `## 维护说明(`(与 query SKILL.md 步骤 10「analysis 不锁 H2 骨架」承诺一致,消除"query 承诺自由结构 / lint 强制关联导引"的矛盾);comparison / synthesis 不变 | zhigang.liu(Claude Code) |
 | v0.1.2 | 2026-09-16 | issue #41 / #43 落地修正:§2 C18 第 3 条收窄为「真转换器(pyoffice/anydoc/docling/libreoffice/paddleocr)但 native_text ≠ false」,claude-native 豁免(claude-native 表示原生直读无副本,与 native_text 正交,消除 path 1/2 默认组合误报)+ §2.3 孤儿页对 `analyses/` 页豁免:被顶层 `overview.md` / `index.md` 反链即不算孤儿(query 落档后「近期分析」节保证反链)+ §5 补 3 行测试矩阵 | zhigang.liu(Claude Code) |
 | v0.1.1 | 2026-09-13 | 质检落地修正:§2 收编 C15.5 行 + 新增 C21(source converted_path 副本图片链接 resolve,承接 PRD AC-16 docling 抽图回归)+ §0.1 规则数 13 → 14 + §1.1 契约注记(`fixed[]` 仅 `--fix` 时存在 / 补 `c20_free_sections[]` 加性字段)+ §4 C3 fix 措辞对齐实现(按 C17 规范顺序插入、复扫 C3/C17 双清)+ §2.3 矛盾候选对上限 20 注记 + §2 C15.4 措辞对齐 AC-12 + §5 补 U-C21 测试行 | zhigang.liu(Claude Code) |
@@ -141,7 +142,7 @@ node scripts/lint/lint.js --project <用户工程根> [--fix] --json
 |---|---|---|
 | 孤儿页 | proposal | 全 wiki 无任何其他页正文 `[[该页 basename]]` 链入;`analyses/` 页被顶层 `overview.md` / `index.md` 反链即豁免(query 落档后「近期分析」节保证反链,issue #43) |
 | 陈旧页 | proposal | `stale_after` 已填(ISO 日期)且 < 今日;**未填一律静默跳过** |
-| 漏链 | proposal | 其他页 basename / aliases 在本页正文出现 ≥ 2 次但无对应 wikilink |
+| 漏链 | proposal | 其他页 basename 在本页**正文纯文本**中以**完整 token**(词边界)出现 ≥ 2 次但无对应 wikilink;扫描前剥除 frontmatter、inline/fenced code、md 链接 URL 段、wikilink 内文本、资源路径片段(`./raw/...`、带扩展名文件名),tags 轴值(`tec/nev` 等)天然被词边界拦截;**aliases 不参与计数**(issue #51:子串 + alias 计数曾致 ~80% 误报) |
 | 命名飘 | proposal | 同 type 子目录内文件名 Levenshtein ≤ 2 或互为前缀(≥ 4 字符) |
 | 矛盾 | proposal(hint) | 脚本仅列同 topic 候选页对(候选对上限 20,防大 wiki 刷屏);判定由 LLM 在 SKILL.md 步骤做 |
 
