@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-lint
 description: 对 knowledge/ 做全量机械体检,规则定稿表 FAIL/WARN 分级报告 + 孤儿/陈旧/漏链/命名飘/矛盾候选扫描;先报告后动手,用户拍板才 --fix 做确定性修复,矛盾判定与 C20 溯源自检由 LLM 完成,语义级问题只出 LintProposal 提案
-plugin-version: 0.6.10
+plugin-version: 0.6.11
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/lint/lint.js *)
 ---
 

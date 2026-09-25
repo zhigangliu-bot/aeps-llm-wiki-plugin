@@ -209,7 +209,7 @@ async function main() {
     project: project.replace(/\\/g, '/'),
     emit_dir: emitDir.replace(/\\/g, '/'),
     started_at: startedAt,
-    plugin_version: '0.6.10',
+    plugin_version: '0.6.11',
     files,
   };
 

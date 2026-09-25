@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-synthesize
 description: 用户指定 topic,对已有 knowledge/ 做跨页综合,产出常驻 type: synthesis 页;机械候选扫描 + LLM 三信号定范围,sources_count < 3 必经用户拍板,已存在语义相近页走 update 路径禁止全量重生成
-plugin-version: 0.6.10
+plugin-version: 0.6.11
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/synthesize/check-topic.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/synthesize/append-log.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js *),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js *)
 ---
 

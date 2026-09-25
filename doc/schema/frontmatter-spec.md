@@ -11,7 +11,7 @@
 
 | 日期 | 变更人 | 变更内容 |
 |---|---|---|
-| 2026-09-19 | zhigangliu-bot | v0.6.10 hotfix / task 09-19-v0-6-10-hotfix:本文件 §5 / §6 / §7 示例块中 `generated.by` 示例版本号 `producer/aeps-llm-wiki-plugin/0.6.9` → `0.6.10`(对齐 plugin 本体版本,与 `check-version-consistency.js` 同步);示例 `at` 时间戳未变(2026-09-05T10:30:00Z,作为规格基线时间冻结)。规格语义未变。 |
+| 2026-09-19 | zhigangliu-bot | v0.6.11 hotfix / task 09-19-v0-6-10-hotfix:本文件 §5 / §6 / §7 示例块中 `generated.by` 示例版本号 `producer/aeps-llm-wiki-plugin/0.6.9` → `0.6.11`(对齐 plugin 本体版本,与 `check-version-consistency.js` 同步);示例 `at` 时间戳未变(2026-09-05T10:30:00Z,作为规格基线时间冻结)。规格语义未变。 |
 | 2026-09-17 | zhigangliu-bot | M2A / task 09-17-fix-m2a-template-sources:**N4 sources 分治(用户拍板)**——顶层 `sources` 改分型约束:analysis / synthesis / comparison 必填(对象数组,每条含 resource),其余 type(source / entity.* / concept.*)禁止(物理定位由 source 页顶层 `resource` 承载;source 页自指 sources[] 条目移除)。§2 速查表 + §4.4.1 同步;lint C5 升级为分治规则(三综合类必查,其余 type 出现即 FAIL,--fix 删除);`frontmatter.schema.json` entity.*/concept.* 必填组已移除 sources。同任务 **B1**:analysis / comparison / synthesis 模板 `sources: $SOURCES` / `sources_used: $SOURCES_USED` 行内占位符改多行块形式,gen-page 统一走 *_BODY 块替换管道渲染,产物恒为合法 YAML。 |
 | 2026-09-05 | zhigangliu-bot | 开头权威顺序声明重写:**人读规范 (`frontmatter-spec.md`) 提升为唯一权威**;`frontmatter.schema.json` (机器读) 必须向本文件对齐,字段定义/约束/描述不一致时以本文件为准。同步修改 `doc/schema/schema.md` 开头权威顺序声明,保持两处一致。 |
 | 2026-09-05 | zhigangliu-bot | §4.2 `tags:` 数量约束由"最少 3 条"调整为"最少 5 条",与 `frontmatter.schema.json` 的 `minItems: 5` 及 `tag-spec.md` §8 Lint 阈值对齐(原 3 条会导致 Lint < 5 的 WARN 区间与 Schema 合规区间错位) |
@@ -280,7 +280,7 @@ OKF 标准下 `type` 取值**开放**(§4.1),消费方 MUST NOT reject 未知 ty
 
 ```yaml
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.10"
+  by: "producer/aeps-llm-wiki-plugin/0.6.11"
   at: "2026-09-05T10:30:00Z"
 ```
 
@@ -645,7 +645,7 @@ description: One row per completed customer order across all channels.
 resource: https://example.com/data/orders
 tags: [sales, orders, revenue]
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.10"
+  by: "producer/aeps-llm-wiki-plugin/0.6.11"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"
@@ -665,7 +665,7 @@ description: Headline income-statement figures for a fiscal year.
 tags: [finance, income-statement]
 status: stable
 generated:
-  by: "producer/aeps-llm-wiki-plugin/0.6.10"
+  by: "producer/aeps-llm-wiki-plugin/0.6.11"
   at: "2026-09-05T10:30:00Z"
 verified:
   - by: "human:ahormati"

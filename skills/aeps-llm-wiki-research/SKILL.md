@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-research
-description: 知识库覆盖不足时 LLM 自动联网调研;一源一文件+调研纪要落 inbox/research/;不直写 knowledge/;三触发(用户显式 / query 步骤 7 衔接 / 对话自主)
-plugin-version: 0.6.10
+description: 知识库覆盖不足时 LLM 自动联网调研;一题一 md+调研纪要落 inbox/research/;不直写 knowledge/;三触发(用户显式 / query 步骤 7 衔接 / 对话自主)
+plugin-version: 0.6.11
 allowed-tools: mcp__jina-mcp-server__search_web,mcp__jina-mcp-server__search_arxiv,mcp__jina-mcp-server__search_ssrn,mcp__jina-mcp-server__search_jina_blog,mcp__jina-mcp-server__read_url,mcp__bocha-mcp__bocha_web_search,mcp__bocha-mcp__bocha_ai_search,mcp__fetch__fetch,WebSearch(*),WebFetch(*),mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_take_screenshot,mcp__playwright__browser_evaluate,mcp__plugin_playwright_playwright__browser_navigate,mcp__plugin_playwright_playwright__browser_snapshot,mcp__plugin_playwright_playwright__browser_take_screenshot,mcp__plugin_playwright_playwright__browser_evaluate
 ---
 
@@ -29,9 +29,9 @@ allowed-tools: mcp__jina-mcp-server__search_web,mcp__jina-mcp-server__search_arx
 
 - **不直写 knowledge/** — research 产物落 `inbox/research/`,由 ingest 流水线入库;LLM 不代跑 ingest。
 - **先报告后动手** — 拍板门①双拍板强制:质量门槛三元组 + 软预算上限;不静默取默认。
-- **每条事实带 URL + 抓取日期,不编造** — 源文件正文头必须含来源引用行。
+- **每条事实带 URL + 抓取日期,不编造** — 「源 N」节节首溯源头部必须含来源引用行。
 - **预算每次向用户确认** — 软上限触顶或质量门槛三元组达标,任一先达即停(质量门槛优先)。
-- **未解决问题显式标「未找到」** — 落 `00-research-note.md`「未决问题」节,落盘前不二次打断。
+- **未解决问题显式标「未找到」** — 落单文件纪要「未决问题」节,落盘前不二次打断。
 - **inbox 文件不写 frontmatter / 不写 wikilink** — 无脚本解析 inbox frontmatter;wikilink 会误导 Obsidian 解析到 inbox。
 - **subagent 隔离** — 步骤 0/1/拍板门①/4 在主上下文跑;步骤 2/3 在 subagent 跑;主上下文不直接执行步骤 2/3。
 
@@ -47,7 +47,7 @@ allowed-tools: mcp__jina-mcp-server__search_web,mcp__jina-mcp-server__search_arx
   - 必报项:`bocha-mcp` 两档 / `jina-mcp-server` 搜索 4 档 + `read_url` / `fetch` / 原生 `WebSearch` / 原生 `WebFetch` / `playwright` 子集(及 `plugin_playwright_playwright` 对应工具)。
   - **未挂载档位静默跳过**(不报错),直接降级到下一档。
   - 全链不可用时(无任何联网工具)→ 表格加一行 `⚠ 全链不可用`,**默认继续**,让用户在拍板门①选「改换环境重跑 / 降预算 / 继续」。
-- **检查当前会话是否有 mcp__jina-mcp-server__primer 可用**(联网前必跑,拿当前时间 + 用户位置,日期用于源文件「抓取于」字段)。
+- **检查当前会话是否有 mcp__jina-mcp-server__primer 可用**(联网前必跑,拿当前时间 + 用户位置,日期用于「源 N」节溯源头部「抓取于」字段)。
 
 ### 步骤 1:缺口评估(阻塞,LLM 判定)— [主上下文]
 
@@ -83,7 +83,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
 | 判定 | thin / empty |
 | 拟研究问题 | 1. ... / 2. ... / 3. ... |
 | 质量门槛(默认三元组) | ① 每问题 ≥2 独立源交叉验证 / ② 纪要「未决问题」节必填 / ③ 全部研究问题有结论或未决标记 — 用户可改单点 |
-| 预算软上限 | SKILL.md 不写死具体数字;只列维度(总研究问题数 / 每问题搜索次数 / 整场精读页数 / 总搜索次数);LLM 启动拍板门①时给一组提案基线(参考值:3-5 个研究问题 / 每问题 ≤2 次搜索 / 整场精读 ≤8 页);预算触顶即强行停止联网,不再二次打断;未决问题落 `00-research-note.md` — 用户可接受默认 / 改数字 / 全砍 / 全扩 |
+| 预算软上限 | SKILL.md 不写死具体数字;只列维度(总研究问题数 / 每问题搜索次数 / 整场精读页数 / 总搜索次数);LLM 启动拍板门①时给一组提案基线(参考值:3-5 个研究问题 / 每问题 ≤2 次搜索 / 整场精读 ≤8 页);预算触顶即强行停止联网,不再二次打断;未决问题落单文件纪要「未决问题」节 — 用户可接受默认 / 改数字 / 全砍 / 全扩 |
 | 命中主题站点(来自 research-sites.md) | <主题 → 站点列表> |
 | 工具可用性 | <bocha-mcp 两档 ✓ / jina search_web+read_url ✓ / fetch ✓ / 原生 WebSearch+WebFetch ✓>;全链不可用时此行加 ⚠ 告警 |
 
@@ -113,7 +113,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
 2. `mcp__bocha-mcp__bocha_web_search` / `bocha_ai_search`
 3. `mcp__playwright__browser_navigate` + `browser_snapshot` + `browser_evaluate`(及 `mcp__plugin_playwright_playwright__*` 对应工具)— **条件触发**:仅 LLM 判定此站搜索结果必须 JS 渲染 / 交互后才出时才降级到此档,默认走 bocha + 原生 WebSearch
 4. 原生 `WebSearch`(全 MCP 不可用时最终兜底)
-5. **Baidu / Google 搜索页直抓**(终极兜底,前 4 档全部未拿到候选或全部拿到的候选均精读失败时):LLM 用 `mcp__jina-mcp-server__read_url` 或 `mcp__fetch__fetch` 直接抓 `https://www.baidu.com/s?wd={query}` / `https://www.google.com/search?q={query}`(Google 失败时改 `https://www.google.com/search?udn=us&q={query}` 或镜像 `https://www.google.com/search?q={query}&hl=zh-CN`),从结果页 DOM 里抽 `<a href>` 候选 URL;**不算精读**(结果是搜索页而非内容页,只能做候选索引),抽出的 URL 走 2.3 精读档处理;`00-research-note.md` 源清单标「工具 = baidu/google 搜索页直抓」+ 「未精读(snippet 索引)」。**Baidu/Google 搜索页直抓不引入新 npm 依赖 / 新脚本**(沿用既有 fetch / jina),也不调 Baidu/Google 搜索 API(避免配额/凭据要求)。
+5. **Baidu / Google 搜索页直抓**(终极兜底,前 4 档全部未拿到候选或全部拿到的候选均精读失败时):LLM 用 `mcp__jina-mcp-server__read_url` 或 `mcp__fetch__fetch` 直接抓 `https://www.baidu.com/s?wd={query}` / `https://www.google.com/search?q={query}`(Google 失败时改 `https://www.google.com/search?udn=us&q={query}` 或镜像 `https://www.google.com/search?q={query}&hl=zh-CN`),从结果页 DOM 里抽 `<a href>` 候选 URL;**不算精读**(结果是搜索页而非内容页,只能做候选索引),抽出的 URL 走 2.3 精读档处理;纪要「源清单」节标「工具 = baidu/google 搜索页直抓」+ 「未精读(snippet 索引)」。**Baidu/Google 搜索页直抓不引入新 npm 依赖 / 新脚本**(沿用既有 fetch / jina),也不调 Baidu/Google 搜索 API(避免配额/凭据要求)。
 
 #### 2.3 精读工具优先链(R9)
 
@@ -127,14 +127,14 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
    3. fetch 返回内容明显残缺(空 / 403 / SPA 占位符)
    - 不默认降级:fetch 已能拿到的内容不主动调 playwright
 4. 原生 `WebFetch`(全 MCP 不可用时最终兜底)
-5. **Baidu / Google 搜索结果页直抓**(终极兜底,前 4 档均无法解析页面正文时):LLM 用 `mcp__jina-mcp-server__read_url` 或 `mcp__fetch__fetch` 直接抓 `https://www.baidu.com/s?wd={query}` / `https://www.google.com/search?q={query}` 等 URL,**从结果页抽摘要片段(snippet)** 作为研究问题的最后兜底;摘要片段**不构成完整精读**,`00-research-note.md` 源清单标「工具 = baidu/google 搜索结果页直抓(snippet 兜底)」+ 「未精读(snippet 索引)」;同一问题的源计数仍可计(用于「每问题 ≥2 独立源交叉验证」门槛)。**仅在 LLM 判定上游精读档完全失效时启用**,默认走 jina read_url。
+5. **Baidu / Google 搜索结果页直抓**(终极兜底,前 4 档均无法解析页面正文时):LLM 用 `mcp__jina-mcp-server__read_url` 或 `mcp__fetch__fetch` 直接抓 `https://www.baidu.com/s?wd={query}` / `https://www.google.com/search?q={query}` 等 URL,**从结果页抽摘要片段(snippet)** 作为研究问题的最后兜底;摘要片段**不构成完整精读**,纪要「源清单」节标「工具 = baidu/google 搜索结果页直抓(snippet 兜底)」+ 「未精读(snippet 索引)」;同一问题的源计数仍可计(用于「每问题 ≥2 独立源交叉验证」门槛)。**仅在 LLM 判定上游精读档完全失效时启用**,默认走 jina read_url。
 
 #### 2.4 抓取与事实记录
 
 - **中英双语搜**(汽车电子一手标准多为英文);材料保留原语言,纪要用中文。
 - **每条事实记 URL + 抓取日期**(来源引用行内容);不编造 wiki 里没有的内容。
-- **搜索→精读衔接**:搜索返回候选 URL + snippet(只够写纪要索引,不构成精读);**按候选逐个精读**(调精读档工具),精读过的源才落 `NNN-{slug}.md`;snippet 不精读的候选不进 inbox 文件,只在 `00-research-note.md` 源清单记「未精读(snippet 索引)」标记。
-- **精读后无价值处理**(R6 硬约束):精读后判定为无价值 / 无效 / 无关的页面(典型:软广告 / 404 / 与研究问题无关 / 与已有源重复),**不**落盘 `NNN-{slug}.md`(避免 inbox/research/ 产生垃圾文件),**仅在 `00-research-note.md` 源清单标记「已精读(无效/无关)」**;**同样计入精读页数预算**。判定标准:页面是否回答了对应研究问题 → 否 → 无效标记。
+- **搜索→精读衔接**:搜索返回候选 URL + snippet(只够写纪要索引,不构成精读);**按候选逐个精读**(调精读档工具),精读过的源才写单文件「源 N」节;snippet 不精读的候选不进单文件,只在纪要「源清单」节记「未精读(snippet 索引)」标记。
+- **精读后无价值处理**(R6 硬约束):精读后判定为无价值 / 无效 / 无关的页面(典型:软广告 / 404 / 与研究问题无关 / 与已有源重复),**不**写该源的「源 N」节(避免单文件混入垃圾内容),**仅在纪要「源清单」节标记「已精读(无效/无关)」**;**同样计入精读页数预算**。判定标准:页面是否回答了对应研究问题 → 否 → 无效标记。
 
 #### 2.5 停机条件(质量门槛三元组 + 软预算,R5 升级)
 
@@ -147,32 +147,35 @@ LLM 达下表**任意一项**即停(**质量门槛优先**):
 | 全部研究问题有结论或未决标记 | 全问题不悬空 |
 | 预算软上限触顶 | 任何一项触顶即停(质量门槛先达者先停) |
 
-停机时 LLM 直接落盘,未决问题归 `00-research-note.md`「未决问题」节;**不再二次打断询问**。超预算停机不报错,只是记录「该问题未达质量门槛但已达预算上限」在「未决问题」节。
+停机时 LLM 直接落盘,未决问题归单文件纪要「未决问题」节;**不再二次打断询问**。超预算停机不报错,只是记录「该问题未达质量门槛但已达预算上限」在「未决问题」节。
 
 ### 步骤 3:落 inbox(非阻塞)— [subagent 内执行]
 
 #### 3.1 落盘路径
 
+单文件平铺,**不再建子目录**:
+
 ```
-vault/inbox/research/{YYYYMMDD-HHMMSS}-{slug}/
-├── 00-research-note.md            ← 调研纪要:研究问题 → 发现 → 未决问题 → 源清单
-├── 001-{source-slug}.md           ← 精读过的源,每个一文件
-├── 002-{source-slug}.md
-└── ...
+vault/inbox/research/{YYYYMMDD}-{slug}.md
 ```
 
-#### 3.2 源文件正文头部(必须)
+- 整场调研全部产物(纪要 + 各源精读)落在这一个 `.md` 里,内部用 H2 节承载(见 3.3)。
+- **同名冲突消歧**:落盘前若 `inbox/research/{YYYYMMDD}-{slug}.md` 已存在,文件名追加 `-HHMMSS` 后缀(即 `{YYYYMMDD}-{slug}-HHMMSS.md`),防同日同题重跑覆盖。
+
+#### 3.2 「源 N」节节首溯源头部(必须)
+
+每个精读源的 `## 源 N` 节**节首**必须带 4 行 blockquote 溯源头:
 
 ```markdown
 > 来源: <URL>
 > 抓取于: YYYY-MM-DD
 > 精读工具: mcp__jina-mcp-server__read_url | mcp__fetch__fetch | WebFetch (写实际用的)
-> 研究问题: <对应 00-research-note.md 的问题编号>
+> 研究问题: <对应纪要「研究问题」节的问题编号>
 ```
 
-源文件**不写 frontmatter**;不写 `[[wikilink]]`。
+单文件**不写 frontmatter**;不写 `[[wikilink]]`。
 
-#### 3.3 `00-research-note.md` 结构(必须)
+#### 3.3 单文件结构(必须,H2 顺序)
 
 ```markdown
 # 调研纪要 — {topic}
@@ -185,19 +188,35 @@ vault/inbox/research/{YYYYMMDD-HHMMSS}-{slug}/
 
 ### Q1: <问题>
 - **结论**: <一句>
-- **证据源**: [001-...md](001-...md), [002-...md](002-...md)
+- **证据源**: [源 1](#源 1: {title}) (节内锚点形式,锚点 = 标题原文,不用文件相对路径)
 - **未决**: <如有>
 
 ### Q2: <问题>
 ...
 
+## 未决问题
+
+<未决问题逐条,每条标「未找到」及原因>
+
 ## 源清单
 
 | # | URL | 抓取日 | 工具 | 状态 |
 |---|---|---|---|---|
-| 001 | https://... | YYYY-MM-DD | jina read_url | 已精读 / 落盘 |
-| 002 | https://... | YYYY-MM-DD | fetch | 已精读(无效/无关) |
-| 003 | https://... | — | — | 未精读(snippet 索引) |
+| 1 | https://... | YYYY-MM-DD | jina read_url | 已精读 / 入文 |
+| 2 | https://... | YYYY-MM-DD | fetch | 已精读(无效/无关) |
+| 3 | https://... | — | — | 未精读(snippet 索引) |
+
+## 源 1: {title}
+
+> 来源: <URL>
+> 抓取于: YYYY-MM-DD
+> 精读工具: <实际用的>
+> 研究问题: Q1/Q2
+
+<原文关键摘录(blockquote)+ 中文纪要梳理>
+
+## 源 2: {title}
+...
 
 ## 工具可用性(本会话)
 
@@ -208,8 +227,10 @@ vault/inbox/research/{YYYYMMDD-HHMMSS}-{slug}/
 | 全链不可用? | 否 |
 ```
 
-「状态」列四种值:
-- **已精读 / 落盘**:对应 `NNN-{slug}.md` 已写入 inbox/research/
+**摘录归属**(拍板门②已定):摘录只在各 `## 源 N` 节内嵌,**不设**独立「重点摘录」节;跨源综合结论放「研究问题」节。
+
+「状态」列三种值:
+- **已精读 / 入文**:对应 `## 源 N` 节已写入单文件
 - **已精读(无效/无关)**:精读过但页面无价值,仍计入预算
 - **未精读(snippet 索引)**:仅搜索档看到,未调精读档
 
@@ -219,7 +240,7 @@ subagent 返回(纪要摘要 + 文件清单),主上下文向用户报告:
 
 - 研究问题 → 结论摘要(逐问题一行)
 - 未决问题清单(如有)
-- 文件清单(`inbox/research/{时间戳}-{slug}/` 下所有路径)
+- 文件清单(`inbox/research/{YYYYMMDD}-{slug}.md` 单文件)
 - **建议**用户跑 `/aeps-llm-wiki-ingest` 入库(不代跑;走现有 ingest 流水线对 `.md` 走路径 1 纯文本)
 
 ## 拍板门总结
@@ -243,7 +264,7 @@ subagent 返回(纪要摘要 + 文件清单),主上下文向用户报告:
 ## 回滚点
 
 - 步骤 0-1:无写副作用,任意重跑无成本
-- 步骤 3 落盘后:`rm -rf vault/inbox/research/{YYYYMMDD-HHMMSS}-{slug}/` 即可零残留
+- 步骤 3 落盘后:`rm vault/inbox/research/{YYYYMMDD}-{slug}.md` 即可零残留
 - SKILL.md 修改回滚:plugin 仓 `git revert <commit>`;query SKILL.md 单独 commit,回滚不影响 research 本体
 
 ## 引用

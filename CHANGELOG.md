@@ -2,6 +2,20 @@
 
 All notable changes to `aeps-llm-wiki-plugin` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.11] - 2026-09-25
+
+### Changed
+
+- **#58 research 单文件布局** `skills/aeps-llm-wiki-research/SKILL.md`:调研产物从「一题一目录 + 一源一文件」(`{YYYYMMDD-HHMMSS}-{slug}/` 下 `00-research-note.md` + `NNN-{source-slug}.md`)改为单文件 `inbox/research/{YYYYMMDD}-{slug}.md` 平铺。单文件内部 H2 节承载原目录结构:文档头(时间/判定/总问题数)→ 研究问题(证据源用节内锚点,锚点 = 标题原文)→ 未决问题 → 源清单(三态)→ 每精读源一「源 N」节(节首 4 行 blockquote 溯源头 + 摘录内嵌,不设独立「重点摘录」节)→ 工具可用性。同名文件已存在 → 文件名追加 `-HHMMSS` 消歧;frontmatter description 同步「一题一 md」。ingest 衔接随之简化:单 `.md` 走路径 1 纯文本,无子目录特例(issue #57 相关发现 1/2 对 research 场景自动消失);存量旧布局目录不迁移。
+
+### Fixed
+
+- `skills/aeps-llm-wiki-research/SKILL.md`:源清单「状态」列自称「四种值」实列 3 种 → 改「三种值」(历史遗留)。
+
+### Documentation
+
+- 全仓 16 处版本号字串 0.6.10 → 0.6.11(6 个 SKILL.md frontmatter / README badge / doc template + schema / init-batch.js 默认 plugin_version / lint fixture),`check-version-consistency.js` 校验通过。
+
 ## [0.6.10] - 2026-09-19
 
 ### Fixed

@@ -1,7 +1,7 @@
 ---
 name: aeps-llm-wiki-ingest
 description: 把用户丢进 inbox/ 的资料按 5 路径分流归档到 raw/ 与 knowledge/,含双向反链与 log 更新
-plugin-version: 0.6.10
+plugin-version: 0.6.11
 allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/preflight.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/scan-inbox.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/convert-to-md.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/init-batch.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/move-to-raw.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/build-related-pages.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/append-log.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/gen-page.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/aggregate-index.js --plugin-root ${CLAUDE_PLUGIN_ROOT}*),Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-backups.js --temp *),Bash(ls temp/ingest-batch-*.json*),Bash(rm temp/ingest-batch-*)
 ---
 
@@ -483,7 +483,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/lint-stub.js --plugin-root ${CLAUDE_PL
 读 stdout JSON:
 
 - `linted` 字段:扫到的 knowledge/ 页数
-- `fail`:规则命中数(含 C9 / R7.2 / **R7.11(反链区块内部完整性,v0.6.10:source 页 `## 相关页面` 区块内须有 `### Entities` / `### Concepts` H3 且至少一个 H3 下有 wikilink;entity/concept 页 `## 来源资料` 区块内须有 ≥1 条 wikilink;区块整体缺失不触发)**);**>0 → 必须修复后重跑,本次 ingest 未完成**
+- `fail`:规则命中数(含 C9 / R7.2 / **R7.11(反链区块内部完整性,v0.6.11:source 页 `## 相关页面` 区块内须有 `### Entities` / `### Concepts` H3 且至少一个 H3 下有 wikilink;entity/concept 页 `## 来源资料` 区块内须有 ≥1 条 wikilink;区块整体缺失不触发)**);**>0 → 必须修复后重跑,本次 ingest 未完成**
 - `warn`:规则 R7.1(frontmatter `tags` < 5 条)+ **R7.3(reserved filename 误含 frontmatter)** + C21 命中数;`>0` → WARN(建议修复)
 - `warnings_by_file` / `errors_by_file`:聚合到文件级别,SKILL.md 可按路径展示
 - M2.4 真实实现替换 stub 内容,字段含义不变。
