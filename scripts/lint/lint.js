@@ -351,7 +351,9 @@ async function main() {
   }
   await requireDeps({ 'js-yaml': 'js-yaml', ajv: 'ajv' });
   const yamlMod = await import('js-yaml');
-  yaml = yamlMod.default;
+  // js-yaml ESM 无 default 导出,取命名空间兜底(#46 同根因,#57)
+  yaml = yamlMod.default ?? yamlMod;
+  if (typeof yaml.load !== 'function') { console.error('FATAL: js-yaml 加载异常(无 load 导出)'); process.exit(2); }
   const Ajv = (await import('ajv')).default;
 
   // ajv 编译(G-L2:schema 坏 → exit 1)

@@ -91,7 +91,10 @@ import { isIso8601 } from '../lib/iso8601.js';
 // 批次 3 P1-6: inline preflight 先跑;缺包 → throw 含精确 npm install 命令
 await requireDeps({ 'js-yaml': 'js-yaml' });
 // 动态 import:必须在 requireDeps 之后
-const yaml = (await import('js-yaml')).default;
+// js-yaml ESM 无 default 导出,取命名空间兜底(#46 同根因,#57)
+const _yamlNs = await import('js-yaml');
+const yaml = _yamlNs.default ?? _yamlNs;
+if (typeof yaml.load !== 'function') { console.error('FATAL: js-yaml 加载异常(无 load 导出)'); process.exit(2); }
 
 const STUB_VERSION = 'M2.7-stub';
 const MIN_TAGS_LENGTH = 5; // 对齐 doc/schema/frontmatter.schema.json tags minItems

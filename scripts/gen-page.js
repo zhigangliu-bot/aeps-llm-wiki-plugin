@@ -80,7 +80,10 @@ import { requireDeps } from "./lib/preflight.js";
 import { createHash } from "node:crypto";
 // gen-page.js v0.6.0 (issue #2 fix): --patch-frontmatter-only 需要 js-yaml 读写已有 frontmatter
 await requireDeps({ "js-yaml": "js-yaml" });
-const yaml = (await import("js-yaml")).default;
+// js-yaml ESM 无 default 导出,取命名空间兜底(#46 同根因,#57)
+const _yamlNs = await import("js-yaml");
+const yaml = _yamlNs.default ?? _yamlNs;
+if (typeof yaml.load !== "function") { console.error("FATAL: js-yaml 加载异常(无 load 导出)"); process.exit(2); }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

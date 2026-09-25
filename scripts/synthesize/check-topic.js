@@ -38,7 +38,8 @@ import process from 'node:process';
 // js-yaml 已有则用,无则不引(降级路径见 parseFrontmatterText)
 let yaml = null;
 try {
-  yaml = (await import('js-yaml')).default;
+  const _yamlNs = await import('js-yaml');
+  yaml = _yamlNs.default ?? _yamlNs; // js-yaml ESM 无 default 导出,取命名空间兜底(#46 同根因,#57)
 } catch {
   /* 降级到内置简易解析 */
 }
