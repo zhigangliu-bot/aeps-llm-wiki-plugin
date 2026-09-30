@@ -2,6 +2,7 @@
 name: aeps-llm-wiki-research
 description: 知识库覆盖不足时 LLM 自动联网调研;一题一 md+调研纪要落 inbox/research/;不直写 knowledge/;三触发(用户显式 / query 步骤 7 衔接 / 对话自主)
 plugin-version: 0.6.11
+argument-hint: "<topic>"
 allowed-tools: mcp__jina-mcp-server__search_web,mcp__jina-mcp-server__search_arxiv,mcp__jina-mcp-server__search_ssrn,mcp__jina-mcp-server__search_jina_blog,mcp__jina-mcp-server__read_url,mcp__bocha-mcp__bocha_web_search,mcp__bocha-mcp__bocha_ai_search,mcp__fetch__fetch,WebSearch(*),WebFetch(*),mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_take_screenshot,mcp__playwright__browser_evaluate,mcp__plugin_playwright_playwright__browser_navigate,mcp__plugin_playwright_playwright__browser_snapshot,mcp__plugin_playwright_playwright__browser_take_screenshot,mcp__plugin_playwright_playwright__browser_evaluate
 ---
 
@@ -21,7 +22,7 @@ allowed-tools: mcp__jina-mcp-server__search_web,mcp__jina-mcp-server__search_arx
 
 三路汇入同一步骤序列:
 
-1. **用户显式**:`/aeps-llm-wiki-research {topic}` 直接拉起。
+1. **用户显式**:`/aeps-llm-wiki-research {topic}` 直接拉起;**未给 topic** 时不猜话题,提示用法(`/aeps-llm-wiki-research <topic>`)后结束(路径②③自带问题,不受影响)。
 2. **query 步骤 7 衔接**:query 报「未覆盖」后,建议拉起 `/aeps-llm-wiki-research {question}` 补窟窿,**走 Task 工具启 subagent 隔离跑**(避免主上下文被多源精读内容灌爆)。
 3. **对话自主**:LLM 判断对话主题在 knowledge/ 是盲区,主动建议拉起。
 
@@ -66,6 +67,8 @@ LLM 启动时给一组**提案基线**(参考值,用户可调):
 - 整场精读页数:≤8 页
 - 总搜索次数:由问题数 × 每问题搜索次数推得
 
+**拟研究问题分面引导**(生成下方表格「拟研究问题」行时用):按固定三分面覆盖提案 —— ① **标准原文 / 官方定义**(ISO / AUTOSAR 等一手标准怎么说)→ ② **工程实践**(实际项目怎么做、工具链与配置手段)→ ③ **已知坑 / 陷阱**(常见误用、踩坑与排障);纯概念 / 纯实践类话题可裁剪分面,不强凑;分面只是提案引导,用户可全改。
+
 LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后才进步骤 2。
 
 报告格式(双段):
@@ -82,7 +85,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
 |---|---|
 | 判定 | thin / empty |
 | 拟研究问题 | 1. ... / 2. ... / 3. ... |
-| 质量门槛(默认三元组) | ① 每问题 ≥2 独立源交叉验证 / ② 纪要「未决问题」节必填 / ③ 全部研究问题有结论或未决标记 — 用户可改单点 |
+| 质量门槛(默认三元组 + 无源硬约束) | ① 每问题 ≥2 独立源交叉验证 / ② 纪要「未决问题」节必填 / ③ 全部研究问题有结论或未决标记 — 三元组用户可改单点;另有无源硬约束(不可改):无真实 URL 支撑的「事实」一律不写进纪要(执行细则见步骤 2.4) |
 | 预算软上限 | SKILL.md 不写死具体数字;只列维度(总研究问题数 / 每问题搜索次数 / 整场精读页数 / 总搜索次数);LLM 启动拍板门①时给一组提案基线(参考值:3-5 个研究问题 / 每问题 ≤2 次搜索 / 整场精读 ≤8 页);预算触顶即强行停止联网,不再二次打断;未决问题落单文件纪要「未决问题」节 — 用户可接受默认 / 改数字 / 全砍 / 全扩 |
 | 命中主题站点(来自 research-sites.md) | <主题 → 站点列表> |
 | 工具可用性 | <bocha-mcp 两档 ✓ / jina search_web+read_url ✓ / fetch ✓ / 原生 WebSearch+WebFetch ✓>;全链不可用时此行加 ⚠ 告警 |
@@ -91,7 +94,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
 
 ### 步骤 2:联网取证(非阻塞)— [subagent 内执行,主上下文不直接执行]
 
-> **派发 Task 切分点**:用户确认拍板门①后,主上下文通过 Task 工具启 subagent,把(研究问题 / 授权预算 / 质量门槛 / 站点表 / 工具可用性表)传给 subagent;subagent 独立执行本步骤 + 步骤 3。
+> **派发 Task 切分点**:用户确认拍板门①后,主上下文通过 Task 工具启 subagent。派发 prompt 的规则部分**引用本 SKILL.md 步骤 2 / 步骤 3 作为规则单一来源**(不在 prompt 里逐条复述规则,防 SKILL.md 演进后派发清单漂移),只传当次参数六项:**研究问题 / 授权预算 / 质量门槛 / 站点表 / 工具可用性表 / 已知覆盖文件清单**(末项 = 步骤 1 命中文件相对路径清单,subagent 对已覆盖内容不重复调研)。subagent 独立执行本步骤 + 步骤 3。
 
 #### 2.1 读站点表
 
@@ -133,6 +136,7 @@ LLM 一并列给用户,等明确「确认 / 改预算 / 改问题 / 取消」后
 
 - **中英双语搜**(汽车电子一手标准多为英文);材料保留原语言,纪要用中文。
 - **每条事实记 URL + 抓取日期**(来源引用行内容);不编造 wiki 里没有的内容。
+- **无源不落盘(硬约束)**:某条「事实」拿不出真实 URL 支撑(典型:来自 LLM 自身记忆 / 训练知识,而非本次联网取证)→ **一律不写进纪要**(「源 N」节、「研究问题」节结论都不写),宁可记「未找到」;与「精读后无价值处理」互补 —— 后者管「有源但无价值」,本条管「无源」。
 - **搜索→精读衔接**:搜索返回候选 URL + snippet(只够写纪要索引,不构成精读);**按候选逐个精读**(调精读档工具),精读过的源才写单文件「源 N」节;snippet 不精读的候选不进单文件,只在纪要「源清单」节记「未精读(snippet 索引)」标记。
 - **精读后无价值处理**(R6 硬约束):精读后判定为无价值 / 无效 / 无关的页面(典型:软广告 / 404 / 与研究问题无关 / 与已有源重复),**不**写该源的「源 N」节(避免单文件混入垃圾内容),**仅在纪要「源清单」节标记「已精读(无效/无关)」**;**同样计入精读页数预算**。判定标准:页面是否回答了对应研究问题 → 否 → 无效标记。
 
@@ -188,6 +192,7 @@ vault/inbox/research/{YYYYMMDD}-{slug}.md
 
 ### Q1: <问题>
 - **结论**: <一句>
+- **置信度**: High(官方源或多源交叉)/ Medium(单一来源)
 - **证据源**: [源 1](#源 1: {title}) (节内锚点形式,锚点 = 标题原文,不用文件相对路径)
 - **未决**: <如有>
 
@@ -229,6 +234,12 @@ vault/inbox/research/{YYYYMMDD}-{slug}.md
 
 **摘录归属**(拍板门②已定):摘录只在各 `## 源 N` 节内嵌,**不设**独立「重点摘录」节;跨源综合结论放「研究问题」节。
 
+**「源 N」节中文纪要梳理写法**:每节先一段紧凑综合(一段话概括此源对对应研究问题的回答),再列要点;实践者视角 —— 记实际做法与工程手段,不收营销话术,偏好具体数字 / 配置 / 坑。反废话对照:
+- BAD:「一般建议在开发过程中合理考虑实施缓存机制以提升系统性能。」
+- GOOD:「缓存要激进:共享状态放 Redis,热点路径放内存;先 profile 再定缓存粒度。」
+
+**置信度与矛盾处理**:「研究问题」节每条结论标置信度 —— **High** = 官方源或多源交叉验证(达标停机的结论通常在此档),**Medium** = 单一来源(典型:预算触顶停机、未达交叉验证门槛)。同一研究问题多源结论矛盾时:**High 新源推翻旧结论** → 保留旧结论与旧源并列展示(旧结论标「已被源 N 修正」),呈现结论演化;**Medium 矛盾** → 不推翻,在结论行并列记「分歧:源 X 说 …,源 Y 说 …」,待后续 High 源裁决。
+
 「状态」列三种值:
 - **已精读 / 入文**:对应 `## 源 N` 节已写入单文件
 - **已精读(无效/无关)**:精读过但页面无价值,仍计入预算
@@ -247,7 +258,7 @@ subagent 返回(纪要摘要 + 文件清单),主上下文向用户报告:
 
 | 时机 | 拍板内容 | 默认 |
 |---|---|---|
-| 步骤 1 → 步骤 2 之间(联网前) | 缺口报告 + 拟研究问题 + 质量门槛三元组 + 预算软上限基线 + 命中主题站点表 + 工具可用性表 是否确认 | 等用户明确;全链不可用时默认继续(用户可改「无原生 WebSearch 不准动手」特例处理) |
+| 步骤 1 → 步骤 2 之间(联网前) | 缺口报告 + 拟研究问题 + 质量门槛三元组 + 无源硬约束 + 预算软上限基线 + 命中主题站点表 + 工具可用性表 是否确认 | 等用户明确;全链不可用时默认继续(用户可改「无原生 WebSearch 不准动手」特例处理) |
 | 用户主动要求「无 WebSearch 不准动手」特例 | 全链不可用时是否中断结束 | 默认继续;用户可要求中断 |
 
 ## 不做什么(SKILL.md 边界)
@@ -257,7 +268,7 @@ subagent 返回(纪要摘要 + 文件清单),主上下文向用户报告:
 - 不写判定 / 搜索脚本(LLM 语义判定)
 - 零新 npm 依赖
 - 不自动 commit;不调 git
-- 不发明 frontmatter 字段
+- 不发明 frontmatter 字段(指 vault 页面的 OKF frontmatter;本 skill 文件自身 frontmatter 的 `argument-hint` 为 Claude Code skill 标准字段,不在此列)
 - inbox 文件不写 frontmatter / wikilink
 - 不为登录墙站点降级调 playwright(无凭据 → 改记「未决」,非触发 playwright 降级)
 
