@@ -755,6 +755,13 @@ function main() {
   const type = args.type;
   if (!TYPE_TO_DIR[type]) {
     console.error(`ERROR: unknown type: ${type}`);
+    // issue #61:报错列出全部合法 type(frontmatter-spec.md §4.1.1 的 18 项硬枚举,
+    // type ↔ knowledge/ 叶子目录 1:1 绑死),便于用户自纠;
+    // 不在脚本侧发明 enum 外新类型(如 concept.framework),否则破坏目录绑死 + lint C15 FAIL。
+    console.error(`合法 type 共 18 个(权威源:doc/schema/frontmatter-spec.md §4.1.1,与 knowledge/ 叶子目录 1:1 绑死):`);
+    console.error(`  - source / analysis / comparison / synthesis`);
+    console.error(`  - entity.{person,organization,project,product,event,place,other}`);
+    console.error(`  - concept.{theory,method,field,phenomenon,standard,term,other}`);
     process.exit(1);
   }
 

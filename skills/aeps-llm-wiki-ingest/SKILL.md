@@ -90,7 +90,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/ingest/classify.js --plugin-root ${CLAUDE_PLU
 
 读 stdout JSON:
 - `route == 1` → 纯文本,**不调** `convert-to-md.js`
-- `route == 2` → PDF 原生可读,**不调** `convert-to-md.js`(poppler/pdftotext 不可用时 classify.js 自动降级 `route == 3`,无需手工重跑)
+- `route == 2` → PDF 原生可读,**不调** `convert-to-md.js`(poppler 不可用,或 pdftotext 实抽前 3 页文本不达标——扫描版/损坏/加密——时 classify.js 自动降级 `route == 3`,无需手工重跑;确要强制原生读用 `--route 2` 跳过探测)
 - `route == 3` → 调 `convert-to-md.js`(全格式统一走 markitdown,见 scripts/RULES.md §1)
 - `route == 4` → 调 `convert-to-md.js`(paddleocr);若 classify.js 返回 `fail: true` → 路径 4 不可用,询问用户装 paddleocr,**FAIL 不降级**(G6 + implement-ingest.md §1.1)
 - PDF 原生失败 → 用 `--route 3` 覆盖默认(SKILL.md 显式重跑)

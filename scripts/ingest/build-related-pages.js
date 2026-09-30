@@ -53,6 +53,14 @@
  *     不存在 gen-page 那类整文件静默覆盖风险;写盘失败进 result.errors 并 exit 2,
  *     无数据丢失路径。
  *
+ * issue #62 修复:batch.files[].entities[]/concepts[] 条目形态防呆 + 跳过页诊断可见化 ——
+ *   - 权威条目形态 = {type, slug, title?} 对象(SKILL.md 步骤 3);宽限接受非空字符串
+ *     条目("slug" → {slug: "slug"});其余形态(缺 slug 的对象 / 数字等)不再**静默丢弃**
+ *     → stderr WARN + warnings_by_file(旧行为:静默跳过 → concept 页 ## 来源资料 区块
+ *     留占位,lint R7.11 报错而本脚本 --json 输出零线索)。
+ *   - entity/concept 页 ajv 校验失败跳过反链写盘时,同步记入 warnings_by_file
+ *     (旧实现只 console.error,--json 消费方看不到该页被跳过及其原因)。
+ *
  * v0.6.5 (issue #12 / #17 校验侧): sources 字段类型不符从 WARN 升级为 ERROR exit 2。
  *   - 类型不符 = `sources` 存在但不是数组,或数组元素不是 {resource, ...} 对象
  *     (常见误写:LLM 把 sources 写成 ["[[slug]]"] 字符串数组)
@@ -280,6 +288,17 @@ function inboxToSlug(filePath) {
 function fileSlug(f) {
   if (f && typeof f.slug === 'string' && f.slug) return f.slug;
   return f && typeof f.path === 'string' ? inboxToSlug(f.path) : null;
+}
+
+// issue #62:batch 声明条目(entities[]/concepts[] 元素)归一。
+// 权威形态 = {type, slug, title?} 对象(SKILL.md 步骤 3);宽限接受非空字符串条目
+// ("slug" → {slug: "slug"},title 由调用方 fallback 到页面 title / slug);
+// 其余形态(缺 slug 的对象 / 数字 / null 等)返回 null,由调用方 WARN —— 旧实现
+// 直接静默 continue,反链无声丢失,消费方只能在 lint R7.11 阶段看到空区块报错。
+function normalizeDeclEntry(e) {
+  if (typeof e === 'string' && e.trim()) return { slug: e.trim() };
+  if (e && typeof e === 'object' && !Array.isArray(e) && typeof e.slug === 'string' && e.slug) return e;
+  return null;
 }
 
 async function readJson(p) {
@@ -757,8 +776,11 @@ async function main() {
     const sourceSlug = fileSlug(f);
     if (!sourceSlug || !batchSourceSlugs.has(sourceSlug)) continue;
     const srcTitle = sourceTitleBySlug.get(sourceSlug) || sourceSlug;
-    for (const e of [...(Array.isArray(f.entities) ? f.entities : []), ...(Array.isArray(f.concepts) ? f.concepts : [])]) {
-      if (!e || !e.slug) continue;
+    for (const e of [
+      ...(Array.isArray(f.entities) ? f.entities : []).map(normalizeDeclEntry),
+      ...(Array.isArray(f.concepts) ? f.concepts : []).map(normalizeDeclEntry),
+    ]) {
+      if (!e || !e.slug) continue; // 形态不符条目由下方 #56a 校验循环 WARN,这里只跳过
       const rel = ecRelBySlug.get(e.slug);
       if (!rel) continue; // ghost 声明由 5b 后的 WARN 通道报告,这里不写反链
       if (!ecToSources.has(rel)) ecToSources.set(rel, []);
@@ -823,16 +845,16 @@ async function main() {
     const bucket = { entities: [], concepts: [] };
     const seenE = new Set();
     const seenC = new Set();
-    const ents = Array.isArray(f.entities) ? f.entities : [];
+    const ents = (Array.isArray(f.entities) ? f.entities : []).map(normalizeDeclEntry);
     for (const e of ents) {
-      if (!e || !e.slug) continue;
+      if (!e || !e.slug) continue; // 形态不符条目由下方 #56a 校验循环 WARN,这里只跳过
       if (seenE.has(e.slug)) continue;
       seenE.add(e.slug);
       bucket.entities.push({ slug: e.slug, title: e.title || ecTitleBySlug.get(e.slug) || e.slug });
     }
-    const cons = Array.isArray(f.concepts) ? f.concepts : [];
+    const cons = (Array.isArray(f.concepts) ? f.concepts : []).map(normalizeDeclEntry);
     for (const c of cons) {
-      if (!c || !c.slug) continue;
+      if (!c || !c.slug) continue; // 形态不符条目由下方 #56a 校验循环 WARN,这里只跳过
       if (seenC.has(c.slug)) continue;
       seenC.add(c.slug);
       bucket.concepts.push({ slug: c.slug, title: c.title || ecTitleBySlug.get(c.slug) || c.slug });
@@ -933,13 +955,29 @@ async function main() {
     if (!f || typeof f.path !== 'string' || !f.path) continue;
     const ents = Array.isArray(f.entities) ? f.entities : [];
     const cons = Array.isArray(f.concepts) ? f.concepts : [];
-    const entCount = ents.filter((e) => e && typeof e.slug === 'string' && e.slug).length;
-    const conCount = cons.filter((c) => c && typeof c.slug === 'string' && c.slug).length;
-    if (entCount > 0 || conCount > 0) continue;
-    if (f['no-entities'] === true) continue; // 显式确认无抽取 → 放行不算错
+    // issue #62:条目形态校验 —— 字符串条目宽限归一,其余形态 WARN(不再静默吞,
+    // 否则 concept 页 ## 来源资料 区块留占位,lint R7.11 报错而本脚本零诊断)。
+    const normEnts = ents.map(normalizeDeclEntry);
+    const normCons = cons.map(normalizeDeclEntry);
     const sourceSlug = fileSlug(f);
     const sourceObj = sources.find((s) => s.slug === sourceSlug);
     const sourceFile = sourceObj ? sourceObj.relPath : `sources/${sourceSlug}.md`;
+    normEnts.forEach((e, i) => {
+      if (e) return;
+      const msg = `batch.files["${f.path}"].entities[${i}] 形态不符(须为 {type, slug, title?} 对象,或非空 slug 字符串):${previewValue(ents[i])};已忽略,该 entity 反链不会写入`;
+      pushWarning(sourceFile, msg);
+      console.error(`WARN: ${sourceFile}: ${msg}`);
+    });
+    normCons.forEach((c, i) => {
+      if (c) return;
+      const msg = `batch.files["${f.path}"].concepts[${i}] 形态不符(须为 {type, slug, title?} 对象,或非空 slug 字符串):${previewValue(cons[i])};已忽略,该 concept 反链不会写入`;
+      pushWarning(sourceFile, msg);
+      console.error(`WARN: ${sourceFile}: ${msg}`);
+    });
+    const entCount = normEnts.filter(Boolean).length;
+    const conCount = normCons.filter(Boolean).length;
+    if (entCount > 0 || conCount > 0) continue;
+    if (f['no-entities'] === true) continue; // 显式确认无抽取 → 放行不算错
     pushError(sourceFile,
       `batch 声明为空:files["${f.path}"] 的 entities[] 与 concepts[] 同时为空,source 页 ## 相关页面 区块将无反链可写;在 SKILL.md 步骤 3 拍板阶段填 entities/concepts(每项 {type, slug, title?}),或显式标 "no-entities": true 确认无抽取`);
   }
@@ -983,8 +1021,14 @@ async function main() {
 
   // 7. 追加 + 保留:entity/concept 页 ## 来源资料 区块
   for (const ec of ecPages) {
-    if (ec.invalid) continue;  // ajv 校验失败 → 跳过反链写(批次 3 P2-1:但仍进 warnings_by_file)
-    if (ec.srcTypeErrs && ec.srcTypeErrs.length) continue;  // v0.6.5: sources 类型不符 → 跳过写盘(ERROR 已记,修复后重跑)
+    // issue #62:跳过反链写盘的页面必须进 warnings_by_file(--json 消费方可见)。
+    // 旧实现只 console.error,--json 输出零线索 → 该页 ## 来源资料 区块留占位,
+    // 直到 lint R7.11 报「区块内无 - [[...]] 反链」才暴露,排查成本高。
+    if (ec.invalid) {
+      pushWarning(ec.relPath, 'ajv frontmatter 校验失败 → 本次跳过 ## 来源资料 反链写盘(区块维持原样,占位残留会触发 lint R7.11);修复 frontmatter 后重跑本脚本(具体 ajv 错误见 stderr WARN)');
+      continue;
+    }
+    if (ec.srcTypeErrs && ec.srcTypeErrs.length) continue;  // v0.6.5: sources 类型不符 → 跳过写盘(已进 errors_by_file,修复后重跑)
     const refs = ecToSources.get(ec.relPath) || [];
     let newBody = ec.body;
     let action;

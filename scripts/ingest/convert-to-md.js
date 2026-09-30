@@ -36,10 +36,12 @@ const OCR_EXTS = new Set(['png', 'jpg', 'jpeg', 'bmp', 'tiff']);
 
 function runPython(scriptAbs, args) {
   const py = process.platform === 'win32' ? 'python' : 'python3';
+  // #60:不开 shell — Windows 下 shell 模式按空格拆参,含空格路径会被切碎
+  // (如 "LLM AGENT OS.pdf" → "LLM" "AGENT" "OS.pdf");python.exe 是普通可执行文件,
+  // 无 shell 也能被 PATH 解析,args 数组原样传递,天然支持空格路径
   return spawnSync(py, [scriptAbs, ...args], {
     encoding: 'utf8',
     windowsHide: true,
-    shell: process.platform === 'win32',
   });
 }
 
@@ -86,8 +88,9 @@ async function main() {
   const r = attempt.run();
   const scriptUsed = attempt.script;
 
-  if (!r || r.status !== 0) {
-    const errMsg = (r?.stderr || r?.stdout || `exit ${r?.status}`).toString().trim();
+  if (!r || r.error || r.status !== 0) {
+    // #60:无 shell 后 python 不在 PATH 会走 r.error(ENOENT)而非非零 exit,一并报出
+    const errMsg = (r?.stderr || r?.stdout || r?.error?.message || `exit ${r?.status}`).toString().trim();
     console.error(`FAIL: ${scriptUsed} exit=${r?.status}: ${errMsg.slice(0, 2000)}`);
     process.exit(2);
   }

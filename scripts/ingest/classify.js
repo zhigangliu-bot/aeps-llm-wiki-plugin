@@ -11,6 +11,8 @@
  *   路径 1 (.md/.markdown/.rst/.txt/.csv/.json/.yaml/.yml/.xml/.html/.htm):
  *     converter=null, native_text=true, converted_path=null, 不调 convert-to-md
  *   路径 2 (.pdf Claude Code 原生可读): converter=claude-native, native_text=true, converted_path=null
+ *     #59 起默认用 pdftotext 实抽前几页验证:扫描版/图片型 PDF(抽不到文本)或抽取失败
+ *     (损坏/加密/非 PDF)→ 自动降级路径 3;显式 --route 2 可跳过内容探测强制原生读
  *   路径 3 (.pptx/.docx/.xlsx/.pdf 失败时/.html):
  *     全部 → markitdown(2026-09-18 依赖收敛,替换 anydoc/pyoffice/docling 链), native_text=false, converted_path 模板
  *   路径 4 (.png/.jpg/.jpeg/.bmp/.tiff): paddleocr 强依赖, 缺则 FAIL 不降级
@@ -45,7 +47,7 @@ const PATH_MAP = {
   yaml:     { route: 1, converter: null,             native_text: true,  converted: false },
   yml:      { route: 1, converter: null,             native_text: true,  converted: false },
   xml:      { route: 1, converter: null,             native_text: true,  converted: false },
-  // 路径 2 (PDF 原生可读 — 由 SKILL.md 探测后覆盖为 path 3 若失败)
+  // 路径 2 (PDF 原生可读 — 表值只是默认,#59 起由 probePdfText 实抽文本后可降级 path 3)
   pdf:      { route: 2, converter: 'claude-native',  native_text: true,  converted: false },
   // 路径 3 (2026-09-18 依赖收敛:全格式统一 markitdown,替换 anydoc/pyoffice/docling 链)
   pptx:     { route: 3, converter: 'markitdown',     native_text: false, converted: true },
@@ -116,6 +118,36 @@ function checkPoppler() {
   return _popplerOk;
 }
 
+// #59:PDF 原生文本探测参数 — 抽样前几页、每页有效字符数阈值
+// (按页计:短文本真 PDF(如单页只有几十字)不该被误杀,扫描版每页几乎抽不到字符)
+const PDF_PROBE_PAGES = 3;
+const PDF_PROBE_MIN_CHARS_PER_PAGE = 10;
+
+/**
+ * 实抽 PDF 文本探测(#59)— 扫描版/图片型 PDF 的元数据也会自称可读,
+ * 只看扩展名/元数据会误判 native_text:true,后续原生读取拿到空内容。
+ * 用 pdftotext 抽前 N 页到 stdout,剥掉空白后按「有效字符数 / 实抽页数」判断:
+ *   - 抽取成功且每页字符数达标 → { ok: true, ... } 可走 route 2
+ *   - 抽取失败(损坏/加密/非 PDF)或每页字符数低于阈值(扫描版)→ 不可原生读
+ * 不用 shell:含空格路径会被 shell 拆参;args 数组原样传递即可
+ */
+function probePdfText(file) {
+  const r = spawnSync('pdftotext', ['-f', '1', '-l', String(PDF_PROBE_PAGES), file, '-'], {
+    encoding: 'utf8',
+    windowsHide: true,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  if (r.error) {
+    return { ok: false, chars: 0, pages: 0 };
+  }
+  const stdout = r.stdout || '';
+  const chars = stdout.replace(/\s+/g, '').length;
+  // 按换页符推实际抽到的页数(PDF 总页数可能不足 PDF_PROBE_PAGES;末页后的 \f 不多算一页)
+  const ff = (stdout.match(/\f/g) || []).length;
+  const pages = Math.max(1, Math.min(PDF_PROBE_PAGES, stdout.endsWith('\f') ? ff : ff + 1));
+  return { ok: r.status === 0, chars, pages };
+}
+
 function classifyOne(file, opts = {}) {
   const ext = path.extname(file).toLowerCase().replace(/^\./, '');
   const map = PATH_MAP[ext];
@@ -162,6 +194,23 @@ function classifyOne(file, opts = {}) {
     result.native_text = false;
     result.converted_path = buildConvertedPath(file, opts.subdir);
     result.note = 'poppler (pdftotext) 不可用 → route 2 (claude-native) 自动降级 route 3 (markitdown);装 poppler 可恢复原生读取(Windows: winget install poppler)';
+  }
+
+  // #59:poppler 可用还需实抽文本验证 — 只凭扩展名/元数据会把扫描版 PDF 误判 native_text:true;
+  // 每页有效字符数低于阈值(扫描版/图片型)或抽取失败(损坏/加密)→ 降级 route 3
+  // (显式 --route 2 = 用户确认走原生读,跳过本探测;与 --route 3 显式覆盖对称)
+  if (ext === 'pdf' && result.route === 2 && opts.routeOverride !== 2 && !opts.skipDepCheck) {
+    const probe = probePdfText(file);
+    const minChars = probe.pages * PDF_PROBE_MIN_CHARS_PER_PAGE;
+    if (!probe.ok || probe.chars < minChars) {
+      result.route = 3;
+      result.converter = 'markitdown';
+      result.native_text = false;
+      result.converted_path = buildConvertedPath(file, opts.subdir);
+      result.note = probe.ok
+        ? `#59 PDF 抽样 ${probe.pages} 页仅抽出 ${probe.chars} 个有效字符(< 每页 ${PDF_PROBE_MIN_CHARS_PER_PAGE})→ 判定扫描版/图片型,route 2 降级 route 3 (markitdown)`
+        : `#59 pdftotext 抽取失败(损坏/加密/非 PDF)→ route 2 降级 route 3 (markitdown)`;
+    }
   }
 
   // 路径 4:paddleocr 强依赖,缺则 FAIL(对齐 G6 + implement-ingest.md §1.1)
