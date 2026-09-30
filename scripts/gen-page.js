@@ -50,6 +50,14 @@
 //     - N4 分治(用户拍板 2026-09-17):entity.* / concept.* 页禁止 sources 字段 ——
 //       不再注入 SOURCES_BODY(--source-resource/--source-title/--sources 入参忽略并 WARN),
 //       渲染时显式删除模板 / 旧自定义模板遗留 sources 块;物理定位由 source 页顶层 resource 承载。
+//   - 0.6.12 (issue #63:source_file wikilink 左右段颠倒):
+//     - #54 归一化产物与缺省拼接的 wikilink 方向纠正为 Obsidian 语法 `[[目标|显示文本]]`
+//       (路径在左;frontmatter-spec §12.5 source_file 语法)。0.6.10 产出 `[[slug|path]]`
+//       左段是裸 slug,Obsidian 点击只跳同名 wiki 页,无法打开 raw/ 原 PDF。
+//     - 三处统一:[[path|alias]](frontmatter 显式输入)/ [[{subdir/}{slug}.{ext}|{slug}]]
+//       (frontmatter 缺省)/ [[raw/<subdir>/<file>|<末段 stem>]](正文 blockquote);
+//       输入 alias 一律保留,pickPathierSide 兼容两种输入方向(旧产物 patch 时被纠正为新方向),
+//       幂等不变式与「任何输出不得出现 [[[ / ]]]」保持。
 //   - 0.6.10 (issues #52/#53/#54, task 09-20-fix-v0610-issue-batch):
 //     - #52 覆盖保护:目标已存在且未传 --force → 不改文件,JSON action "skipped-existing"(exit 0);
 //       传 --force → 旧文件先备份到 <vault>/temp/raw_backup_{YYYY-MM-DD}_{sha8}/{相对 vault 的原路径}
@@ -300,29 +308,41 @@ function toSourceObj(item) {
 // ---- #54:source_file / 原始来源 wikilink 归一化 --------------------------------
 // 事故形态(issue #54):`> 原始来源:[[[aios]]-2024-mei-rutgers-kernel](raw/...)` ——
 // --source-file 已带 [[...]] wikilink,又被当作纯文本包了一层 [](.)。
-// 归一化把任意包裹形态剥到**裸路径**,再按 `[[stem|path]]` 重组(stem = 去 ext 的 basename):
-//   1) markdown 链接 `[text](url)` → 取 url(text 段可能已被污染,整段丢弃)
-//   2) wikilink 包裹 `[[a|b]]` / `[[a]]` / 多重包裹 `[[[a]]]` → 取「更像路径」的一侧
-//      (frontmatter-spec §12.5 传 [[path|alias]] 与 gen-page 缺省 [[slug|path]] 两种方向
-//       都兼容 → patch round-trip 幂等,已归一化值不被二次改写)
+// 归一化把任意包裹形态剥到**裸路径 + 显示名**,再按 `[[path|display]]` 重组(路径恒在左,
+// Obsidian 语法 [[目标|显示文本]];frontmatter-spec §12.5 source_file 语法即此方向):
+//   1) markdown 链接 `[text](url)` → 取 url(text 段可能已被污染,整段丢弃,不回收为 alias)
+//   2) wikilink 包裹 `[[a|b]]` / `[[a]]` / 多重包裹 `[[[a]]]` → 「更像路径」的一段为 path,
+//      另一段保留为 alias(pickPathierSide 兼容两种输入方向 → patch round-trip 幂等,
+//      已归一化值不被二次改写)
 //   3) 残余零散 [ ] 一律剥掉 → 重组结果内部恒无括号,永不出现 [[[ / ]]]
 //   4) 路径前缀 `./` 与 `raw/` 剥掉(source_file 语义 = raw/ 下相对路径,frontmatter-spec §12.5)
-// 返回 null 表示输入为空 / 剥完为空(调用方走缺省拼接)。
+// 返回 { stem, path, alias }:stem = path 去 ext 的 basename(alias 缺省时作显示名);
+// alias = 输入里的显示文本(无则 null)。null 表示输入为空 / 剥完为空(调用方走缺省拼接)。
 function normalizeSourceFileRef(v) {
   if (v === undefined || v === null) return null;
   let s = String(v).trim();
   if (!s) return null;
+  let alias = null;
   let m;
-  // 1) markdown 链接[text](url):text 自身含 [[..]] 也无所谓,只取 url
-  while ((m = s.match(/^\[(.+)\]\(([^()\s]+)\)$/))) s = m[2].trim();
-  // 2) wikilink 包裹(含多重):[[a|b]] / [[a]] / [[[a]]] → 取更像路径的一侧(平手取左段)
+  // 1) markdown 链接[text](url):text 自身可能已被 #54 污染,整段丢弃,只取 url(alias 不回收)
+  while ((m = s.match(/^\[(.+)\]\(([^()\s]+)\)$/))) { s = m[2].trim(); alias = null; }
+  // 2) wikilink 包裹(含多重):[[a|b]] / [[a]] / [[[a]]] → 路径侧为 path,另一侧保留为 alias
   while ((m = s.match(/^\[+\[([^\]]+)\]\]+$/))) {
     const inner = m[1];
     const pipe = inner.indexOf("|");
-    s = (pipe === -1 ? inner : pickPathierSide(inner.slice(0, pipe), inner.slice(pipe + 1))).trim();
+    if (pipe === -1) {
+      s = inner.trim();
+    } else {
+      const left = inner.slice(0, pipe).trim();
+      const right = inner.slice(pipe + 1).trim();
+      const pathier = pickPathierSide(left, right);
+      s = pathier;
+      alias = (pathier === left ? right : left) || null;
+    }
   }
-  // 3) 残余零散括号剥掉(#54:任何输出不得出现连续 3 个 [ 或 ])
+  // 3) 残余零散括号剥掉(#54:任何输出不得出现连续 3 个 [ 或 ]);alias 同步防污染
   s = s.replace(/[\[\]]/g, "").trim();
+  if (alias) alias = alias.replace(/[\[\]]/g, "").trim() || null;
   // 4) 路径归一:反斜杠 → /,剥 ./ 与 raw/ 前缀
   s = s.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^raw\//, "").replace(/^\//, "");
   const segs = s.split("/").filter(Boolean);
@@ -331,11 +351,12 @@ function normalizeSourceFileRef(v) {
   const dot = file.lastIndexOf(".");
   const stem = dot > 0 ? file.slice(0, dot) : file;
   if (!stem) return null;
-  return { stem, path: segs.join("/") };
+  return { stem, path: segs.join("/"), alias };
 }
 
 /** wikilink 两段里选「更像文件路径」的一段:含 / 记 2 分,末段带扩展名记 1 分,高分胜出。
- *  兼容两种输入方向:[[path|alias]](spec §12.5)与 [[slug|path]](gen-page 缺省 / 归一化产物)。 */
+ *  兼容两种输入方向:[[path|alias]](spec §12.5 正确方向)与 [[slug|path]](0.6.10 旧产物,
+ *  会被纠正回 path 在左)。 */
 function pickPathierSide(a, b) {
   const score = (x) => (x.includes("/") ? 2 : 0) + (/\.[^./\\]+$/.test(x.split("/").pop() || "") ? 1 : 0);
   return score(b.trim()) > score(a.trim()) ? b : a;
@@ -550,12 +571,13 @@ function derivePlaceholders(type, args) {
     ph.RESOURCE = args.resource
       || (ext ? `./raw/${subdir}/${args.slug}.${ext}` : "");
     // source_file(#54 防御性归一化):显式传入含 [[...]] / [..](..) 包裹时,剥掉外层括号取裸路径,
-    // 统一重组为 `[[stem|path]]`(stem = 裸 basename;source_file 语义 = raw/ 下相对路径);
-    // 未传 → 缺省拼接 `[[slug|{subdir/}{slug}.{ext}]]`。任何分支都保证不出现 [[[ / ]]]。
+    // 统一重组为 `[[path|display]]`(路径在左,Obsidian [[目标|显示文本]];spec §12.5 语法,
+    // 路径不带 raw/ 前缀);显示名:输入 alias 优先,缺省取 path 末段 stem(幂等);
+    // 未传 → 缺省拼接 `[[{subdir/}{slug}.{ext}|{slug}]]`。任何分支都保证不出现 [[[ / ]]]。
     const sfRef = normalizeSourceFileRef(args.source_file);
     const sFile = sfRef
-      ? `[[${sfRef.stem}|${sfRef.path}]]`
-      : (ext ? `[[${args.slug}|${subdir ? `${subdir}/` : ""}${args.slug}.${ext}]]` : "");
+      ? `[[${sfRef.path}|${sfRef.alias || sfRef.stem}]]`
+      : (ext ? `[[${subdir ? `${subdir}/` : ""}${args.slug}.${ext}|${args.slug}]]` : "");
     ph.SOURCE_FILE = sFile;
     const converter = args.converter || (map ? map.converter : "null");
     const native = args.native_text !== undefined
@@ -671,11 +693,16 @@ function renderBody(type, tpl, args) {
       continue;
     }
     if (type === "source" && h2 === "重点摘录" && map) {
-      // #54:正文 `> 原始来源:` 统一 wikilink 形态 `[[slug|raw/<subdir>/<slug>.<ext>]]`
-      // (路径 3/4 → .converted.md 副本);左段 = 裸 slug(剥零散括号,杜绝 [[[ 形态)。
+      // #54:正文 `> 原始来源:` 统一 wikilink 形态 `[[raw/<subdir>/<file>|<display>]]`
+      // (路径在左,Obsidian [[目标|显示文本]];路径 3/4 → .converted.md 副本);
+      // display = target 末段 stem(与 normalizeSourceFileRef 的 stem 推导一致,幂等);
+      // 剥零散括号,杜绝 [[[ 形态。
       const target = map.linkTarget(args.slug, args.subdir || "", ext).replace(/^\.\//, "");
-      const bareSlug = String(args.slug).replace(/[\[\]]/g, "");
-      lines.push(`> 原始来源:[[${bareSlug}|${target}]]`);
+      const lastSeg = target.split("/").pop() || "";
+      const dot = lastSeg.lastIndexOf(".");
+      const stem = dot > 0 ? lastSeg.slice(0, dot) : lastSeg;
+      const display = String(stem).replace(/[\[\]]/g, "") || String(args.slug).replace(/[\[\]]/g, "");
+      lines.push(`> 原始来源:[[${target}|${display}]]`);
       lines.push("");
       lines.push("【LLM 自动填充:从原文摘录 3-5 条要点】");
     } else if (h2 === "我的思考") {

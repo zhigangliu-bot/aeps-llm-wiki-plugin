@@ -239,6 +239,8 @@ function checkAliases(fm) {
  * R7.10 (v0.6.8, issue #36 方案B):正文 wikilink 左段必须匹配 vault 内某 .md basename。
  * Obsidian 1.12.7 resolver 只索引文件名 basename(不读 aliases),不匹配 → 跳空白页 + vault 根堆空白文件。
  * 带路径的 wikilink([[sources/foo]])只比对最后一段;带 # 子页锚点忽略。
+ * 排除 `> 原始来源:` blockquote 行(gen-page 生成,指向 raw/ 下原文件 / .converted.md 副本,
+ * 非 knowledge .md;与 lint.js C15.5 的 S1 排除先例对称)。
  * 返回警告消息数组,合规返回 []。
  */
 function checkWikilinkBasenames(body, basenameSet, relPath) {
@@ -246,8 +248,12 @@ function checkWikilinkBasenames(body, basenameSet, relPath) {
   const seen = new Set();
   // (?<!!) 排除 ![[...]] 图片/附件 embed(#49):embed 左段是附件文件名,不在 .md basename 集合
   const re = /(?<!!)\[\[([^\]#|]+)(?:#[^\]#|]*)?(?:\|[^\]]*)?\]\]/g;
+  // 先剥掉 `> 原始来源:` 行(整行,blockquote 形态 `> 原始来源:[[...|...]]`)
+  const cleaned = (body || '').split(/\r?\n/)
+    .filter((l) => !/^>?\s*原始来源[:：]/.test(l.trim()))
+    .join('\n');
   let m;
-  while ((m = re.exec(body || '')) !== null) {
+  while ((m = re.exec(cleaned)) !== null) {
     const linkpath = m[1].trim().split('/').pop().replace(/\.md$/, '');
     if (!linkpath || seen.has(linkpath)) continue;
     seen.add(linkpath);

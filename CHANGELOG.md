@@ -2,6 +2,20 @@
 
 All notable changes to `aeps-llm-wiki-plugin` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.12] - 2026-09-30
+
+### Fixed
+
+- **#63 / P1 wikilink 方向** `scripts/gen-page.js`:source_file wikilink 左右段颠倒纠正为 Obsidian 语法 `[[路径|显示名]]`(0.6.10 起产出 `[[slug|path]]`,左段裸 slug 点击只跳同名 wiki 页,无法打开 raw/ 原 PDF)。三处统一:frontmatter 显式输入 `[[path|alias]]`(alias 原样保留)/ 缺省 `[[{subdir/}{slug}.{ext}|{slug}]]` / 正文 `> 原始来源:[[raw/<subdir>/<file>|<末段 stem>]]`;`normalizeSourceFileRef` 返回值扩为 `{stem, path, alias}`,`pickPathierSide` 兼容两种输入方向(0.6.10 旧产物 patch 时自动纠正),幂等与「不出现 `[[[` / `]]]`」不变量保持。`frontmatter-spec.md` §12.5 裁决:frontmatter 路径不带 `raw/` 前缀。同步 `scripts/ingest/lint-stub.js` R7.10 排除 `> 原始来源:` blockquote 行(指向 raw/ 原文件而非 knowledge .md,与 lint.js S1 排除先例对称)。
+- **#59 / P1 pdf-route** `scripts/ingest/classify.js`:PDF route 2 判定从「扩展名/元数据即信」改为 `pdftotext` 实抽前 3 页文本验证,每页有效字符 < 10 或抽取失败(损坏/加密/非 PDF)自动降级 route 3;显式 `--route 2` 保留人工兜底跳过探测。
+- **#60 / P1 windows-path** `scripts/ingest/convert-to-md.js`:`runPython()` 去掉 Windows 下 `shell: true`,参数数组原样传递,含空格路径不再被拆参;失败分支补 `ENOENT` 明确报错。
+- **#61 / P2 type-enum** `scripts/gen-page.js`:`unknown type` 报错追加列出全部 18 个合法 type 及权威源 `frontmatter-spec.md` §4.1.1(`concept.framework` 不在枚举内,不新增类型)。
+- **#62 / P1 backlink** `scripts/ingest/build-related-pages.js`:batch 声明条目字符串形态经 `normalizeDeclEntry()` 归一为 `{slug}`(此前被静默丢弃,concept 页 `## 来源资料` 留空触发 lint R7.11);形态不符条目 WARN 精确定位到文件 + 数组下标 + 原值;ajv 校验失败跳过页记入 `warnings_by_file`(`--json` 可见)。
+
+### Documentation
+
+- 全仓版本号字串 0.6.11 → 0.6.12(`plugin.json` / 6 个 SKILL.md frontmatter / README badge / doc template + schema / frontmatter-spec 示例 / init-batch.js 默认 plugin_version / lint fixture),`check-version-consistency.js` 校验通过。
+
 ## [0.6.11] - 2026-09-25
 
 ### Changed
